@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# knowledge base data (local only)
+/data/*.json
+/data/20*
