@@ -1,6 +1,7 @@
 'use client';
 
-import { DigestEntry } from '@/lib/types';
+import { useState } from 'react';
+import { DigestEntry, DemoInfo } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -83,50 +84,7 @@ export function AnalysisView({ entry }: { entry: DigestEntry }) {
       {/* Demo */}
       {entry.demo && (
         <Section title="Demo" number={nextNum()}>
-          <div
-            className="rounded-md overflow-hidden"
-            style={{ border: '1px solid var(--text-primary)' }}
-          >
-            <div
-              className="flex items-center justify-between px-4 py-2.5"
-              style={{ background: 'var(--text-primary)' }}
-            >
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--text-quaternary)',
-                }}
-              >
-                {entry.demo.filename}
-              </span>
-              <button
-                onClick={() => navigator.clipboard.writeText(entry.demo!.code)}
-                className="link-subtle"
-                style={{ fontSize: 'var(--text-xs)' }}
-              >
-                复制代码
-              </button>
-            </div>
-            <pre
-              className="overflow-x-auto px-4 py-4"
-              style={{
-                background: 'oklch(12% 0.01 75)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--text-sm)',
-                color: 'oklch(85% 0.005 75)',
-                lineHeight: '1.7',
-                margin: 0,
-              }}
-            >
-              {entry.demo.code}
-            </pre>
-          </div>
-          {entry.demo.instructions && (
-            <p className="mt-3" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>
-              {entry.demo.instructions}
-            </p>
-          )}
+          <DemoBlock demo={entry.demo} />
         </Section>
       )}
 
@@ -232,5 +190,82 @@ function Prose({ children }: { children: string }) {
     <div className="prose prose-neutral prose-sm max-w-none" style={{ color: 'var(--text-primary)' }}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
     </div>
+  );
+}
+
+// === Demo 相关 ===
+
+function DemoBlock({ demo }: { demo: DemoInfo }) {
+  const [tab, setTab] = useState<'preview' | 'code'>('preview');
+
+  return (
+    <div>
+      <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+        {/* 头栏 */}
+        <div
+          className="flex items-center px-4 py-2"
+          style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border)' }}
+        >
+          <div className="flex items-center gap-1">
+            <TabBtn active={tab === 'preview'} onClick={() => setTab('preview')}>预览</TabBtn>
+            <TabBtn active={tab === 'code'} onClick={() => setTab('code')}>代码</TabBtn>
+          </div>
+          <button
+            onClick={() => navigator.clipboard.writeText(demo.code)}
+            className="ml-auto link-subtle"
+            style={{ fontSize: 'var(--text-xs)' }}
+          >
+            复制代码
+          </button>
+        </div>
+
+        {/* 内容区 */}
+        {tab === 'preview' ? (
+          <iframe
+            srcDoc={demo.code}
+            sandbox="allow-scripts"
+            className="w-full"
+            style={{ height: '400px', border: 'none', background: '#fff' }}
+          />
+        ) : (
+          <pre
+            className="overflow-x-auto px-4 py-4"
+            style={{
+              background: 'oklch(12% 0.01 75)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--text-sm)',
+              color: 'oklch(85% 0.005 75)',
+              lineHeight: '1.7',
+              margin: 0,
+            }}
+          >
+            {demo.code}
+          </pre>
+        )}
+      </div>
+      {demo.instructions && (
+        <p className="mt-3" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>
+          {demo.instructions}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-2.5 py-1 rounded"
+      style={{
+        fontSize: 'var(--text-xs)',
+        fontWeight: active ? 500 : 400,
+        color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
+        background: active ? 'var(--bg-elevated)' : 'transparent',
+        transition: 'color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out)',
+      }}
+    >
+      {children}
+    </button>
   );
 }

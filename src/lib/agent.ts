@@ -57,19 +57,34 @@ function buildSystemPrompt(): string {
 }
 ===ANALYSIS_END===
 
-### 阶段 4: 实践 (Practice) — 仅在涉及可运行技术时执行
-- 判断是否涉及可以实际演示的技术（如 API、库、算法等）
-- 如果是，创建一个最小可运行的 demo
+### 阶段 4: 实践 (Practice) — 生成可交互的浏览器 Demo
+- 生成一个**纯 HTML/CSS/JS 的单文件网页 demo**，能直接在浏览器 iframe 中运行
+- Demo 的目标是让用户直观体验这个项目/技术的核心能力
+- 真实性约束：
+  - Demo 中展示的所有内容（名称、数据、流程、命令）必须来自前面采集到的真实信息
+  - 禁止编造不存在的功能、API、命令或数据
+  - 如果原文提到了具体的数字、指标、示例，优先使用这些真实数据
+- 设计思路：
+  - CLI 工具 → 模拟终端，展示真实的命令和输出
+  - 算法 → 用真实数据可视化算法运行过程
+  - API/SDK → 模拟真实的请求和响应
+  - 框架/库 → 用真实的 API 做一个迷你交互 demo
+  - 论文 → 可视化论文的核心方法和实验结果
+- 技术要求：
+  - 单个 HTML 文件，包含内联 CSS 和 JS
+  - 禁止依赖外部 CDN 或网络资源
+  - 必须有交互性（点击、输入、动画等）
+  - 视觉精致，体现设计感
+- **禁止将 demo 写入本地文件**，必须将完整 HTML 代码作为 JSON 字符串输出在标记内
 - 输出 demo 信息（用 ===DEMO_START=== 和 ===DEMO_END=== 包裹）:
 ===DEMO_START===
 {
-  "language": "python",
-  "filename": "demo.py",
-  "code": "代码内容",
-  "instructions": "运行说明"
+  "language": "html",
+  "filename": "demo.html",
+  "code": "完整的 HTML 文件内容",
+  "instructions": "一句话说明这个 demo 展示了什么"
 }
 ===DEMO_END===
-- 如果不涉及可运行技术，跳过此阶段
 
 ### 阶段 5: 归档 (Archive)
 - 生成完整的 Markdown 研究报告
@@ -204,7 +219,7 @@ export async function runDigest(
       options: {
         systemPrompt: buildSystemPrompt(),
         cwd: process.cwd(),
-        allowedTools: ['Bash', 'WebFetch', 'WebSearch', 'Read', 'Write', 'Glob', 'Grep'],
+        allowedTools: ['Bash', 'WebFetch', 'WebSearch', 'Read', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
         maxTurns: 25,

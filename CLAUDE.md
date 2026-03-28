@@ -23,14 +23,14 @@ src/
 │   ├── globals.css           # OKLCH 色彩系统 + 设计 tokens
 │   ├── api/digest/route.ts   # Agent SSE 流
 │   ├── api/respond/route.ts  # 用户交互回复
-│   └── api/entries/route.ts  # 知识库条目 API
+│   └── api/entries/route.ts  # 知识库条目 API（GET + DELETE）
 ├── lib/
 │   ├── agent.ts              # Agent 管道（采集→溯源→分析→实践→归档）
-│   ├── storage.ts            # 数据读写（JSON + MD 持久化）
-│   └── types.ts              # 类型定义
+│   ├── storage.ts            # 数据读写（JSON + MD 持久化 + 删除）
+│   └── types.ts              # 类型定义（含 DigestData 可视化 schema）
 ├── components/
-│   ├── Sidebar.tsx           # 知识库侧边栏
-│   ├── AnalysisView.tsx      # 结构化分析报告（编辑式排版）
+│   ├── Sidebar.tsx           # 知识库侧边栏（含删除功能）
+│   ├── AnalysisView.tsx      # 结构化分析报告 + Demo iframe 预览
 │   ├── PhaseIndicator.tsx    # 5 阶段进度指示器
 │   └── StreamView.tsx        # 流式输出展示
 └── hooks/useDigest.ts        # 前端 digest 状态管理
@@ -43,3 +43,4 @@ scripts/scrape.py             # Scrapling 抓取脚本
 - 中文注释，英文变量名
 - 色彩用 OKLCH，暖色调中性色 + 墨绿强调色
 - Agent 流程通过 SSE 推送事件，前端不轮询
+- Demo 始终生成纯 HTML/CSS/JS 单文件，通过 iframe 预览，内容必须基于真实采集数据

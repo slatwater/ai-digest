@@ -62,6 +62,33 @@ export async function getEntry(id: string): Promise<DigestEntry | null> {
   return entries.find(e => e.id === id) ?? null;
 }
 
+// 删除一条记录
+export async function deleteEntry(id: string): Promise<boolean> {
+  const indexPath = path.join(DATA_DIR, 'index.json');
+  let index: DigestEntry[] = [];
+
+  try {
+    const raw = await fs.readFile(indexPath, 'utf-8');
+    index = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+
+  const entry = index.find(e => e.id === id);
+  if (!entry) return false;
+
+  // 从索引中移除
+  index = index.filter(e => e.id !== id);
+  await fs.writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+
+  // 删除文件
+  const dateDir = getDateDir(entry.date);
+  try { await fs.unlink(path.join(dateDir, `${id}.json`)); } catch { /* 忽略 */ }
+  try { await fs.unlink(path.join(dateDir, `${id}.md`)); } catch { /* 忽略 */ }
+
+  return true;
+}
+
 // 保存 demo 文件
 export async function saveDemo(entryId: string, date: string, filename: string, code: string): Promise<string> {
   const demoDir = path.join(getDateDir(date), 'demos', entryId);

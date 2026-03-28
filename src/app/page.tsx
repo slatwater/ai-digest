@@ -31,6 +31,14 @@ export default function Home() {
     setSelectedEntry(entry);
   }, []);
 
+  const handleDeleteEntry = useCallback((id: string) => {
+    if (selectedEntry?.id === id) {
+      setSelectedEntry(null);
+      setView('digest');
+    }
+    setRefreshTrigger(n => n + 1);
+  }, [selectedEntry]);
+
   // 完成后刷新侧边栏
   useEffect(() => {
     if (digest.phase === 'complete' && prevPhaseRef.current !== 'complete') {
@@ -46,6 +54,7 @@ export default function Home() {
     <div className="h-full flex">
       <Sidebar
         onSelect={handleSelectEntry}
+        onDelete={handleDeleteEntry}
         selectedId={selectedEntry?.id}
         refreshTrigger={refreshTrigger}
       />

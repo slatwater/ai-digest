@@ -123,6 +123,56 @@ body {
   color: var(--text-primary);
 }
 
+/* Table — clean editorial style */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.prose thead th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 16px 10px 0;
+  border-bottom: 1.5px solid var(--border);
+  white-space: nowrap;
+}
+
+.prose thead th:first-child {
+  padding-left: 0;
+}
+
+.prose tbody td {
+  padding: 8px 16px 8px 0;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+
+.prose tbody td:last-child {
+  padding-right: 0;
+}
+
+.prose tbody td:first-child {
+  padding-left: 0;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.prose tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.prose tbody tr:hover td {
+  background: var(--bg-subtle);
+}
+
 .prose a {
   color: var(--accent-text);
   text-decoration: underline;
