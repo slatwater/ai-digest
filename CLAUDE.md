@@ -19,21 +19,28 @@ npm run lint           # ESLint 检查
 ```
 src/
 ├── app/
-│   ├── page.tsx              # 主页面（两栏布局：侧边栏 + 内容区）
+│   ├── page.tsx              # 主页面（三种视图：digest / entry / blueprint）
 │   ├── globals.css           # OKLCH 色彩系统 + 设计 tokens
-│   ├── api/digest/route.ts   # Agent SSE 流
+│   ├── api/digest/route.ts   # Agent SSE 流（研究）
+│   ├── api/chat/route.ts     # Agent SSE 流（追问对话）
+│   ├── api/blueprint/route.ts # 返回系统提示词（原理页）
 │   ├── api/respond/route.ts  # 用户交互回复
 │   └── api/entries/route.ts  # 知识库条目 API（GET + DELETE）
 ├── lib/
-│   ├── agent.ts              # Agent 管道（采集→溯源→分析→实践→归档）
+│   ├── agent.ts              # Agent 管道（采集→溯源→分析→实践→归档）+ 结构化数据解析
+│   ├── chat.ts               # 追问对话 Agent（研究报告全文为上下文）
 │   ├── storage.ts            # 数据读写（JSON + MD 持久化 + 删除）
-│   └── types.ts              # 类型定义（含 DigestData 可视化 schema）
+│   └── types.ts              # 类型定义（含 DigestData 可视化 schema + ChatMessage）
 ├── components/
-│   ├── Sidebar.tsx           # 知识库侧边栏（含删除功能）
+│   ├── Sidebar.tsx           # 知识库侧边栏（含删除功能 + 原理按钮）
 │   ├── AnalysisView.tsx      # 结构化分析报告 + Demo iframe 预览
+│   ├── ChatPanel.tsx         # 追问对话面板（流式渲染 + 多轮历史）
+│   ├── BlueprintView.tsx     # 运行原理页（数据流 + 阶段 + 提示词）
 │   ├── PhaseIndicator.tsx    # 5 阶段进度指示器
 │   └── StreamView.tsx        # 流式输出展示
-└── hooks/useDigest.ts        # 前端 digest 状态管理
+├── hooks/
+│   ├── useDigest.ts          # 前端 digest 状态管理
+│   └── useChat.ts            # 前端 chat 状态管理
 data/                         # 知识库存储
 scripts/scrape.py             # Scrapling 抓取脚本
 .impeccable.md                # 设计上下文（impeccable 套件）

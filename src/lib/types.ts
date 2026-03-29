@@ -296,3 +296,10 @@ export interface StreamMessage {
   phase?: DigestPhase;
   timestamp: number;
 }
+
+// Chat 对话消息
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}

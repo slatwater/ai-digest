@@ -7,11 +7,13 @@ import { format } from 'date-fns';
 interface SidebarProps {
   onSelect: (entry: DigestEntry) => void;
   onDelete?: (id: string) => void;
+  onShowBlueprint?: () => void;
+  showingBlueprint?: boolean;
   selectedId?: string;
   refreshTrigger?: number;
 }
 
-export function Sidebar({ onSelect, onDelete, selectedId, refreshTrigger }: SidebarProps) {
+export function Sidebar({ onSelect, onDelete, onShowBlueprint, showingBlueprint, selectedId, refreshTrigger }: SidebarProps) {
   const [entries, setEntries] = useState<DigestEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -46,12 +48,29 @@ export function Sidebar({ onSelect, onDelete, selectedId, refreshTrigger }: Side
         className="px-5 pt-6 pb-4"
         style={{ borderBottom: '1px solid var(--border-subtle)' }}
       >
-        <h1
-          className="font-semibold tracking-tight"
-          style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
-        >
-          AI Digest
-        </h1>
+        <div className="flex items-center justify-between">
+          <h1
+            className="font-semibold tracking-tight"
+            style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
+          >
+            AI Digest
+          </h1>
+          <button
+            onClick={onShowBlueprint}
+            className="px-2 py-0.5 rounded"
+            style={{
+              fontSize: 'var(--text-xs)',
+              color: showingBlueprint ? 'var(--accent)' : 'var(--text-quaternary)',
+              background: showingBlueprint ? 'var(--bg-subtle)' : 'transparent',
+              fontFamily: 'var(--font-mono)',
+              letterSpacing: '0.02em',
+              transition: 'color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out)',
+            }}
+            title="查看运行原理"
+          >
+            原理
+          </button>
+        </div>
         <p
           className="mt-0.5"
           style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', letterSpacing: '0.02em' }}

@@ -24,7 +24,7 @@ export function getSession(sessionId: string) {
 type EventSender = (type: string, data: unknown) => void;
 
 // 构建 Agent 的系统提示词
-function buildSystemPrompt(): string {
+export function buildSystemPrompt(): string {
   return `你是一个 AI 前沿技术研究助手。你的任务是深入分析用户提供的链接内容，进行多维度研究。
 
 ## 工作流程
@@ -52,7 +52,7 @@ function buildSystemPrompt(): string {
   "technical": "技术原理/方法/架构详细说明",
   "significance": "行业影响和应用场景",
   "limitations": "已知局限、争议、社区质疑",
-  "comparison": "与同类技术的对比分析",
+  "comparison": "与同类技术的对比分析，必须使用 Markdown 表格（| 列1 | 列2 | ... |）格式，第一列为对比维度",
   "tags": ["标签1", "标签2", ...]
 }
 ===ANALYSIS_END===
@@ -146,6 +146,64 @@ function extractText(message: SDKMessage): string | null {
   return null;
 }
 
+// 去除 markdown 代码围栏，提取纯 JSON 文本
+function stripCodeFence(raw: string): string {
+  const stripped = raw.trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+  return stripped.trim();
+}
+
+// 安全解析 JSON：先尝试原文，失败则去围栏重试
+function safeParseJSON<T>(raw: string, label: string): T | null {
+  const text = raw.trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    // 去除可能的 markdown 代码围栏后重试
+    try {
+      return JSON.parse(stripCodeFence(text));
+    } catch (e) {
+      console.warn(`[digest] ${label} JSON 解析失败:`, (e as Error).message, '| 原文前100字符:', text.slice(0, 100));
+      return null;
+    }
+  }
+}
+
+// 从报告 markdown 中提取各 section 作为 fallback
+function extractAnalysisFromReport(report: string): AnalysisResult | null {
+  if (!report) return null;
+
+  const sectionPattern = (heading: string) => {
+    const re = new RegExp(`^##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=^##\\s|$)`, 'm');
+    return re.exec(report)?.[1]?.trim() || '';
+  };
+
+  const tldrMatch = report.match(/^>\s*(.+)$/m);
+  const keyPointsRaw = sectionPattern('核心要点');
+  const keyPoints = keyPointsRaw
+    ? keyPointsRaw.split(/\n/).filter(l => /^[-*\d]/.test(l.trim())).map(l => l.replace(/^[-*\d.)\s]+/, '').trim()).filter(Boolean)
+    : [];
+
+  const technical = sectionPattern('技术分析');
+  const significance = sectionPattern('行业意义');
+  const limitations = sectionPattern('局限与争议');
+  const comparison = sectionPattern('横向对比');
+  const tagsMatch = report.match(/标签[:：]\s*(.+)$/m);
+  const tags = tagsMatch ? tagsMatch[1].split(/[,，、]/).map(t => t.trim()).filter(Boolean) : [];
+
+  // 至少要有 tldr 或 keyPoints 才算有效
+  if (!tldrMatch?.[1] && keyPoints.length === 0 && !technical) return null;
+
+  return {
+    tldr: tldrMatch?.[1] || '',
+    keyPoints,
+    technical,
+    significance,
+    limitations,
+    comparison,
+    tags,
+  };
+}
+
 // 解析 Agent 输出中的结构化数据
 function parseStructuredData(fullText: string) {
   let analysis: AnalysisResult | null = null;
@@ -157,35 +215,36 @@ function parseStructuredData(fullText: string) {
   // 解析分析结果
   const analysisMatch = fullText.match(/===ANALYSIS_START===([\s\S]*?)===ANALYSIS_END===/);
   if (analysisMatch) {
-    try {
-      analysis = JSON.parse(analysisMatch[1].trim());
-    } catch { /* 解析失败忽略 */ }
+    analysis = safeParseJSON<AnalysisResult>(analysisMatch[1], 'analysis');
   }
 
   // 解析来源
   const sourcesMatch = fullText.match(/===SOURCES_START===([\s\S]*?)===SOURCES_END===/);
   if (sourcesMatch) {
-    try {
-      sources = JSON.parse(sourcesMatch[1].trim());
-    } catch { /* 解析失败忽略 */ }
+    sources = safeParseJSON<SourceInfo[]>(sourcesMatch[1], 'sources') || [];
   }
 
   // 解析 Demo
   const demoMatch = fullText.match(/===DEMO_START===([\s\S]*?)===DEMO_END===/);
   if (demoMatch) {
-    try {
-      demo = JSON.parse(demoMatch[1].trim());
-    } catch { /* 解析失败忽略 */ }
+    demo = safeParseJSON<typeof demo>(demoMatch[1], 'demo');
   }
 
   // 解析报告
   const reportMatch = fullText.match(/===REPORT_START===([\s\S]*?)===REPORT_END===/);
   if (reportMatch) {
     report = reportMatch[1].trim();
-    // 从报告中提取标题
     const titleMatch = report.match(/^# (.+)$/m);
     if (titleMatch) {
       title = titleMatch[1];
+    }
+  }
+
+  // fallback: 标记解析失败时从报告 markdown 中提取
+  if (!analysis) {
+    analysis = extractAnalysisFromReport(report);
+    if (analysis) {
+      console.warn('[digest] analysis 标记解析失败，已从报告 markdown 中回退提取');
     }
   }
 

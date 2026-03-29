@@ -6,9 +6,11 @@ import { PhaseIndicator } from '@/components/PhaseIndicator';
 import { StreamView } from '@/components/StreamView';
 import { AnalysisView } from '@/components/AnalysisView';
 import { Sidebar } from '@/components/Sidebar';
+import { BlueprintView } from '@/components/BlueprintView';
+import { ChatPanel } from '@/components/ChatPanel';
 import { DigestEntry } from '@/lib/types';
 
-type View = 'digest' | 'entry';
+type View = 'digest' | 'entry' | 'blueprint';
 
 export default function Home() {
   const [url, setUrl] = useState('');
@@ -29,6 +31,11 @@ export default function Home() {
   const handleSelectEntry = useCallback((entry: DigestEntry) => {
     setView('entry');
     setSelectedEntry(entry);
+  }, []);
+
+  const handleShowBlueprint = useCallback(() => {
+    setView(prev => prev === 'blueprint' ? 'digest' : 'blueprint');
+    setSelectedEntry(null);
   }, []);
 
   const handleDeleteEntry = useCallback((id: string) => {
@@ -55,6 +62,8 @@ export default function Home() {
       <Sidebar
         onSelect={handleSelectEntry}
         onDelete={handleDeleteEntry}
+        onShowBlueprint={handleShowBlueprint}
+        showingBlueprint={view === 'blueprint'}
         selectedId={selectedEntry?.id}
         refreshTrigger={refreshTrigger}
       />
@@ -127,6 +136,9 @@ export default function Home() {
               </div>
             )}
 
+            {/* Blueprint view */}
+            {view === 'blueprint' && <BlueprintView />}
+
             {/* History entry view */}
             {view === 'entry' && selectedEntry && (
               <div>
@@ -143,6 +155,7 @@ export default function Home() {
                 </button>
                 <EntryHeader title={selectedEntry.title} url={selectedEntry.url} />
                 <AnalysisView entry={selectedEntry} />
+                <ChatPanel entryId={selectedEntry.id} />
               </div>
             )}
 
@@ -157,6 +170,9 @@ export default function Home() {
                   <div>
                     <EntryHeader title={activeEntry.title} url={activeEntry.url} />
                     <AnalysisView entry={activeEntry} />
+                    {digest.phase === 'complete' && (
+                      <ChatPanel entryId={activeEntry.id} />
+                    )}
                   </div>
                 )}
 
