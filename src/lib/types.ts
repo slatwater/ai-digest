@@ -277,6 +277,7 @@ export interface DigestEntry {
   demo?: DemoInfo;
   data?: DigestData;      // 结构化可视化数据
   fullMarkdown: string;   // 完整的分析报告 MD
+  chatHistory?: ChatMessage[]; // 追问对话历史
 }
 
 // 前端状态
@@ -302,4 +303,50 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+}
+
+// === 快速研判 (Triage) ===
+
+export type TriageVerdict = 'skip' | 'save' | 'deep-dive';
+
+export interface TriageRelation {
+  id: string;
+  title: string;
+  overlap: string; // 具体关系描述
+}
+
+// 从文章中抽象出的核心知识点
+export interface TriageConcept {
+  name: string;           // 概念/技术点名称
+  root: string;           // 溯源：这个概念根本上是什么，从哪来的
+  whatItEnables: string;   // 拿到它能做什么、造什么
+}
+
+export interface TriageScores {
+  novelty: number;       // 技术新颖度 1-5：1=换皮旧概念 5=范式转换
+  usability: number;     // 实用就绪度 1-5：1=纯概念 5=成熟稳定
+  leverage: number;      // 生产力杠杆 1-5：1=可有可无 5=颠覆工作方式
+  timing: number;        // 时机 1-5：1=太早了 5=再不看就晚了
+}
+
+export interface TriageEntry {
+  id: string;
+  url: string;
+  title: string;
+  status: 'pending' | 'processing' | 'done' | 'error';
+  error?: string;
+  // 以下字段在 status=done 时填充
+  verdict?: TriageVerdict;
+  concepts?: TriageConcept[];    // 从文章中抽象出的核心知识点
+  explanation?: string;          // 整体理解（串联概念，说清楚意味着什么）
+  scores?: TriageScores;         // 四维度评分
+  verdictReason?: string;        // verdict 理由（一句话）
+  relatedEntries?: TriageRelation[]; // 知识库关联（参考用）
+}
+
+export interface TriageBatch {
+  id: string;
+  createdAt: string;
+  status: 'processing' | 'done';
+  entries: TriageEntry[];
 }

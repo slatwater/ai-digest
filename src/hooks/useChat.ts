@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { ChatMessage } from '@/lib/types';
 
 interface ChatState {
@@ -8,6 +8,15 @@ interface ChatState {
   isStreaming: boolean;
   currentReply: string;
   error: string | null;
+}
+
+// 持久化 chat 历史到服务端
+function persistChat(entryId: string, messages: ChatMessage[]) {
+  fetch('/api/entries', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: entryId, chatHistory: messages }),
+  }).catch(() => { /* 静默失败 */ });
 }
 
 export function useChat(entryId: string | null) {
@@ -19,6 +28,19 @@ export function useChat(entryId: string | null) {
   });
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // 加载已有 chat 历史
+  useEffect(() => {
+    if (!entryId) return;
+    fetch(`/api/entries?id=${entryId}`)
+      .then(r => r.json())
+      .then(entry => {
+        if (entry.chatHistory?.length) {
+          setState(prev => ({ ...prev, messages: entry.chatHistory }));
+        }
+      })
+      .catch(() => { /* 忽略 */ });
+  }, [entryId]);
 
   const ask = useCallback(async (question: string) => {
     if (!entryId || !question.trim()) return;
@@ -95,19 +117,23 @@ export function useChat(entryId: string | null) {
         }
       }
 
-      // 流结束，将完整回复追加到历史
+      // 流结束，将完整回复追加到历史并持久化
       if (fullReply) {
         const assistantMsg: ChatMessage = {
           role: 'assistant',
           content: fullReply,
           timestamp: Date.now(),
         };
-        setState(prev => ({
-          ...prev,
-          messages: [...prev.messages, assistantMsg],
-          isStreaming: false,
-          currentReply: '',
-        }));
+        setState(prev => {
+          const updated = [...prev.messages, assistantMsg];
+          if (entryId) persistChat(entryId, updated);
+          return {
+            ...prev,
+            messages: updated,
+            isStreaming: false,
+            currentReply: '',
+          };
+        });
       } else {
         setState(prev => ({ ...prev, isStreaming: false }));
       }
@@ -126,7 +152,8 @@ export function useChat(entryId: string | null) {
   const clear = useCallback(() => {
     abortRef.current?.abort();
     setState({ messages: [], isStreaming: false, currentReply: '', error: null });
-  }, []);
+    if (entryId) persistChat(entryId, []);
+  }, [entryId]);
 
   return { ...state, ask, clear };
 }

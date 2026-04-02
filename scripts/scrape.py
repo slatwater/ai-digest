@@ -2,9 +2,67 @@
 """用 Scrapling 抓取网页内容，输出 JSON 格式"""
 import sys
 import json
+from urllib.parse import urlparse
 from scrapling import Fetcher
 
-def scrape(url: str) -> dict:
+
+# X/Twitter 域名
+TWITTER_DOMAINS = {'x.com', 'twitter.com', 'mobile.twitter.com'}
+
+
+def is_twitter(url: str) -> bool:
+    try:
+        host = urlparse(url).hostname or ''
+        return any(host == d or host.endswith('.' + d) for d in TWITTER_DOMAINS)
+    except Exception:
+        return False
+
+
+def scrape_twitter(url: str) -> dict:
+    """用 StealthyFetcher 抓取 X/Twitter（需要 JS 渲染）"""
+    from scrapling.fetchers import StealthyFetcher
+    page = StealthyFetcher.fetch(
+        url,
+        headless=True,
+        network_idle=True,
+        wait=3000,
+        timeout=45000,
+    )
+
+    # 提取推文内容
+    articles = page.css('article')
+    if not articles:
+        return {"url": url, "error": "未找到推文内容", "status": "error"}
+
+    # 第一个 article 是主推文
+    main_tweet = articles[0].get_all_text()
+
+    # 引用推文和回复（如有）
+    replies = []
+    for article in articles[1:6]:  # 最多取 5 条回复
+        replies.append(article.get_all_text())
+
+    content = main_tweet
+    if replies:
+        content += "\n\n--- 回复 ---\n" + "\n---\n".join(replies)
+
+    # 提取作者信息
+    author = ""
+    author_el = page.css_first('article a[role="link"][href*="/"]')
+    if author_el:
+        author = author_el.get_all_text()
+
+    return {
+        "url": url,
+        "title": f"{author} 的推文" if author else "X/Twitter 推文",
+        "content": content[:15000],
+        "author": author,
+        "status": "ok"
+    }
+
+
+def scrape_general(url: str) -> dict:
+    """用 Fetcher 抓取普通网页"""
     fetcher = Fetcher(auto_match=False)
     page = fetcher.get(url, timeout=30)
 
@@ -46,18 +104,23 @@ def scrape(url: str) -> dict:
         "url": url,
         "title": title,
         "description": description,
-        "content": content[:15000],  # 限制长度
+        "content": content[:15000],
         "links": links,
         "status": "ok"
     }
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({"error": "Usage: scrape.py <url>"}))
         sys.exit(1)
 
+    url = sys.argv[1]
     try:
-        result = scrape(sys.argv[1])
+        if is_twitter(url):
+            result = scrape_twitter(url)
+        else:
+            result = scrape_general(url)
         print(json.dumps(result, ensure_ascii=False))
     except Exception as e:
         print(json.dumps({"error": str(e), "status": "error"}))

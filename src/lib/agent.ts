@@ -1,8 +1,13 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
 import { DigestPhase, QuestionEvent, DigestEntry, AnalysisResult, SourceInfo } from './types';
-import { saveEntry } from './storage';
+import { saveEntry, getEntries } from './storage';
+
+const execFileAsync = promisify(execFile);
 
 // 活跃的 digest 会话
 interface ActiveSession {
@@ -12,19 +17,44 @@ interface ActiveSession {
   abortController: AbortController;
   questionResolver?: (answer: string) => void;
   claudeSessionId?: string;
+  createdAt: number;
 }
 
 const activeSessions = new Map<string, ActiveSession>();
 
+// Session TTL 清理：10 分钟未结束的 session 自动移除
+const SESSION_TTL = 10 * 60 * 1000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of activeSessions) {
+    if (now - session.createdAt > SESSION_TTL) {
+      session.abortController.abort();
+      activeSessions.delete(id);
+      console.warn(`[digest] session ${id} 超时清理`);
+    }
+  }
+}, 60 * 1000);
+
 export function getSession(sessionId: string) {
   return activeSessions.get(sessionId);
+}
+
+// 安全抓取：用 execFile 传参数组，避免 shell 注入
+export async function safeScrape(url: string): Promise<string> {
+  const scriptPath = path.join(process.cwd(), 'scripts', 'scrape.py');
+  try {
+    const { stdout } = await execFileAsync('python3', [scriptPath, url], { timeout: 60000 });
+    return stdout;
+  } catch {
+    return JSON.stringify({ error: '抓取失败', status: 'error' });
+  }
 }
 
 // 用于 SSE 的事件发送器
 type EventSender = (type: string, data: unknown) => void;
 
 // 构建 Agent 的系统提示词
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(scrapedContent: string): string {
   return `你是一个 AI 前沿技术研究助手。你的任务是深入分析用户提供的链接内容，进行多维度研究。
 
 ## 工作流程
@@ -32,9 +62,8 @@ export function buildSystemPrompt(): string {
 你需要按照以下阶段依次完成工作，每完成一个阶段输出对应的 JSON 标记：
 
 ### 阶段 1: 采集 (Capture)
-- 使用 Bash 工具运行 scrapling 脚本抓取链接内容
-- 命令: python3 scripts/scrape.py "<URL>"
-- 如果抓取失败，使用 WebFetch 作为备用方案
+- 网页内容已预先抓取并附在用户消息中，直接使用即可
+- 如果预抓取内容为空或不完整，使用 WebFetch 补充抓取
 
 ### 阶段 2: 溯源 (Trace)
 - 分析内容是否为原始来源
@@ -147,18 +176,16 @@ function extractText(message: SDKMessage): string | null {
 }
 
 // 去除 markdown 代码围栏，提取纯 JSON 文本
-function stripCodeFence(raw: string): string {
-  const stripped = raw.trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
-  return stripped.trim();
+export function stripCodeFence(raw: string): string {
+  return raw.trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim();
 }
 
 // 安全解析 JSON：先尝试原文，失败则去围栏重试
-function safeParseJSON<T>(raw: string, label: string): T | null {
+export function safeParseJSON<T>(raw: string, label: string): T | null {
   const text = raw.trim();
   try {
     return JSON.parse(text);
   } catch {
-    // 去除可能的 markdown 代码围栏后重试
     try {
       return JSON.parse(stripCodeFence(text));
     } catch (e) {
@@ -190,18 +217,9 @@ function extractAnalysisFromReport(report: string): AnalysisResult | null {
   const tagsMatch = report.match(/标签[:：]\s*(.+)$/m);
   const tags = tagsMatch ? tagsMatch[1].split(/[,，、]/).map(t => t.trim()).filter(Boolean) : [];
 
-  // 至少要有 tldr 或 keyPoints 才算有效
   if (!tldrMatch?.[1] && keyPoints.length === 0 && !technical) return null;
 
-  return {
-    tldr: tldrMatch?.[1] || '',
-    keyPoints,
-    technical,
-    significance,
-    limitations,
-    comparison,
-    tags,
-  };
+  return { tldr: tldrMatch?.[1] || '', keyPoints, technical, significance, limitations, comparison, tags };
 }
 
 // 解析 Agent 输出中的结构化数据
@@ -251,6 +269,15 @@ function parseStructuredData(fullText: string) {
   return { analysis, sources, demo, report, title };
 }
 
+// 检查 URL 是否已有分析
+export async function findExistingEntry(url: string): Promise<{ id: string; title: string } | null> {
+  const entries = await getEntries();
+  const normalise = (u: string) => u.replace(/\/+$/, '').replace(/^https?:\/\//, '');
+  const target = normalise(url);
+  const found = entries.find(e => normalise(e.url) === target);
+  return found ? { id: found.id, title: found.title } : null;
+}
+
 // 运行 digest 流程
 export async function runDigest(
   url: string,
@@ -264,21 +291,34 @@ export async function runDigest(
     url,
     phase: 'capture',
     abortController,
+    createdAt: Date.now(),
   };
   activeSessions.set(sessionId, session);
 
   send('phase', { phase: 'capture', label: '正在采集内容...' });
 
+  // 统一用 safeScrape 抓取（scrape.py 内部对 X/Twitter 自动走 StealthyFetcher）
+  const scraped = await safeScrape(url);
+
+  const scrapedIsEmpty = !scraped || scraped.includes('"status":"error"') || scraped.length < 50;
+  const scrapeNote = scrapedIsEmpty
+    ? '\n\n## 抓取状态\n直接抓取失败。请使用 WebFetch 获取内容，如果失败则用 WebSearch 搜索。'
+    : `\n\n## 预抓取内容\n${scraped}`;
+
   let fullText = '';
   let currentPhase: DigestPhase = 'capture';
 
+  // 阶段顺序，只允许单向前进
+  const phaseOrder: DigestPhase[] = ['capture', 'trace', 'analyze', 'practice', 'archive'];
+  let currentPhaseIdx = 0;
+
   try {
     const q = query({
-      prompt: `请对以下链接进行完整的研究分析：${url}`,
+      prompt: `请对以下链接进行完整的研究分析：${url}${scrapeNote}`,
       options: {
-        systemPrompt: buildSystemPrompt(),
+        systemPrompt: buildSystemPrompt(scraped),
         cwd: process.cwd(),
-        allowedTools: ['Bash', 'WebFetch', 'WebSearch', 'Read', 'Glob', 'Grep'],
+        allowedTools: ['WebFetch', 'WebSearch', 'Read', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
         maxTurns: 25,
@@ -299,11 +339,13 @@ export async function runDigest(
       if (text) {
         fullText += text;
 
-        // 检测阶段切换
+        // 检测阶段切换（只允许单向前进，防止总结文本中重复匹配）
         const phaseMatches = text.matchAll(/===PHASE:(\w+)===/g);
         for (const m of phaseMatches) {
           const phase = m[1] as DigestPhase;
-          if (phase !== currentPhase) {
+          const phaseIdx = phaseOrder.indexOf(phase);
+          if (phaseIdx > currentPhaseIdx) {
+            currentPhaseIdx = phaseIdx;
             currentPhase = phase;
             session.phase = phase;
             const labels: Record<string, string> = {

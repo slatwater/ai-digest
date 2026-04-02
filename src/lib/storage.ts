@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { DigestEntry } from './types';
+import { DigestEntry, ChatMessage, TriageBatch } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -86,6 +86,92 @@ export async function deleteEntry(id: string): Promise<boolean> {
   try { await fs.unlink(path.join(dateDir, `${id}.json`)); } catch { /* 忽略 */ }
   try { await fs.unlink(path.join(dateDir, `${id}.md`)); } catch { /* 忽略 */ }
 
+  return true;
+}
+
+// 保存 chat 历史
+export async function saveChatHistory(entryId: string, messages: ChatMessage[]): Promise<boolean> {
+  const indexPath = path.join(DATA_DIR, 'index.json');
+  let index: DigestEntry[] = [];
+
+  try {
+    const raw = await fs.readFile(indexPath, 'utf-8');
+    index = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+
+  const entry = index.find(e => e.id === entryId);
+  if (!entry) return false;
+
+  entry.chatHistory = messages;
+  await fs.writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+
+  // 同步更新 JSON 文件
+  const dateDir = getDateDir(entry.date);
+  const jsonPath = path.join(dateDir, `${entryId}.json`);
+  try {
+    const raw = await fs.readFile(jsonPath, 'utf-8');
+    const data = JSON.parse(raw);
+    data.chatHistory = messages;
+    await fs.writeFile(jsonPath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch { /* 日期目录文件可能不存在 */ }
+
+  return true;
+}
+
+// === Triage 存储 ===
+
+const TRIAGE_PATH = path.join(DATA_DIR, 'triage.json');
+
+// 保存/更新 triage batch
+export async function saveTriageBatch(batch: TriageBatch): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  let batches: TriageBatch[] = [];
+
+  try {
+    const raw = await fs.readFile(TRIAGE_PATH, 'utf-8');
+    batches = JSON.parse(raw);
+  } catch { /* 文件不存在 */ }
+
+  // 更新或追加
+  const idx = batches.findIndex(b => b.id === batch.id);
+  if (idx >= 0) {
+    batches[idx] = batch;
+  } else {
+    batches.unshift(batch);
+  }
+
+  // 只保留最近 20 个 batch
+  batches = batches.slice(0, 20);
+  await fs.writeFile(TRIAGE_PATH, JSON.stringify(batches, null, 2), 'utf-8');
+}
+
+// 读取所有 triage batch
+export async function getTriageBatches(): Promise<TriageBatch[]> {
+  try {
+    const raw = await fs.readFile(TRIAGE_PATH, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+// 删除 triage batch
+export async function deleteTriageBatch(id: string): Promise<boolean> {
+  let batches: TriageBatch[] = [];
+  try {
+    const raw = await fs.readFile(TRIAGE_PATH, 'utf-8');
+    batches = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+
+  const before = batches.length;
+  batches = batches.filter(b => b.id !== id);
+  if (batches.length === before) return false;
+
+  await fs.writeFile(TRIAGE_PATH, JSON.stringify(batches, null, 2), 'utf-8');
   return true;
 }
 

@@ -3,6 +3,11 @@
 import { useState, useCallback, useRef } from 'react';
 import { DigestPhase, StreamMessage, QuestionEvent, DigestEntry } from '@/lib/types';
 
+interface DuplicateInfo {
+  entryId: string;
+  title: string;
+}
+
 interface DigestState {
   phase: DigestPhase | null;
   phaseLabel: string;
@@ -11,6 +16,7 @@ interface DigestState {
   isRunning: boolean;
   entry: DigestEntry | null;
   error: string | null;
+  duplicate: DuplicateInfo | null;
 }
 
 export function useDigest() {
@@ -22,12 +28,13 @@ export function useDigest() {
     isRunning: false,
     entry: null,
     error: null,
+    duplicate: null,
   });
 
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const start = useCallback(async (url: string) => {
+  const start = useCallback(async (url: string, force = false) => {
     // 重置状态
     setState({
       phase: 'capture',
@@ -37,6 +44,7 @@ export function useDigest() {
       isRunning: true,
       entry: null,
       error: null,
+      duplicate: null,
     });
 
     abortRef.current = new AbortController();
@@ -45,12 +53,22 @@ export function useDigest() {
       const res = await fetch('/api/digest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, force }),
         signal: abortRef.current.signal,
       });
 
       if (!res.ok) {
         const err = await res.json();
+        // URL 去重：返回 duplicate 信息让前端处理
+        if (res.status === 409 && err.error === 'duplicate') {
+          setState(prev => ({
+            ...prev,
+            isRunning: false,
+            phase: null,
+            duplicate: { entryId: err.entryId, title: err.title },
+          }));
+          return;
+        }
         throw new Error(err.error || '请求失败');
       }
 
