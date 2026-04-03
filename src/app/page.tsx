@@ -75,6 +75,13 @@ export default function Home() {
     setSelectedEntry(null);
   }, []);
 
+  // 从留底条目发起深度研究（复用原条目 ID，覆盖留底数据）
+  const handleDeepDive = useCallback((entry: DigestEntry) => {
+    setView('digest');
+    setSelectedEntry(null);
+    digest.start(entry.url, true, entry.id);
+  }, [digest]);
+
   const handleDeleteEntry = useCallback((id: string) => {
     if (selectedEntry?.id === id) {
       setSelectedEntry(null);
@@ -232,17 +239,31 @@ export default function Home() {
             {/* History entry view */}
             {view === 'entry' && selectedEntry && (
               <div>
-                <button
-                  onClick={() => { setView('triage'); setSelectedEntry(null); }}
-                  className="link-subtle flex items-center gap-1.5 mb-8"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                  aria-label="返回主页"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                  </svg>
-                  返回
-                </button>
+                <div className="flex items-center justify-between mb-8">
+                  <button
+                    onClick={() => { setView('triage'); setSelectedEntry(null); }}
+                    className="link-subtle flex items-center gap-1.5"
+                    style={{ fontSize: 'var(--text-sm)' }}
+                    aria-label="返回主页"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                    返回
+                  </button>
+                  {selectedEntry.sources.length === 0 && !digest.isRunning && (
+                    <button
+                      onClick={() => handleDeepDive(selectedEntry)}
+                      className="btn btn-primary flex items-center gap-1.5 px-4 py-1.5 rounded-md font-medium"
+                      style={{ fontSize: 'var(--text-sm)' }}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      深入研究
+                    </button>
+                  )}
+                </div>
                 <EntryHeader title={selectedEntry.title} url={selectedEntry.url} />
                 <AnalysisView entry={selectedEntry} />
                 <ChatPanel entryId={selectedEntry.id} />

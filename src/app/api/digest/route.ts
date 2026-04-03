@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 分钟超时
 
 export async function POST(req: NextRequest) {
-  const { url, force } = await req.json();
+  const { url, force, existingId } = await req.json();
 
   if (!url || typeof url !== 'string') {
     return Response.json({ error: '请提供有效的 URL' }, { status: 400 });
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await runDigest(url, send);
+        await runDigest(url, send, existingId);
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : 'Unknown error' });
       } finally {

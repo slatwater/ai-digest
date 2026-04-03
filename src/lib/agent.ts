@@ -269,6 +269,71 @@ function parseStructuredData(fullText: string) {
   return { analysis, sources, demo, report, title };
 }
 
+// Demo 补生成：用精简 prompt 专门生成 demo 代码
+async function retryDemo(
+  url: string,
+  analysis: AnalysisResult,
+  report: string,
+  abortController: AbortController,
+): Promise<{ language: string; filename: string; code: string; instructions: string } | null> {
+  const context = `
+## 项目信息
+- URL: ${url}
+- TLDR: ${analysis.tldr}
+- 核心要点: ${analysis.keyPoints.join('; ')}
+- 技术分析: ${analysis.technical.slice(0, 800)}
+${report ? `\n## 研究报告摘要\n${report.slice(0, 1500)}` : ''}
+`.trim();
+
+  const demoPrompt = `基于以下研究内容，生成一个可交互的浏览器 Demo。
+
+${context}
+
+要求：
+1. 纯 HTML/CSS/JS 单文件，可直接在 iframe 中运行
+2. 禁止依赖外部 CDN 或网络资源
+3. 必须有交互性（点击、输入、动画等）
+4. 所有展示内容必须基于上面的真实研究数据，禁止编造
+5. 视觉精致，体现设计感
+
+输出格式（严格遵守标记）:
+===DEMO_START===
+{
+  "language": "html",
+  "filename": "demo.html",
+  "code": "完整的 HTML 文件内容",
+  "instructions": "一句话说明这个 demo 展示了什么"
+}
+===DEMO_END===`;
+
+  let demoText = '';
+  const q = query({
+    prompt: demoPrompt,
+    options: {
+      systemPrompt: '你是一个前端 Demo 生成专家。只输出 ===DEMO_START=== 和 ===DEMO_END=== 包裹的 JSON，不要输出其他内容。所有输出用中文。',
+      cwd: process.cwd(),
+      allowedTools: [],
+      permissionMode: 'bypassPermissions' as const,
+      allowDangerouslySkipPermissions: true,
+      maxTurns: 3,
+      abortController,
+      persistSession: false,
+    },
+  });
+
+  for await (const message of q) {
+    if (abortController.signal.aborted) break;
+    const text = extractText(message);
+    if (text) demoText += text;
+  }
+
+  const demoMatch = demoText.match(/===DEMO_START===([\s\S]*?)===DEMO_END===/);
+  if (demoMatch) {
+    return safeParseJSON<{ language: string; filename: string; code: string; instructions: string }>(demoMatch[1], 'retryDemo');
+  }
+  return null;
+}
+
 // 检查 URL 是否已有分析
 export async function findExistingEntry(url: string): Promise<{ id: string; title: string } | null> {
   const entries = await getEntries();
@@ -282,8 +347,9 @@ export async function findExistingEntry(url: string): Promise<{ id: string; titl
 export async function runDigest(
   url: string,
   send: EventSender,
+  existingId?: string,
 ): Promise<string> {
-  const sessionId = uuidv4();
+  const sessionId = existingId || uuidv4();
   const abortController = new AbortController();
 
   const session: ActiveSession = {
@@ -374,6 +440,17 @@ export async function runDigest(
     // 解析完整输出
     const parsed = parseStructuredData(fullText);
 
+    // Demo 缺失补生成：有分析结果但没 demo 时，追问一轮
+    let finalDemo: { language: string; filename: string; code: string; instructions: string } | null = parsed.demo;
+    if (!finalDemo && parsed.analysis) {
+      send('phase', { phase: 'practice', label: '正在补生成 Demo...' });
+      try {
+        finalDemo = await retryDemo(url, parsed.analysis, parsed.report, abortController);
+      } catch {
+        // 补生成失败不影响主流程
+      }
+    }
+
     // 构建知识库条目
     const entry: DigestEntry = {
       id: sessionId,
@@ -392,7 +469,7 @@ export async function runDigest(
         tags: [],
       },
       sources: parsed.sources,
-      demo: parsed.demo || undefined,
+      demo: finalDemo || undefined,
       fullMarkdown: parsed.report || fullText,
     };
 

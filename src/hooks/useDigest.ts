@@ -34,7 +34,7 @@ export function useDigest() {
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const start = useCallback(async (url: string, force = false) => {
+  const start = useCallback(async (url: string, force = false, existingId?: string) => {
     // 重置状态
     setState({
       phase: 'capture',
@@ -53,7 +53,7 @@ export function useDigest() {
       const res = await fetch('/api/digest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, force }),
+        body: JSON.stringify({ url, force, existingId }),
         signal: abortRef.current.signal,
       });
 
