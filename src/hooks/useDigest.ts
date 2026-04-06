@@ -80,7 +80,19 @@ export function useDigest() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          // 处理 buffer 中残留的最后一个事件
+          if (buffer.trim()) {
+            const remaining = buffer.trim();
+            if (remaining.startsWith('data: ')) {
+              try {
+                const event = JSON.parse(remaining.slice(6));
+                handleEvent(event);
+              } catch { /* 解析失败忽略 */ }
+            }
+          }
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
 
@@ -150,21 +162,25 @@ export function useDigest() {
         }));
         break;
 
-      case 'complete':
-        sessionIdRef.current = event.data.entryId as string;
+      case 'complete': {
+        const entryId = event.data.entryId as string;
+        sessionIdRef.current = entryId;
         setState(prev => ({
           ...prev,
           phase: 'complete',
           phaseLabel: '分析完成',
           isRunning: false,
         }));
-        // 加载完整条目
-        fetch(`/api/entries?id=${event.data.entryId}`)
-          .then(r => r.json())
+        // 加载完整条目（覆盖留底数据）
+        fetch(`/api/entries?id=${entryId}`)
+          .then(r => r.ok ? r.json() : null)
           .then(entry => {
-            setState(prev => ({ ...prev, entry }));
+            if (entry && !entry.error) {
+              setState(prev => ({ ...prev, entry }));
+            }
           });
         break;
+      }
 
       case 'error':
         setState(prev => ({

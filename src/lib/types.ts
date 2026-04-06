@@ -272,6 +272,7 @@ export interface DigestEntry {
   date: string;           // ISO date string
   tags: string[];
   tldr: string;
+  entryType?: 'saved' | 'researched'; // saved=留底, researched=深度研究
   analysis: AnalysisResult;
   sources: SourceInfo[];
   demo?: DemoInfo;
@@ -318,8 +319,9 @@ export interface TriageRelation {
 // 从文章中抽象出的核心知识点
 export interface TriageConcept {
   name: string;           // 概念/技术点名称
-  root: string;           // 溯源：这个概念根本上是什么，从哪来的
+  root: string;           // 溯源：起源（谁/哪篇论文）+ 核心机制 + 突破点
   whatItEnables: string;   // 拿到它能做什么、造什么
+  sourceUrl?: string;      // 一手来源 URL（官方仓库/论文/文档，Agent 通过工具查到的）
 }
 
 export interface TriageScores {
@@ -349,4 +351,48 @@ export interface TriageBatch {
   createdAt: string;
   status: 'processing' | 'done';
   entries: TriageEntry[];
+}
+
+// === Wiki 编译 ===
+
+/** Wiki 词条与来源条目的关系 */
+export interface WikiSourceRef {
+  entryId: string;
+  entryTitle: string;
+  date: string;
+  contribution: string; // 该条目对此词条贡献了什么
+}
+
+/** Wiki 词条间关系 */
+export interface WikiRelation {
+  conceptId: string;     // slug
+  conceptName: string;
+  type: 'builds-on' | 'contrasts' | 'related' | 'enables' | 'part-of';
+  description: string;
+}
+
+/** Wiki 词条 */
+export interface WikiEntry {
+  id: string;            // slug, e.g. "activation-steering"
+  name: string;
+  aliases: string[];
+  domain: string;        // e.g. "AI Safety", "LLM Inference"
+  summary: string;       // 2-3 句概要
+  content: string;       // 完整 markdown 正文
+  relations: WikiRelation[];
+  sources: WikiSourceRef[];
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Wiki 索引条目（轻量，列表展示用） */
+export interface WikiIndexEntry {
+  id: string;
+  name: string;
+  domain: string;
+  summary: string;
+  relationCount: number;
+  sourceCount: number;
+  updatedAt: string;
 }

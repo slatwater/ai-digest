@@ -1,11 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { DigestEntry, DemoInfo } from '@/lib/types';
+import { useState, useEffect } from 'react';
+import { DigestEntry, DemoInfo, WikiIndexEntry } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-export function AnalysisView({ entry }: { entry: DigestEntry }) {
+export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSelectWiki?: (id: string) => void }) {
+  const [relatedWiki, setRelatedWiki] = useState<WikiIndexEntry[]>([]);
+
+  // 加载关联 Wiki 词条
+  useEffect(() => {
+    fetch(`/api/wiki?entryId=${entry.id}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setRelatedWiki(data);
+      })
+      .catch(() => {});
+  }, [entry.id]);
   const { analysis } = entry;
 
   // 构建动态 section 编号
@@ -114,6 +125,34 @@ export function AnalysisView({ entry }: { entry: DigestEntry }) {
                   {src.title || src.url}
                 </a>
               </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* 关联 Wiki */}
+      {relatedWiki.length > 0 && (
+        <Section title="关联 Wiki" number={nextNum()}>
+          <div className="flex flex-wrap gap-2">
+            {relatedWiki.map(c => (
+              <button
+                key={c.id}
+                onClick={() => onSelectWiki?.(c.id)}
+                className="px-3 py-1.5 rounded-md"
+                style={{
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--accent-text)',
+                  background: 'var(--accent-subtle)',
+                  border: '1px solid transparent',
+                  fontWeight: 500,
+                  cursor: onSelectWiki ? 'pointer' : 'default',
+                  transition: 'border-color var(--duration-fast) var(--ease-out)',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}
+              >
+                {c.name}
+              </button>
             ))}
           </div>
         </Section>

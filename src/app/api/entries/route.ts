@@ -31,7 +31,7 @@ export async function PUT(req: NextRequest) {
     `${c.name}：${c.root}`
   ) || [];
 
-  const defaultMd = `# ${title || url}\n\n> ${tldr || '留底条目'}\n\n来源: ${url}\n\n---\n留底自每日研判，未做深度研究。`;
+  const defaultMd = `# ${title || url}\n\n> ${tldr || '留底条目'}\n\n来源: ${url}\n\n---\n留底自解析，未做深度研究。`;
 
   await saveEntry({
     id,
@@ -40,6 +40,7 @@ export async function PUT(req: NextRequest) {
     date: new Date().toISOString(),
     tags: allTags,
     tldr: tldr || '',
+    entryType: 'saved',
     analysis: {
       tldr: tldr || '',
       keyPoints,

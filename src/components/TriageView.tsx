@@ -6,8 +6,11 @@ import { TriageCard } from './TriageCard';
 import { TriageEntry } from '@/lib/types';
 
 interface Props {
+  triage: ReturnType<typeof useTriage>;
   onStartDigest: (urls: string[]) => void;
+  onStartDeepResearch: (url: string) => void;
   onConfirm?: (stats: { saved: number; skipped: number }) => void;
+  isDigestRunning?: boolean;
 }
 
 // verdict 排序权重
@@ -19,10 +22,19 @@ function verdictOrder(entry: TriageEntry, overrides: Record<string, string>): nu
   return 3; // pending
 }
 
-export function TriageView({ onStartDigest, onConfirm }: Props) {
-  const triage = useTriage();
+export function TriageView({ triage, onStartDigest, onStartDeepResearch, onConfirm, isDigestRunning }: Props) {
   const [input, setInput] = useState('');
+  const [singleUrl, setSingleUrl] = useState('');
 
+  // 单条深度研究
+  const handleSingleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (!singleUrl.trim() || isDigestRunning) return;
+    onStartDeepResearch(singleUrl.trim());
+    setSingleUrl('');
+  }, [singleUrl, isDigestRunning, onStartDeepResearch]);
+
+  // 批量解析
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const urls = input
@@ -56,55 +68,111 @@ export function TriageView({ onStartDigest, onConfirm }: Props) {
   const hasBatch = triage.batch !== null;
   const hasResults = sortedEntries.some(e => e.status === 'done');
   const allDone = triage.batch?.status === 'done';
+  const validUrlCount = input.split('\n').filter(l => l.trim().startsWith('http')).length;
 
   return (
     <div>
       {/* 空状态：输入区 */}
       {!hasBatch && (
         <div className="py-12">
-          <h2
-            className="font-semibold tracking-tight leading-tight"
-            style={{ fontSize: 'var(--text-xl)', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
+          {/* ── 批量解析 ── */}
+          <div
+            className="rounded-lg px-6 py-6"
+            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
           >
-            每日研判
-          </h2>
-          <p
-            className="mt-2"
-            style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', lineHeight: '1.6' }}
-          >
-            粘贴今天收藏的链接，系统逐一研究底层技术，帮你决定哪些值得深入。
-          </p>
+            <h2
+              className="font-semibold tracking-tight"
+              style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)' }}
+            >
+              批量解析
+            </h2>
+            <p
+              className="mt-1"
+              style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}
+            >
+              粘贴多个链接，逐一快速扫描后选择方向
+            </p>
+            <form onSubmit={handleSubmit} className="mt-4">
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                placeholder={'每行一个链接\nhttps://...\nhttps://...'}
+                rows={4}
+                className="w-full px-4 py-3 rounded-md resize-none"
+                style={{
+                  fontSize: 'var(--text-sm)',
+                  background: 'var(--bg)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                  lineHeight: '1.8',
+                }}
+                disabled={triage.isSubmitting}
+              />
+              <div className="flex items-center justify-between mt-3">
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
+                  {validUrlCount} 条有效链接
+                </span>
+                <button
+                  type="submit"
+                  disabled={triage.isSubmitting || !input.trim()}
+                  className="btn btn-primary px-5 py-2 rounded-md font-medium"
+                  style={{ fontSize: 'var(--text-sm)' }}
+                >
+                  {triage.isSubmitting ? '提交中...' : '开始解析'}
+                </button>
+              </div>
+            </form>
+          </div>
 
-          <form onSubmit={handleSubmit} className="mt-8">
-            <textarea
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder={'粘贴链接，每行一个\nhttps://...\nhttps://...'}
-              rows={5}
-              className="w-full px-4 py-3 rounded-md resize-none"
-              style={{
-                fontSize: 'var(--text-sm)',
-                background: 'var(--bg)',
-                border: '1px solid var(--border)',
-                color: 'var(--text-primary)',
-                lineHeight: '1.8',
-              }}
-              disabled={triage.isSubmitting}
-            />
-            <div className="flex items-center justify-between mt-4">
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-                {input.split('\n').filter(l => l.trim().startsWith('http')).length} 条有效链接
-              </span>
-              <button
-                type="submit"
-                disabled={triage.isSubmitting || !input.trim()}
-                className="btn btn-primary px-5 py-2.5 rounded-md font-medium"
-                style={{ fontSize: 'var(--text-sm)' }}
-              >
-                {triage.isSubmitting ? '提交中...' : '开始研判'}
-              </button>
-            </div>
-          </form>
+          {/* ── 深度研究 ── */}
+          <div className="mt-5 px-6 py-5 rounded-lg" style={{ border: '1px solid var(--border-subtle)' }}>
+            <h2
+              className="font-semibold tracking-tight"
+              style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)' }}
+            >
+              深度研究
+            </h2>
+            <p
+              className="mt-1"
+              style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}
+            >
+              单条链接，跳过筛选直接全面分析
+            </p>
+            <form onSubmit={handleSingleSubmit} className="mt-4 flex gap-3">
+              <input
+                type="url"
+                value={singleUrl}
+                onChange={e => setSingleUrl(e.target.value)}
+                placeholder="粘贴链接"
+                disabled={isDigestRunning}
+                className="input-field flex-1 px-4 py-2 rounded-md"
+                style={{
+                  fontSize: 'var(--text-sm)',
+                  background: 'var(--bg)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+              {isDigestRunning ? (
+                <span
+                  className="px-4 py-2 rounded-md font-medium flex items-center gap-2"
+                  style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
+                  研究中
+                </span>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!singleUrl.trim()}
+                  className="btn btn-primary px-5 py-2 rounded-md font-medium"
+                  style={{ fontSize: 'var(--text-sm)' }}
+                >
+                  研究
+                </button>
+              )}
+            </form>
+          </div>
         </div>
       )}
 
@@ -121,14 +189,13 @@ export function TriageView({ onStartDigest, onConfirm }: Props) {
       {/* Batch 处理中 / 完成 */}
       {hasBatch && (
         <div>
-          {/* 头部 */}
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2
                 className="font-semibold tracking-tight"
                 style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
               >
-                研判结果
+                解析结果
               </h2>
               <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                 {triage.isProcessing
@@ -146,12 +213,8 @@ export function TriageView({ onStartDigest, onConfirm }: Props) {
             </button>
           </div>
 
-          {/* 进度条 */}
           {triage.isProcessing && (
-            <div
-              className="mb-6 h-1 rounded-full overflow-hidden"
-              style={{ background: 'var(--bg-subtle)' }}
-            >
+            <div className="mb-6 h-1 rounded-full overflow-hidden" style={{ background: 'var(--bg-subtle)' }}>
               <div
                 className="h-full rounded-full transition-all"
                 style={{
@@ -163,7 +226,6 @@ export function TriageView({ onStartDigest, onConfirm }: Props) {
             </div>
           )}
 
-          {/* 卡片列表 */}
           <div className="space-y-3">
             {sortedEntries.map(entry => (
               <TriageCard
@@ -175,7 +237,6 @@ export function TriageView({ onStartDigest, onConfirm }: Props) {
             ))}
           </div>
 
-          {/* 底部确认栏 */}
           {hasResults && (
             <div
               className="mt-8 px-5 py-4 rounded-lg flex items-center justify-between"

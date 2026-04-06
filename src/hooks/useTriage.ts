@@ -82,9 +82,23 @@ export function useTriage() {
 
       const { batchId } = await res.json();
 
+      // 立即创建占位 batch，让视图直接切换到骨架屏
+      const placeholderBatch: TriageBatch = {
+        id: batchId,
+        createdAt: new Date().toISOString(),
+        status: 'processing',
+        entries: urls.map((url, i) => ({
+          id: `${batchId}-${i}`,
+          url,
+          title: url,
+          status: 'pending' as const,
+        })),
+      };
+
       setState(prev => ({
         ...prev,
         batchId,
+        batch: placeholderBatch,
         isSubmitting: false,
         isProcessing: true,
       }));
@@ -128,7 +142,7 @@ export function useTriage() {
       } else if (v === 'save' && entry.status === 'done') {
         // 留底：把研判提取的知识点一并存入知识库
         const conceptsMd = entry.concepts?.map(c =>
-          `### ${c.name}\n\n**溯源：** ${c.root}\n\n**能做什么：** ${c.whatItEnables}`
+          `### ${c.name}\n\n**溯源：** ${c.root}\n\n**能做什么：** ${c.whatItEnables}${c.sourceUrl ? `\n\n**来源：** ${c.sourceUrl}` : ''}`
         ).join('\n\n') || '';
 
         await fetch('/api/entries', {

@@ -111,6 +111,17 @@ function ConceptList({ concepts }: { concepts: TriageConcept[] }) {
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', lineHeight: '1.6' }}>
             {c.whatItEnables}
           </p>
+          {c.sourceUrl && (
+            <a
+              href={c.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="prose-link truncate block"
+              style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)' }}
+            >
+              {c.sourceUrl}
+            </a>
+          )}
         </div>
       ))}
     </div>

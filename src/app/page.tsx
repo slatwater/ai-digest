@@ -9,46 +9,48 @@ import { Sidebar } from '@/components/Sidebar';
 import { BlueprintView } from '@/components/BlueprintView';
 import { ChatPanel } from '@/components/ChatPanel';
 import { TriageView } from '@/components/TriageView';
+import { WikiDetail } from '@/components/WikiDetail';
+import { useWiki } from '@/hooks/useWiki';
+import { useTriage } from '@/hooks/useTriage';
 import { DigestEntry } from '@/lib/types';
 
-type View = 'triage' | 'digest' | 'entry' | 'blueprint';
+type View = 'triage' | 'digest' | 'entry' | 'blueprint' | 'wiki-detail';
 
 export default function Home() {
-  const [url, setUrl] = useState('');
   const [view, setView] = useState<View>('triage');
   const [selectedEntry, setSelectedEntry] = useState<DigestEntry | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [digestQueue, setDigestQueue] = useState<string[]>([]);
+  const [lastUrl, setLastUrl] = useState('');
   const digest = useDigest();
+  const wikiHook = useWiki();
+  const triage = useTriage();
   const prevPhaseRef = useRef<string | null>(null);
 
   // 单条深度研究
-  const handleSubmit = useCallback((e: React.FormEvent, force = false) => {
-    e.preventDefault();
-    if (!url.trim() || digest.isRunning) return;
+  const handleStartDeepResearch = useCallback((url: string, force = false, existingId?: string) => {
+    if (digest.isRunning) return;
+    setLastUrl(url);
     setView('digest');
     setSelectedEntry(null);
-    digest.start(url.trim(), force);
-  }, [url, digest]);
+    digest.start(url, force, existingId);
+  }, [digest]);
 
-  // 从 triage 确认后批量启动深研（逐条队列）
+  // 从 triage 确认后批量启动深研
   const handleStartDigestBatch = useCallback((urls: string[]) => {
     if (urls.length === 0) return;
     setView('digest');
     setSelectedEntry(null);
-    // 第一条立即开始，剩余入队
     digest.start(urls[0], true);
     setDigestQueue(urls.slice(1));
   }, [digest]);
 
-  // triage 确认后刷新侧边栏（留底条目需要出现在列表中）
+  // triage 确认后刷新侧边栏
   const handleTriageConfirm = useCallback(({ saved }: { saved: number; skipped: number }) => {
-    if (saved > 0) {
-      setRefreshTrigger(n => n + 1);
-    }
+    if (saved > 0) setRefreshTrigger(n => n + 1);
   }, []);
 
-  // 当前深研完成后，自动处理队列中的下一条
+  // 队列自动处理
   useEffect(() => {
     if (digest.phase === 'complete' && digestQueue.length > 0) {
       const timer = setTimeout(() => {
@@ -65,22 +67,38 @@ export default function Home() {
     setSelectedEntry(entry);
   }, []);
 
-  const handleShowBlueprint = useCallback(() => {
-    setView(prev => prev === 'blueprint' ? 'triage' : 'blueprint');
-    setSelectedEntry(null);
-  }, []);
-
   const handleShowTriage = useCallback(() => {
     setView('triage');
     setSelectedEntry(null);
   }, []);
 
-  // 从留底条目发起深度研究（复用原条目 ID，覆盖留底数据）
-  const handleDeepDive = useCallback((entry: DigestEntry) => {
-    setView('digest');
+  const handleShowBlueprint = useCallback(() => {
+    setView('blueprint');
     setSelectedEntry(null);
-    digest.start(entry.url, true, entry.id);
-  }, [digest]);
+  }, []);
+
+  const handleSelectWiki = useCallback((id: string) => {
+    setView('wiki-detail');
+    setSelectedEntry(null);
+    wikiHook.loadEntry(id);
+  }, [wikiHook]);
+
+  // 从 Wiki 详情页点击来源条目
+  const handleWikiSelectEntry = useCallback(async (entryId: string) => {
+    try {
+      const res = await fetch(`/api/entries?id=${entryId}`);
+      const entry = await res.json();
+      if (entry && !entry.error) {
+        setSelectedEntry(entry);
+        setView('entry');
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // 从留底条目发起深度研究
+  const handleDeepDive = useCallback((entry: DigestEntry) => {
+    handleStartDeepResearch(entry.url, true, entry.id);
+  }, [handleStartDeepResearch]);
 
   const handleDeleteEntry = useCallback((id: string) => {
     if (selectedEntry?.id === id) {
@@ -104,139 +122,46 @@ export default function Home() {
   return (
     <div className="h-full flex">
       <Sidebar
-        onSelect={handleSelectEntry}
-        onDelete={handleDeleteEntry}
-        onShowBlueprint={handleShowBlueprint}
+        onSelectEntry={handleSelectEntry}
+        onSelectWiki={handleSelectWiki}
+        onDeleteEntry={handleDeleteEntry}
         onShowTriage={handleShowTriage}
-        showingBlueprint={view === 'blueprint'}
-        showingTriage={view === 'triage'}
-        selectedId={selectedEntry?.id}
+        onShowBlueprint={handleShowBlueprint}
+        selectedEntryId={view === 'entry' ? selectedEntry?.id : undefined}
+        selectedWikiId={view === 'wiki-detail' ? wikiHook.entry?.id : undefined}
         refreshTrigger={refreshTrigger}
       />
 
-      <main className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header：单条深研输入 */}
-        <header
-          className="shrink-0"
-          style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}
-        >
-          <div className="max-w-[720px] mx-auto px-8 py-5">
-            <form onSubmit={handleSubmit} className="flex gap-3">
-              <input
-                id="digest-url"
-                name="url"
-                type="url"
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                placeholder="粘贴单个链接，直接深度研究"
-                className="input-field flex-1 px-4 py-2.5 rounded-md"
-                style={{
-                  fontSize: 'var(--text-sm)',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-primary)',
-                }}
-                disabled={digest.isRunning}
-              />
-              {digest.isRunning ? (
-                <button
-                  type="button"
-                  onClick={digest.stop}
-                  className="btn btn-danger px-5 py-2.5 rounded-md font-medium"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                >
-                  停止
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={!url.trim()}
-                  className="btn btn-primary px-5 py-2.5 rounded-md font-medium"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                >
-                  研究
-                </button>
-              )}
-            </form>
-
-            {/* 深研进度 + 队列提示 */}
-            {(digest.isRunning || digest.phase === 'complete') && (
-              <div>
-                <PhaseIndicator currentPhase={digest.phase} />
-                {digestQueue.length > 0 && (
-                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '8px' }}>
-                    队列中还有 {digestQueue.length} 条待研究
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </header>
-
-        {/* Content */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-[720px] mx-auto px-8 py-8">
-            {/* Error */}
-            {digest.error && (
-              <div
-                className="mb-6 px-4 py-3 rounded-md"
-                style={{
-                  background: 'var(--error-bg)',
-                  fontSize: 'var(--text-sm)',
-                  color: 'var(--error)',
-                }}
-              >
-                {digest.error}
-              </div>
-            )}
 
-            {/* URL 去重提示 */}
-            {digest.duplicate && (
-              <div
-                className="mb-6 px-5 py-4 rounded-md"
-                style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
-                  fontSize: 'var(--text-sm)',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                <p style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                  该链接已有分析记录
-                </p>
-                <p className="mt-1">{digest.duplicate.title}</p>
-                <div className="flex gap-3 mt-3">
-                  <button
-                    onClick={() => {
-                      fetch(`/api/entries?id=${digest.duplicate!.entryId}`)
-                        .then(r => r.json())
-                        .then(entry => { setSelectedEntry(entry); setView('entry'); });
-                    }}
-                    className="btn btn-primary px-4 py-1.5 rounded-md font-medium"
-                    style={{ fontSize: 'var(--text-sm)' }}
-                  >
-                    查看已有分析
-                  </button>
-                  <button
-                    onClick={(e) => handleSubmit(e as unknown as React.FormEvent, true)}
-                    className="link-subtle px-2 py-1.5"
-                    style={{ fontSize: 'var(--text-sm)' }}
-                  >
-                    重新研究
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Triage view — 默认首页 */}
+            {/* 解析视图 */}
             {view === 'triage' && (
-              <TriageView onStartDigest={handleStartDigestBatch} onConfirm={handleTriageConfirm} />
+              <TriageView
+                triage={triage}
+                onStartDigest={handleStartDigestBatch}
+                onStartDeepResearch={handleStartDeepResearch}
+                onConfirm={handleTriageConfirm}
+                isDigestRunning={digest.isRunning}
+              />
             )}
 
-            {/* Blueprint view */}
+            {/* 原理 */}
             {view === 'blueprint' && <BlueprintView />}
 
-            {/* History entry view */}
+            {/* Wiki 详情 */}
+            {view === 'wiki-detail' && wikiHook.entry && (
+              <WikiDetail
+                entry={wikiHook.entry}
+                neighbors={wikiHook.neighbors}
+                onBack={handleShowTriage}
+                onSelectWiki={handleSelectWiki}
+                onSelectEntry={handleWikiSelectEntry}
+              />
+            )}
+
+            {/* 条目详情 */}
             {view === 'entry' && selectedEntry && (
               <div>
                 <div className="flex items-center justify-between mb-8">
@@ -244,7 +169,7 @@ export default function Home() {
                     onClick={() => { setView('triage'); setSelectedEntry(null); }}
                     className="link-subtle flex items-center gap-1.5"
                     style={{ fontSize: 'var(--text-sm)' }}
-                    aria-label="返回主页"
+                    aria-label="��回"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -265,14 +190,64 @@ export default function Home() {
                   )}
                 </div>
                 <EntryHeader title={selectedEntry.title} url={selectedEntry.url} />
-                <AnalysisView entry={selectedEntry} />
+                <AnalysisView entry={selectedEntry} onSelectWiki={handleSelectWiki} />
                 <ChatPanel entryId={selectedEntry.id} />
               </div>
             )}
 
-            {/* Active digest */}
+            {/* 深度研究 */}
             {view === 'digest' && (
               <>
+                {digest.error && (
+                  <div
+                    className="mb-6 px-4 py-3 rounded-md"
+                    style={{ background: 'var(--error-bg)', fontSize: 'var(--text-sm)', color: 'var(--error)' }}
+                  >
+                    {digest.error}
+                  </div>
+                )}
+
+                {digest.duplicate && (
+                  <div
+                    className="mb-6 px-5 py-4 rounded-md"
+                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}
+                  >
+                    <p style={{ color: 'var(--text-primary)', fontWeight: 500 }}>该链接已有分析记录</p>
+                    <p className="mt-1">{digest.duplicate.title}</p>
+                    <div className="flex gap-3 mt-3">
+                      <button
+                        onClick={() => {
+                          fetch(`/api/entries?id=${digest.duplicate!.entryId}`)
+                            .then(r => r.json())
+                            .then(entry => { setSelectedEntry(entry); setView('entry'); });
+                        }}
+                        className="btn btn-primary px-4 py-1.5 rounded-md font-medium"
+                        style={{ fontSize: 'var(--text-sm)' }}
+                      >
+                        查看已有分析
+                      </button>
+                      <button
+                        onClick={() => handleStartDeepResearch(lastUrl, true)}
+                        className="link-subtle px-2 py-1.5"
+                        style={{ fontSize: 'var(--text-sm)' }}
+                      >
+                        重新研究
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {(digest.isRunning || digest.phase === 'complete') && (
+                  <div className="mb-6">
+                    <PhaseIndicator currentPhase={digest.phase} />
+                    {digestQueue.length > 0 && (
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '8px' }}>
+                        队列中还有 {digestQueue.length} 条待研究
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {digest.messages.length > 0 && !activeEntry && (
                   <StreamView messages={digest.messages} isRunning={digest.isRunning} />
                 )}
@@ -280,32 +255,21 @@ export default function Home() {
                 {activeEntry && (
                   <div>
                     <EntryHeader title={activeEntry.title} url={activeEntry.url} />
-                    <AnalysisView entry={activeEntry} />
-                    {digest.phase === 'complete' && (
-                      <ChatPanel entryId={activeEntry.id} />
-                    )}
+                    <AnalysisView entry={activeEntry} onSelectWiki={handleSelectWiki} />
+                    {digest.phase === 'complete' && <ChatPanel entryId={activeEntry.id} />}
                   </div>
                 )}
 
-                {/* Digest empty state — 深研流未启动时提示 */}
                 {!digest.isRunning && !digest.phase && !activeEntry && (
                   <div className="flex flex-col items-start py-16">
                     <p
                       className="leading-relaxed"
-                      style={{
-                        fontSize: 'var(--text-xl)',
-                        fontWeight: 600,
-                        color: 'var(--text-primary)',
-                        letterSpacing: '-0.02em',
-                      }}
+                      style={{ fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
                     >
-                      深度研究进行中...
+                      等待研究开始
                     </p>
-                    <p
-                      className="mt-3"
-                      style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}
-                    >
-                      在顶部输入框粘贴链接直接研究，或从每日研判中选择。
+                    <p className="mt-3" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>
+                      在解析页粘贴链接开始深度研究。
                     </p>
                   </div>
                 )}
@@ -313,12 +277,56 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* 浮动进度提示 */}
+        {(digest.isRunning && view !== 'digest' || triage.isProcessing && view !== 'triage') && (
+          <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col gap-2 items-center" style={{ zIndex: 10 }}>
+            {digest.isRunning && view !== 'digest' && (
+              <button
+                onClick={() => setView('digest')}
+                className="flex items-center gap-2.5 px-5 py-2.5 rounded-lg"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--accent)',
+                  boxShadow: '0 4px 16px oklch(0% 0 0 / 0.1)',
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--accent)',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
+                研究进行中 · 点击查看
+                {digestQueue.length > 0 && (
+                  <span style={{ color: 'var(--text-tertiary)' }}>+{digestQueue.length} 排队</span>
+                )}
+              </button>
+            )}
+            {triage.isProcessing && view !== 'triage' && (
+              <button
+                onClick={() => setView('triage')}
+                className="flex items-center gap-2.5 px-5 py-2.5 rounded-lg"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 4px 16px oklch(0% 0 0 / 0.1)',
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--text-tertiary)' }} />
+                解析进行中 · {triage.counts.done}/{triage.counts.total} · 点击查看
+              </button>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );
 }
 
-// 复用的标题组件
 function EntryHeader({ title, url }: { title: string; url: string }) {
   return (
     <header className="mb-10">

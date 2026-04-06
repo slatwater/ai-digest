@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { DigestEntry, ChatMessage } from './types';
 import { getEntry } from './storage';
+import { reportFromSDKMessage } from './token-report';
 
 type EventSender = (type: string, data: unknown) => void;
 
@@ -90,6 +91,7 @@ export async function runChat(
     });
 
     for await (const message of q) {
+      reportFromSDKMessage('ai-digest', message);
       const text = extractText(message);
       if (text) {
         fullReply += text;
