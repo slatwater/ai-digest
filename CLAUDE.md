@@ -21,7 +21,8 @@ src/
 ├── app/
 │   ├── page.tsx              # 主页面（五种视图：triage / digest / entry / blueprint / wiki-detail）
 │   ├── globals.css           # OKLCH 色彩系统 + 设计 tokens
-│   ├── api/triage/route.ts   # 快速研判 API（POST 创建 / GET 轮询 / DELETE）
+│   ├── api/triage/route.ts   # 解析 API（POST 创建 / GET 轮询 / DELETE）
+│   ├── api/triage-chat/route.ts # 解析卡片内置聊天 API（轻量 SSE）
 │   ├── api/digest/route.ts   # Agent SSE 流（深度研究）
 │   ├── api/chat/route.ts     # Agent SSE 流（追问对话）
 │   ├── api/wiki/route.ts     # Wiki 词条 API（GET 列表/详情/邻域/按来源查询）
@@ -29,21 +30,21 @@ src/
 │   ├── api/respond/route.ts  # 用户交互回复
 │   └── api/entries/route.ts  # 知识库条目 API（GET + PUT 留底 + PATCH + DELETE）
 ├── lib/
-│   ├── triage.ts             # 研判 Agent（知识点提取 + 溯源挖掘 + 四维度评分）
-│   ├── agent.ts              # 深度研究 Agent（采集→溯源→分析→实践→归档）
+│   ├── triage.ts             # 解析 Agent（具名技术识别 + Wiki 匹配 + 组合分析 + 增量统计）
+│   ├── agent.ts              # 深研 Agent（采集→溯源→技术识别→组合分析→归档）
 │   ├── chat.ts               # 追问对话 Agent（研究报告全文为上下文）
-│   ├── compiler.ts           # Wiki 编译器（从深研报告自动提取词条）
+│   ├── compiler.ts           # Wiki 存储（从深研已提取的概念直接存入，无独立 LLM 调用）
 │   ├── storage.ts            # 数据读写（JSON + MD 持久化 + triage batch + wiki）
-│   └── types.ts              # 类型定义（DigestEntry + TriageBatch + WikiEntry + DigestData）
+│   └── types.ts              # 类型定义（DigestEntry + TriageBatch + WikiEntry + AnalysisConcept）
 ├── components/
 │   ├── TriageView.tsx        # 解析视图（单条深研 + 批量解析 + 卡片列表 + 确认栏）
-│   ├── TriageCard.tsx        # 解析卡片（知识点 + 评分条 + 三档选择器）
-│   ├── WikiDetail.tsx        # Wiki 词条详情（正文 + 关联词条 + 来源溯源）
+│   ├── TriageCard.tsx        # 解析卡片（叙述模式 + 概念弹窗 + 内置聊天 + 增量统计）
+│   ├── WikiDetail.tsx        # Wiki 词条详情（原子/组合自动标签 + 组成树 + 被引用 + 来源溯源）
 │   ├── Sidebar.tsx           # 侧边栏（[+ 解析] 入口 + [条目|Wiki] tab + 原理链接）
 │   ├── AnalysisView.tsx      # 结构化分析报告 + Demo iframe 预览
 │   ├── ChatPanel.tsx         # 追问对话面板（流式渲染 + 持久化历史）
 │   ├── BlueprintView.tsx     # 运行原理页
-│   ├── PhaseIndicator.tsx    # 5 阶段进度指示器
+│   ├── PhaseIndicator.tsx    # 6 阶段进度指示器（采集→溯源→分解→组合→Demo→归档）
 │   └── StreamView.tsx        # 流式输出展示
 ├── hooks/
 │   ├── useTriage.ts          # 前端研判状态管理（提交 + 轮询 + 改判 + 确认）
@@ -57,11 +58,14 @@ scripts/scrape.py             # Scrapling 抓取脚本
 
 ## 产品流程
 ```
-批量链接 → 解析（知识点提取+溯源，逐条 1-2min）→ 解析卡片 → 用户挑选
-                                                          ↓
-                  跳过(丢弃) / 留底(知识点+评分存入知识库) / 深入 → 深度研究 → 知识库
-                                       ↓                                       ↑
-                                  知识库条目 ──── 一键深入（复用 ID 覆盖）──────┘
+批量链接 → 解析（具名技术识别+溯源+Wiki匹配+组合分析）→ 叙述卡片 → 用户挑选
+                                                               ↓
+           跳过(丢弃) / 留底(存入知识库) / 深入 → 深度研究 → 知识库 + Wiki
+                                  ↓                                    ↑
+                             知识库条目 ──── 一键深入（复用 ID 覆盖）───┘
+
+概念模型：具名技术 + composed-of 关系 → 层级自动涌现（程序判断，非 LLM）
+增量判断：基于 Wiki 已有词条客观统计（newCount/knownCount），非主观打分
 ```
 
 ## 代码规范

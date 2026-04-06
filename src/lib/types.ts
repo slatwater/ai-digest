@@ -1,5 +1,5 @@
 // Agent 流程阶段
-export type DigestPhase = 'capture' | 'trace' | 'analyze' | 'practice' | 'archive' | 'complete' | 'error';
+export type DigestPhase = 'capture' | 'trace' | 'decompose' | 'compose' | 'analyze' | 'practice' | 'archive' | 'complete' | 'error';
 
 // SSE 事件类型
 export type SSEEventType =
@@ -46,14 +46,31 @@ export interface SourceInfo {
   snippet?: string;
 }
 
+// 深研提取的概念
+export interface AnalysisConcept {
+  id: string;          // kebab-case slug，同时用于 Wiki
+  name: string;        // 中文名
+  aliases: string[];
+  domain: string;      // 归属领域
+  origin?: string;     // 来源：论文/作者/年份
+  isNew?: boolean;     // 是否为 Wiki 中不存在的新概念
+  summary: string;     // 2-3 句概要
+  what: string;        // 是什么（Markdown）
+  enables: string;     // 能做什么（Markdown）
+  limitations: string; // 现状与局限（Markdown）
+  relations: { conceptId: string; conceptName: string; type: 'builds-on' | 'contrasts' | 'related' | 'enables' | 'part-of' | 'composed-of'; description: string }[];
+}
+
 export interface AnalysisResult {
   tldr: string;
-  keyPoints: string[];
-  technical: string;
-  significance: string;
-  limitations: string;
-  comparison: string;
+  concepts?: AnalysisConcept[];  // 概念导向分析（新）
+  comparison?: string;           // 跨概念横向对比
   tags: string[];
+  // 旧字段（兼容已有条目）
+  keyPoints?: string[];
+  technical?: string;
+  significance?: string;
+  limitations?: string;
 }
 
 export interface DemoInfo {
@@ -316,19 +333,30 @@ export interface TriageRelation {
   overlap: string; // 具体关系描述
 }
 
-// 从文章中抽象出的核心知识点
+// 从文章中抽象出的原子概念
 export interface TriageConcept {
   name: string;           // 概念/技术点名称
-  root: string;           // 溯源：起源（谁/哪篇论文）+ 核心机制 + 突破点
+  isKnown?: boolean;      // 是否在 Wiki 中已存在
+  wikiId?: string;        // 匹配到的 Wiki 词条 id
+  root: string;           // 溯源：起源 → 核心机制 → 突破点
   whatItEnables: string;   // 拿到它能做什么、造什么
-  sourceUrl?: string;      // 一手来源 URL（官方仓库/论文/文档，Agent 通过工具查到的）
+  sourceUrl?: string;      // 一手来源 URL
 }
 
+// 旧版打分（兼容历史数据）
 export interface TriageScores {
-  novelty: number;       // 技术新颖度 1-5：1=换皮旧概念 5=范式转换
-  usability: number;     // 实用就绪度 1-5：1=纯概念 5=成熟稳定
-  leverage: number;      // 生产力杠杆 1-5：1=可有可无 5=颠覆工作方式
-  timing: number;        // 时机 1-5：1=太早了 5=再不看就晚了
+  novelty: number;
+  usability: number;
+  leverage: number;
+  timing: number;
+}
+
+// 新版增量分析（基于 Wiki 客观统计）
+export interface TriageDelta {
+  newCount: number;         // 新原子概念数量
+  knownCount: number;       // 已知概念数量
+  compositionNew: boolean;  // 组合方式是否新
+  gap: string;              // 填补知识库什么空白
 }
 
 export interface TriageEntry {
@@ -339,9 +367,13 @@ export interface TriageEntry {
   error?: string;
   // 以下字段在 status=done 时填充
   verdict?: TriageVerdict;
-  concepts?: TriageConcept[];    // 从文章中抽象出的核心知识点
-  explanation?: string;          // 整体理解（串联概念，说清楚意味着什么）
-  scores?: TriageScores;         // 四维度评分
+  concepts?: TriageConcept[];    // 识别到的具名技术
+  narrative?: string;            // 连贯叙述（技术名用 [[name|new/known:id]] 标记）
+  composition?: string;          // 组合方式（结构化备份）
+  solves?: string;               // 能解决什么（结构化备份）
+  explanation?: string;          // 整体理解
+  delta?: TriageDelta;            // 增量分析（基于 Wiki）
+  scores?: TriageScores;         // 旧版四维度评分（兼容）
   verdictReason?: string;        // verdict 理由（一句话）
   relatedEntries?: TriageRelation[]; // 知识库关联（参考用）
 }
@@ -367,7 +399,7 @@ export interface WikiSourceRef {
 export interface WikiRelation {
   conceptId: string;     // slug
   conceptName: string;
-  type: 'builds-on' | 'contrasts' | 'related' | 'enables' | 'part-of';
+  type: 'builds-on' | 'contrasts' | 'related' | 'enables' | 'part-of' | 'composed-of';
   description: string;
 }
 
@@ -377,6 +409,7 @@ export interface WikiEntry {
   name: string;
   aliases: string[];
   domain: string;        // e.g. "AI Safety", "LLM Inference"
+  origin?: string;       // 来源：论文/作者/年份
   summary: string;       // 2-3 句概要
   content: string;       // 完整 markdown 正文
   relations: WikiRelation[];
@@ -390,6 +423,7 @@ export interface WikiEntry {
 export interface WikiIndexEntry {
   id: string;
   name: string;
+  aliases: string[];
   domain: string;
   summary: string;
   relationCount: number;

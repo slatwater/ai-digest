@@ -1,21 +1,21 @@
 /**
- * 回填脚本：对已有的深度研究条目执行 Wiki 编译
+ * 回填脚本：对已有的深度研究条目，将 analysis.concepts 存入 Wiki
  * 用法: npx tsx scripts/backfill-concepts.ts
  */
 import { getEntries } from '../src/lib/storage';
-import { compileWiki } from '../src/lib/compiler';
+import { saveConceptsToWiki } from '../src/lib/compiler';
 
 async function main() {
   const entries = await getEntries();
 
-  // 只处理有 sources 的条目（深度研究过的）
-  const deepEntries = entries.filter(e => e.sources.length > 0 || (e.analysis?.technical && e.analysis.technical.length > 100));
-  console.log(`找到 ${deepEntries.length} 条深度研究条目（共 ${entries.length} 条）`);
+  // 只处理有 concepts 的条目
+  const withConcepts = entries.filter(e => e.analysis?.concepts?.length);
+  console.log(`找到 ${withConcepts.length} 条含概念的条目（共 ${entries.length} 条）`);
 
-  for (const entry of deepEntries) {
-    console.log(`\n编译: ${entry.title}`);
+  for (const entry of withConcepts) {
+    console.log(`\n存入 Wiki: ${entry.title} (${entry.analysis.concepts!.length} 个概念)`);
     try {
-      await compileWiki(entry);
+      await saveConceptsToWiki(entry.analysis.concepts!, entry);
     } catch (err) {
       console.error(`  失败:`, err);
     }

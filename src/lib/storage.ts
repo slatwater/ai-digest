@@ -205,7 +205,7 @@ function parseFrontmatter(raw: string): WikiEntry | null {
 
 function toIndexEntry(c: WikiEntry): WikiIndexEntry {
   return {
-    id: c.id, name: c.name, domain: c.domain, summary: c.summary,
+    id: c.id, name: c.name, aliases: c.aliases || [], domain: c.domain, summary: c.summary,
     relationCount: c.relations.length, sourceCount: c.sources.length,
     updatedAt: c.updatedAt,
   };

@@ -44,10 +44,7 @@ export async function PUT(req: NextRequest) {
     analysis: {
       tldr: tldr || '',
       keyPoints,
-      technical: '',
       significance: verdictReason || '',
-      limitations: '',
-      comparison: '',
       tags: allTags,
     },
     sources: [],

@@ -1,155 +1,107 @@
 [
   {
-    "id": "llm-post-training-paradigm",
-    "name": "LLM 后训练范式",
-    "domain": "LLM Training",
-    "summary": "LLM 预训练完成后通过 SFT、RLHF、DPO、自蒸馏等方法进一步提升模型在特定任务上表现的技术体系。当前主流路线依赖 RL+验证器的重型基础设施，但 SSD 等极简方法正在挑战这一复杂度假设。",
-    "relationCount": 2,
+    "id": "livecodebench",
+    "name": "LiveCodeBench",
+    "aliases": [
+      "LCB"
+    ],
+    "domain": "LLM Evaluation / Code Benchmarks",
+    "summary": "持续收集 LeetCode、AtCoder、CodeForces 新题目的代码生成评测基准，通过时间分段避免数据污染。SSD 论文使用 v6 版本（截至 2025 年 4 月，1055 题）。",
+    "relationCount": 0,
     "sourceCount": 1,
-    "updatedAt": "2026-04-05T08:38:13.404Z"
+    "updatedAt": "2026-04-06T16:36:04.104Z"
   },
   {
-    "id": "greedy-decoding-capability-gap",
-    "name": "贪婪解码能力鸿沟",
-    "domain": "LLM Inference",
-    "summary": "LLM 权重中已编码的能力与贪婪/低温解码策略实际表现之间存在的巨大鸿沟。代码生成中尤为突出，因为存在「锁定点需要精确」与「分支点需要探索」的根本冲突，全局温度缩放无法同时满足两者。",
+    "id": "rejection-sampling-fine-tuning",
+    "name": "Rejection Sampling Fine-Tuning (RFT)",
+    "aliases": [
+      "RFT",
+      "拒绝采样微调",
+      "RSFT",
+      "STaR"
+    ],
+    "domain": "LLM Post-Training",
+    "summary": "用模型自身生成多个候选输出，通过外部验证器过滤出正确的，再用正确输出做 SFT。SSD 论文表明跳过过滤步骤反而可能更好。",
+    "relationCount": 2,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-06T16:36:04.104Z"
+  },
+  {
+    "id": "greedy-decoding",
+    "name": "Greedy Decoding",
+    "aliases": [
+      "贪婪解码",
+      "Argmax Decoding"
+    ],
+    "domain": "LLM Inference / Decoding",
+    "summary": "每步选择概率最高的 token，确定性但可能陷入次优路径。SSD 论文指出它锁住了模型的潜在能力。",
+    "relationCount": 0,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-06T16:36:04.104Z"
+  },
+  {
+    "id": "top-k-sampling",
+    "name": "Top-k Sampling",
+    "aliases": [
+      "Top-k 截断采样"
+    ],
+    "domain": "LLM Inference / Decoding",
+    "summary": "仅保留概率最高的 k 个 token，将其余 token 的概率置零并重新归一化，从而限制采样的候选集。",
     "relationCount": 1,
     "sourceCount": 1,
-    "updatedAt": "2026-04-05T08:38:13.404Z"
+    "updatedAt": "2026-04-06T16:36:04.104Z"
+  },
+  {
+    "id": "temperature-sampling",
+    "name": "Temperature Sampling",
+    "aliases": [
+      "温度采样",
+      "Temperature Scaling"
+    ],
+    "domain": "LLM Inference / Decoding",
+    "summary": "通过温度参数 T 缩放 logits 来控制采样分布的尖锐度：T<1 使分布更集中（接近 greedy），T>1 使分布更平坦（增加多样性）。",
+    "relationCount": 1,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-06T16:36:04.104Z"
+  },
+  {
+    "id": "supervised-fine-tuning",
+    "name": "Supervised Fine-Tuning (SFT)",
+    "aliases": [
+      "SFT",
+      "监督微调",
+      "指令微调"
+    ],
+    "domain": "LLM Training",
+    "summary": "在预训练模型基础上，使用有标签数据（如指令-回复对）通过交叉熵损失进行微调，使模型学会遵循指令或提升特定任务性能。",
+    "relationCount": 0,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-06T16:36:04.104Z"
+  },
+  {
+    "id": "self-distillation",
+    "name": "Self-Distillation",
+    "aliases": [
+      "自蒸馏",
+      "Self-Training"
+    ],
+    "domain": "Machine Learning / Knowledge Distillation",
+    "summary": "一种知识蒸馏的变体，模型同时担任教师和学生角色，用自身的输出（或深层特征）来训练自身，无需外部教师模型。",
+    "relationCount": 1,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-06T16:36:04.104Z"
   },
   {
     "id": "simple-self-distillation",
-    "name": "简单自蒸馏",
-    "domain": "LLM Training",
-    "summary": "Apple Research 提出的极简后训练方法：仅用模型自身高温采样输出做标准 SFT，无需验证器、教师模型或 RL，即可大幅提升代码生成能力（Qwen3-30B pass@1 +30.4%）。其核心洞察是模型能力已编码在权重中但被贪婪解码锁住，通过自蒸馏改变输出分布本身来释放隐藏实力。",
-    "relationCount": 3,
+    "name": "Simple Self-Distillation (SSD)",
+    "aliases": [
+      "SSD",
+      "简单自蒸馏"
+    ],
+    "domain": "LLM Post-Training / Code Generation",
+    "summary": "一种极简的后训练方法：用当前模型在特定 temperature 和 truncation 配置下自行采样生成代码，不做任何正确性过滤，直接用这些原始输出做标准 SFT。核心洞察是通过重塑 token 分布来解决 greedy decoding 中的 precision-exploration 冲突。",
+    "relationCount": 6,
     "sourceCount": 1,
-    "updatedAt": "2026-04-05T08:38:13.404Z"
-  },
-  {
-    "id": "ai-coding-agent-trust-model",
-    "name": "AI Coding Agent 信任模型",
-    "domain": "Agent Architecture",
-    "summary": "AI Coding Agent 划分责任边界和安全权限的两种对立设计范式：一是「信任用户环境+精细化权限管控」（Claude Code 路线），二是「隔离一切+沙箱即安全边界」（Codex 路线）。这一根本性架构选择决定了 Agent 的执行环境、交互模式和故障恢复策略。",
-    "relationCount": 4,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-05T06:39:25.040Z"
-  },
-  {
-    "id": "ai-agent-context-governance",
-    "name": "Agent 上下文治理",
-    "domain": "Agent Architecture",
-    "summary": "AI Agent 管理有限上下文窗口的工程策略集合，包括上下文压缩、按话题索引的自愈记忆、对话历史裁剪等机制。解决 Agent 在长任务中上下文溢出导致性能退化的核心问题，不同产品采用截然不同的策略（话题索引 vs 全量重放）。",
-    "relationCount": 4,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-05T06:39:25.040Z"
-  },
-  {
-    "id": "ai-agent-query-loop",
-    "name": "Agent Query Loop",
-    "domain": "Agent Architecture",
-    "summary": "AI Agent 的核心执行循环架构模式，驱动「对话→推理→工具调用→结果回传」的迭代流程。不同 Agent 产品对 Query Loop 的设计（同步实时 vs 异步提交、单线程 vs 并行 Rollout）决定了交互体验和工程能力的根本差异。",
-    "relationCount": 3,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-05T06:39:25.040Z"
-  },
-  {
-    "id": "harness-engineering",
-    "name": "Harness Engineering",
-    "domain": "Agent Architecture",
-    "summary": "围绕不稳定 LLM 模型建立工程秩序的独立学科，涵盖控制面、主循环、工具权限、上下文治理、恢复路径、多代理验证与团队制度七大支柱。核心论点是竞争壁垒在 Harness 而非模型本身——同一模型在不同 Harness 下表现差异可达 78% vs 42%。",
-    "relationCount": 4,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-05T06:39:25.040Z"
-  },
-  {
-    "id": "production-system-prompt-architecture",
-    "name": "生产级系统提示词架构",
-    "domain": "Agent Architecture",
-    "summary": "AI 厂商为生产环境 LLM 产品设计的系统提示词工程体系，涵盖记忆系统、工具调用编排、安全护栏、输出格式控制、多智能体协调等模块化架构。通过泄露的提示词可观察到各厂商已形成高度复杂的分层架构（如 Claude Opus 4.6 提示词达 212KB），代表了当前 LLM 应用工程的最高水准。",
-    "relationCount": 3,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T04:28:41.169Z"
-  },
-  {
-    "id": "llm-jailbreaking-techniques",
-    "name": "LLM 越狱技术",
-    "domain": "AI Safety",
-    "summary": "通过精心构造的输入绕过 LLM 安全对齐机制和行为限制的攻击技术族群。包括角色扮演绕过、渐进式叙事攻击、编码混淆、Policy Puppetry（伪造策略文档格式的通用绕过）、JBFuzz（基于模糊测试的自动化越狱框架，成功率约 99%）等。Nature Communications 2026 年研究证实大推理模型可自主发现越狱路径。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T04:28:41.169Z"
-  },
-  {
-    "id": "llm-system-prompt-leakage",
-    "name": "LLM 系统提示词泄露",
-    "domain": "AI Safety",
-    "summary": "LLM 产品中隐藏的系统提示词被用户通过各种技术手段提取并公开的安全风险类别。OWASP 已将其列为 LLM Top 10 安全风险之一（LLM07:2025）。当前研究表明主流模型的系统提示在技术上几乎无法完全保密（越狱成功率 97-99%），引发了 AI 透明度与安全性的根本性辩论。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T04:28:41.169Z"
-  },
-  {
-    "id": "snn-stdp-online-adaptation",
-    "name": "SNN-STDP 在线适应学习",
-    "domain": "Neuromorphic Computing",
-    "summary": "基于脉冲神经网络（SNN）和突触时序依赖可塑性（STDP）学习规则的在线无监督学习方法，模拟生物神经突触的赫布学习机制。在 WiFi 感知等场景中，可实现部署后 <30 秒自动适应新环境，无需额外标注数据或重新训练。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T03:58:16.272Z"
-  },
-  {
-    "id": "edge-ai-extreme-quantization",
-    "name": "边缘AI极致量化",
-    "domain": "Edge AI",
-    "summary": "将深度学习模型通过 4-bit/2-bit 量化压缩到 KB 级别（如 8KB），使其可直接在 ESP32 等微控制器的 SRAM 中运行的工程技术。代表了边缘 AI 在资源受限设备上部署的工程极限探索。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T03:58:16.272Z"
-  },
-  {
-    "id": "wifi-csi-human-sensing",
-    "name": "WiFi CSI 人体感知",
-    "domain": "Wireless Sensing",
-    "summary": "利用 WiFi 信道状态信息（CSI）中子载波的幅度和相位变化，通过深度学习推断人体存在、姿态、活动和生命体征的非视觉感知技术。无需摄像头，天然保护隐私，且具备穿墙能力，但纯 WiFi 模式下姿态估计精度仍远低于视觉方案。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T03:58:16.272Z"
-  },
-  {
-    "id": "llm-as-knowledge-worker",
-    "name": "LLM 知识工人范式",
-    "domain": "Agent Architecture",
-    "summary": "将 LLM 的角色从代码生成扩展到知识的采集、编译、维护、质检全生命周期管理。人退出编辑角色只负责提问和验收，LLM 承担知识工人的全部职能，代表 LLM 应用从「写代码」到「管知识」的范式转变。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T03:10:25.367Z"
-  },
-  {
-    "id": "retrieval-augmented-generation",
-    "name": "检索增强生成",
-    "domain": "LLM Inference",
-    "summary": "通过在生成前从外部知识库检索相关文档片段，将其注入 LLM 上下文以增强回答质量的技术范式。典型架构包括向量数据库、嵌入模型和 LLM 三大组件，是当前企业级知识问答的主流方案。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T03:10:25.367Z"
-  },
-  {
-    "id": "llm-self-indexing",
-    "name": "LLM 自索引",
-    "domain": "LLM Inference",
-    "summary": "LLM 自行维护知识库的索引文件和文档摘要，在中等规模（约 40 万词）下实现检索能力，绕过向量数据库和嵌入模型等传统 RAG 基础设施。核心依赖是 LLM 上下文窗口足以容纳索引信息。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T03:10:25.367Z"
-  },
-  {
-    "id": "llm-knowledge-compilation",
-    "name": "LLM 知识编译",
-    "domain": "Knowledge Management",
-    "summary": "由 Karpathy 提出的知识管理范式，将 LLM 类比为编译器，自动将原始研究资料（论文、文章、代码等）增量编译为结构化 Markdown Wiki。人退出编辑角色，只负责提问和验收，所有知识组织、摘要生成、反向链接和持续维护均由 LLM 完成。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-04T03:10:25.367Z"
+    "updatedAt": "2026-04-06T16:36:04.104Z"
   }
 ]

@@ -13,6 +13,7 @@ interface WikiDetailProps {
 }
 
 const RELATION_LABELS: Record<string, string> = {
+  'composed-of': '组成',
   'builds-on': '基于',
   'enables': '使能',
   'part-of': '属于',
@@ -21,6 +22,16 @@ const RELATION_LABELS: Record<string, string> = {
 };
 
 export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEntry }: WikiDetailProps) {
+  // 自动判断：有 composed-of 子节点 → 组合概念，否则 → 原子概念
+  const composedOf = entry.relations.filter(r => r.type === 'composed-of');
+  const otherRelations = entry.relations.filter(r => r.type !== 'composed-of');
+  const isComposition = composedOf.length > 0;
+
+  // 反向引用：哪些邻居的 composed-of 指向本词条
+  const usedBy = neighbors.filter(n =>
+    n.relations.some(r => r.type === 'composed-of' && r.conceptId === entry.id)
+  );
+
   return (
     <div>
       {/* 返回 */}
@@ -49,17 +60,29 @@ export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEnt
           </p>
         )}
         <div className="flex items-center gap-2 mt-2">
+          {/* 原子/组合 自动标签 */}
           <span
             className="px-2 py-0.5 rounded"
             style={{
               fontSize: 'var(--text-xs)',
-              color: 'var(--accent-text)',
-              background: 'var(--accent-subtle)',
               fontWeight: 500,
+              color: isComposition ? 'var(--text-secondary)' : 'var(--accent-text)',
+              background: isComposition ? 'var(--bg-subtle)' : 'var(--accent-subtle)',
             }}
+          >
+            {isComposition ? '组合概念' : '原子概念'}
+          </span>
+          <span
+            className="px-2 py-0.5 rounded"
+            style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)', background: 'var(--accent-subtle)', fontWeight: 500 }}
           >
             {entry.domain}
           </span>
+          {entry.origin && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
+              {entry.origin}
+            </span>
+          )}
         </div>
       </header>
 
@@ -79,6 +102,52 @@ export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEnt
           </blockquote>
         )}
 
+        {/* 组成（组合概念才显示） */}
+        {composedOf.length > 0 && (
+          <section>
+            <SectionHeader title={`由 ${composedOf.length} 个概念组成`} />
+            <div className="space-y-2">
+              {composedOf.map((rel, i) => {
+                const exists = neighbors.some(n => n.id === rel.conceptId);
+                return (
+                  <div key={i} className="flex items-baseline gap-3">
+                    <span className="shrink-0 w-4 text-center" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>├</span>
+                    {exists ? (
+                      <button onClick={() => onSelectWiki(rel.conceptId)} className="prose-link" style={{ fontSize: 'var(--text-sm)' }}>
+                        {rel.conceptName}
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{rel.conceptName}</span>
+                    )}
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>{rel.description}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* 被引用（原子概念才显示，或者组合概念也可能被更高层引用） */}
+        {usedBy.length > 0 && (
+          <section>
+            <SectionHeader title={`被 ${usedBy.length} 个概念引用`} />
+            <div className="space-y-2">
+              {usedBy.map(n => {
+                const rel = n.relations.find(r => r.type === 'composed-of' && r.conceptId === entry.id);
+                return (
+                  <div key={n.id} className="flex items-baseline gap-3">
+                    <span className="shrink-0 w-4 text-center" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>←</span>
+                    <button onClick={() => onSelectWiki(n.id)} className="prose-link" style={{ fontSize: 'var(--text-sm)' }}>
+                      {n.name}
+                    </button>
+                    {rel && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>{rel.description}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* 正文 */}
         {entry.content && (
           <div className="prose prose-neutral prose-sm max-w-none" style={{ color: 'var(--text-primary)' }}>
@@ -86,45 +155,29 @@ export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEnt
           </div>
         )}
 
-        {/* 关联词条 */}
-        {entry.relations.length > 0 && (
+        {/* 其他关系（非 composed-of） */}
+        {otherRelations.length > 0 && (
           <section>
             <SectionHeader title="关联词条" />
             <div className="space-y-2">
-              {entry.relations.map((rel, i) => {
+              {otherRelations.map((rel, i) => {
                 const exists = neighbors.some(n => n.id === rel.conceptId);
                 return (
-                  <div
-                    key={i}
-                    className="flex items-baseline gap-3"
-                  >
+                  <div key={i} className="flex items-baseline gap-3">
                     <span
                       className="shrink-0 px-1.5 py-0.5 rounded"
-                      style={{
-                        fontSize: '0.625rem',
-                        fontFamily: 'var(--font-mono)',
-                        color: 'var(--text-quaternary)',
-                        background: 'var(--bg-subtle)',
-                      }}
+                      style={{ fontSize: '0.625rem', fontFamily: 'var(--font-mono)', color: 'var(--text-quaternary)', background: 'var(--bg-subtle)' }}
                     >
                       {RELATION_LABELS[rel.type] || rel.type}
                     </span>
                     {exists ? (
-                      <button
-                        onClick={() => onSelectWiki(rel.conceptId)}
-                        className="prose-link"
-                        style={{ fontSize: 'var(--text-sm)' }}
-                      >
+                      <button onClick={() => onSelectWiki(rel.conceptId)} className="prose-link" style={{ fontSize: 'var(--text-sm)' }}>
                         {rel.conceptName}
                       </button>
                     ) : (
-                      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                        {rel.conceptName}
-                      </span>
+                      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{rel.conceptName}</span>
                     )}
-                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-                      {rel.description}
-                    </span>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>{rel.description}</span>
                   </div>
                 );
               })}
@@ -139,21 +192,10 @@ export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEnt
             <div className="space-y-2">
               {entry.sources.map((src, i) => (
                 <div key={i} className="flex items-baseline gap-3">
-                  <span
-                    className="shrink-0"
-                    style={{
-                      fontSize: 'var(--text-xs)',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--text-quaternary)',
-                    }}
-                  >
+                  <span className="shrink-0" style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-quaternary)' }}>
                     {src.date.slice(0, 10)}
                   </span>
-                  <button
-                    onClick={() => onSelectEntry(src.entryId)}
-                    className="prose-link truncate"
-                    style={{ fontSize: 'var(--text-sm)' }}
-                  >
+                  <button onClick={() => onSelectEntry(src.entryId)} className="prose-link truncate" style={{ fontSize: 'var(--text-sm)' }}>
                     {src.entryTitle}
                   </button>
                 </div>
@@ -170,15 +212,8 @@ export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEnt
           {entry.tags.length > 0 ? (
             <div className="flex flex-wrap gap-2 min-w-0">
               {entry.tags.map((tag, i) => (
-                <span
-                  key={i}
-                  className="px-2.5 py-1 rounded shrink-0"
-                  style={{
-                    fontSize: 'var(--text-xs)',
-                    color: 'var(--text-secondary)',
-                    background: 'var(--bg-subtle)',
-                  }}
-                >
+                <span key={i} className="px-2.5 py-1 rounded shrink-0"
+                  style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', background: 'var(--bg-subtle)' }}>
                   {tag}
                 </span>
               ))}
