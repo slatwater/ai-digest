@@ -1,107 +1,28 @@
 [
   {
-    "id": "livecodebench",
-    "name": "LiveCodeBench",
+    "id": "precision-exploration-conflict",
+    "name": "Precision-Exploration Conflict",
     "aliases": [
-      "LCB"
+      "Lock-Fork Duality",
+      "精确-探索冲突"
     ],
-    "domain": "LLM Evaluation / Code Benchmarks",
-    "summary": "持续收集 LeetCode、AtCoder、CodeForces 新题目的代码生成评测基准，通过时间分段避免数据污染。SSD 论文使用 v6 版本（截至 2025 年 4 月，1055 题）。",
-    "relationCount": 0,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
-  },
-  {
-    "id": "rejection-sampling-fine-tuning",
-    "name": "Rejection Sampling Fine-Tuning (RFT)",
-    "aliases": [
-      "RFT",
-      "拒绝采样微调",
-      "RSFT",
-      "STaR"
-    ],
-    "domain": "LLM Post-Training",
-    "summary": "用模型自身生成多个候选输出，通过外部验证器过滤出正确的，再用正确输出做 SFT。SSD 论文表明跳过过滤步骤反而可能更好。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
-  },
-  {
-    "id": "greedy-decoding",
-    "name": "Greedy Decoding",
-    "aliases": [
-      "贪婪解码",
-      "Argmax Decoding"
-    ],
-    "domain": "LLM Inference / Decoding",
-    "summary": "每步选择概率最高的 token，确定性但可能陷入次优路径。SSD 论文指出它锁住了模型的潜在能力。",
-    "relationCount": 0,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
-  },
-  {
-    "id": "top-k-sampling",
-    "name": "Top-k Sampling",
-    "aliases": [
-      "Top-k 截断采样"
-    ],
-    "domain": "LLM Inference / Decoding",
-    "summary": "仅保留概率最高的 k 个 token，将其余 token 的概率置零并重新归一化，从而限制采样的候选集。",
+    "domain": "LLM Decoding Theory",
+    "summary": "代码生成中 token 序列存在两类位置：需要精确的「锁定位置」和需要多样性的「分叉位置」。任何全局固定解码温度必须在两者之间妥协，这是温度调优效果有限的根本原因。",
     "relationCount": 1,
     "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
-  },
-  {
-    "id": "temperature-sampling",
-    "name": "Temperature Sampling",
-    "aliases": [
-      "温度采样",
-      "Temperature Scaling"
-    ],
-    "domain": "LLM Inference / Decoding",
-    "summary": "通过温度参数 T 缩放 logits 来控制采样分布的尖锐度：T<1 使分布更集中（接近 greedy），T>1 使分布更平坦（增加多样性）。",
-    "relationCount": 1,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
-  },
-  {
-    "id": "supervised-fine-tuning",
-    "name": "Supervised Fine-Tuning (SFT)",
-    "aliases": [
-      "SFT",
-      "监督微调",
-      "指令微调"
-    ],
-    "domain": "LLM Training",
-    "summary": "在预训练模型基础上，使用有标签数据（如指令-回复对）通过交叉熵损失进行微调，使模型学会遵循指令或提升特定任务性能。",
-    "relationCount": 0,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
-  },
-  {
-    "id": "self-distillation",
-    "name": "Self-Distillation",
-    "aliases": [
-      "自蒸馏",
-      "Self-Training"
-    ],
-    "domain": "Machine Learning / Knowledge Distillation",
-    "summary": "一种知识蒸馏的变体，模型同时担任教师和学生角色，用自身的输出（或深层特征）来训练自身，无需外部教师模型。",
-    "relationCount": 1,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
+    "updatedAt": "2026-04-07T03:59:04.797Z"
   },
   {
     "id": "simple-self-distillation",
     "name": "Simple Self-Distillation (SSD)",
     "aliases": [
       "SSD",
-      "简单自蒸馏"
+      "Embarrassingly Simple Self-Distillation"
     ],
     "domain": "LLM Post-Training / Code Generation",
-    "summary": "一种极简的后训练方法：用当前模型在特定 temperature 和 truncation 配置下自行采样生成代码，不做任何正确性过滤，直接用这些原始输出做标准 SFT。核心洞察是通过重塑 token 分布来解决 greedy decoding 中的 precision-exploration 冲突。",
-    "relationCount": 6,
+    "summary": "一种极简的后训练方法：从冻结模型采样输出（高温度+截断），不做任何正确性过滤，直接用标准 SFT 训练。通过上下文相关的 token 分布重塑，释放模型已有但被贪婪解码锁住的能力。",
+    "relationCount": 3,
     "sourceCount": 1,
-    "updatedAt": "2026-04-06T16:36:04.104Z"
+    "updatedAt": "2026-04-07T03:59:04.797Z"
   }
 ]

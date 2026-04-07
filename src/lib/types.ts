@@ -1,5 +1,5 @@
 // Agent 流程阶段
-export type DigestPhase = 'capture' | 'trace' | 'decompose' | 'compose' | 'analyze' | 'practice' | 'archive' | 'complete' | 'error';
+export type DigestPhase = 'capture' | 'trace' | 'decompose' | 'compose' | 'analyze' | 'archive' | 'complete' | 'error';
 
 // SSE 事件类型
 export type SSEEventType =
@@ -8,7 +8,6 @@ export type SSEEventType =
   | 'question'     // 向用户提问
   | 'sources'      // 发现的相关来源
   | 'analysis'     // 结构化分析结果
-  | 'demo'         // Demo 代码
   | 'complete'     // 完成
   | 'error';       // 错误
 
@@ -61,9 +60,22 @@ export interface AnalysisConcept {
   relations: { conceptId: string; conceptName: string; type: 'builds-on' | 'contrasts' | 'related' | 'enables' | 'part-of' | 'composed-of'; description: string }[];
 }
 
+// 叙事报告：问题驱动的渐进式深度研究
+export interface NarrativeReport {
+  oneliner: string;              // 一句非技术语言说清楚这篇在干什么
+  situation: string;             // 现状与矛盾（Markdown）
+  insight: string;               // 核心洞察（Markdown）
+  insightHighlight: string;      // 一句话提炼洞察（高亮框用）
+  mechanism: string;             // 方案机制（Markdown）
+  evidence: string;              // 效果与边界（Markdown）
+  implications: string;          // 启发（Markdown）
+  conceptIndex: string[];        // 概念 id 列表，链接到 Wiki
+}
+
 export interface AnalysisResult {
   tldr: string;
-  concepts?: AnalysisConcept[];  // 概念导向分析（新）
+  narrative?: NarrativeReport;   // 叙事报告（新）
+  concepts?: AnalysisConcept[];  // 概念拆解（给 Wiki）
   comparison?: string;           // 跨概念横向对比
   tags: string[];
   // 旧字段（兼容已有条目）
@@ -71,13 +83,6 @@ export interface AnalysisResult {
   technical?: string;
   significance?: string;
   limitations?: string;
-}
-
-export interface DemoInfo {
-  language: string;
-  filename: string;
-  code: string;
-  instructions: string;
 }
 
 // ============================================================
@@ -292,7 +297,6 @@ export interface DigestEntry {
   entryType?: 'saved' | 'researched'; // saved=留底, researched=深度研究
   analysis: AnalysisResult;
   sources: SourceInfo[];
-  demo?: DemoInfo;
   data?: DigestData;      // 结构化可视化数据
   fullMarkdown: string;   // 完整的分析报告 MD
   chatHistory?: ChatMessage[]; // 追问对话历史

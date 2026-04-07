@@ -191,7 +191,7 @@ export default function Home() {
                 </div>
                 <EntryHeader title={selectedEntry.title} url={selectedEntry.url} />
                 <AnalysisView entry={selectedEntry} onSelectWiki={handleSelectWiki} />
-                <ChatPanel entryId={selectedEntry.id} />
+                <div className="h-16" /> {/* 底部留白给浮动输入栏 */}
               </div>
             )}
 
@@ -256,7 +256,7 @@ export default function Home() {
                   <div>
                     <EntryHeader title={activeEntry.title} url={activeEntry.url} />
                     <AnalysisView entry={activeEntry} onSelectWiki={handleSelectWiki} />
-                    {digest.phase === 'complete' && <ChatPanel entryId={activeEntry.id} />}
+                    <div className="h-16" /> {/* 底部留白给浮动输入栏 */}
                   </div>
                 )}
 
@@ -323,6 +323,11 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* 浮动追问面板：阅读过程中随时可用 */}
+      {((view === 'entry' && selectedEntry) || (view === 'digest' && activeEntry && digest.phase === 'complete')) && (
+        <ChatPanel entryId={(view === 'entry' ? selectedEntry?.id : activeEntry?.id) || ''} />
+      )}
     </div>
   );
 }

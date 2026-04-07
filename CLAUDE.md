@@ -31,20 +31,20 @@ src/
 │   └── api/entries/route.ts  # 知识库条目 API（GET + PUT 留底 + PATCH + DELETE）
 ├── lib/
 │   ├── triage.ts             # 解析 Agent（具名技术识别 + Wiki 匹配 + 组合分析 + 增量统计）
-│   ├── agent.ts              # 深研 Agent（采集→溯源→技术识别→组合分析→归档）
+│   ├── agent.ts              # 深研 Agent（采集→溯源→识别→叙事报告+概念拆解→归档）
 │   ├── chat.ts               # 追问对话 Agent（研究报告全文为上下文）
 │   ├── compiler.ts           # Wiki 存储（从深研已提取的概念直接存入，无独立 LLM 调用）
 │   ├── storage.ts            # 数据读写（JSON + MD 持久化 + triage batch + wiki）
-│   └── types.ts              # 类型定义（DigestEntry + TriageBatch + WikiEntry + AnalysisConcept）
+│   └── types.ts              # 类型定义（DigestEntry + NarrativeReport + WikiEntry + AnalysisConcept）
 ├── components/
 │   ├── TriageView.tsx        # 解析视图（单条深研 + 批量解析 + 卡片列表 + 确认栏）
 │   ├── TriageCard.tsx        # 解析卡片（叙述模式 + 概念弹窗 + 内置聊天 + 增量统计）
 │   ├── WikiDetail.tsx        # Wiki 词条详情（原子/组合自动标签 + 组成树 + 被引用 + 来源溯源）
 │   ├── Sidebar.tsx           # 侧边栏（[+ 解析] 入口 + [条目|Wiki] tab + 原理链接）
-│   ├── AnalysisView.tsx      # 结构化分析报告 + Demo iframe 预览
+│   ├── AnalysisView.tsx      # 叙事研究报告（渐进式：一句话→矛盾→洞察→机制→效果→启发→概念索引）
 │   ├── ChatPanel.tsx         # 追问对话面板（流式渲染 + 持久化历史）
 │   ├── BlueprintView.tsx     # 运行原理页
-│   ├── PhaseIndicator.tsx    # 6 阶段进度指示器（采集→溯源→分解→组合→Demo→归档）
+│   ├── PhaseIndicator.tsx    # 5 阶段进度指示器（采集→溯源→识别→叙事→归档）
 │   └── StreamView.tsx        # 流式输出展示
 ├── hooks/
 │   ├── useTriage.ts          # 前端研判状态管理（提交 + 轮询 + 改判 + 确认）
@@ -64,7 +64,8 @@ scripts/scrape.py             # Scrapling 抓取脚本
                                   ↓                                    ↑
                              知识库条目 ──── 一键深入（复用 ID 覆盖）───┘
 
-概念模型：具名技术 + composed-of 关系 → 层级自动涌现（程序判断，非 LLM）
+深研报告：问题驱动叙事（一句话→现状与矛盾→核心洞察→方案机制→效果与边界→启发→概念索引）
+概念拆解：具名技术 + composed-of 关系 → Wiki 积累
 增量判断：基于 Wiki 已有词条客观统计（newCount/knownCount），非主观打分
 ```
 
@@ -72,4 +73,3 @@ scripts/scrape.py             # Scrapling 抓取脚本
 - 中文注释，英文变量名
 - 色彩用 OKLCH，暖色调中性色 + 墨绿强调色
 - 深度研究通过 SSE 推送事件，批量解析通过 3s 轮询
-- Demo 始终生成纯 HTML/CSS/JS 单文件，通过 iframe 预览，内容必须基于真实采集数据

@@ -5,9 +5,8 @@ import { DigestPhase } from '@/lib/types';
 const PHASES: { key: DigestPhase; label: string }[] = [
   { key: 'capture', label: '采集' },
   { key: 'trace', label: '溯源' },
-  { key: 'decompose', label: '分解' },
-  { key: 'compose', label: '组合' },
-  { key: 'practice', label: 'Demo' },
+  { key: 'decompose', label: '识别' },
+  { key: 'compose', label: '叙事' },
   { key: 'archive', label: '归档' },
 ];
 

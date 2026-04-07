@@ -3,7 +3,7 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import { execFile } from 'child_process';
 import path from 'path';
-import { DigestPhase, QuestionEvent, DigestEntry, AnalysisResult, AnalysisConcept, SourceInfo } from './types';
+import { DigestPhase, QuestionEvent, DigestEntry, AnalysisResult, AnalysisConcept, NarrativeReport, SourceInfo } from './types';
 import { saveEntry, getEntries, getWikiEntries } from './storage';
 import { saveConceptsToWiki } from './compiler';
 import { reportFromSDKMessage } from './token-report';
@@ -73,7 +73,7 @@ export function buildSystemPrompt(scrapedContent: string, wikiContext?: string):
     ? `\n## 已有 Wiki 概念（用于判断新旧）\n${wikiContext}\n`
     : '';
 
-  return `你是一个 AI 前沿技术深度研究助手。你的任务是：识别文章涉及的具名技术，分析它们如何组合，产出可积累的知识。
+  return `你是一个 AI 前沿技术深度研究助手。你的任务是：深入理解文章的技术贡献，产出让读者能真正理解和判断该技术的研究报告。
 
 ## 什么是"具名技术"
 有明确名称、可查证来源的技术/方法/算法/框架。例如：KV Cache、LoRA、Speculative Decoding、vLLM。
@@ -81,7 +81,7 @@ export function buildSystemPrompt(scrapedContent: string, wikiContext?: string):
 
 ## 工作流程
 
-你需要按照以下阶段依次完成工作，每完成一个阶段输出对应的 JSON 标记：
+你需要按照以下阶段依次完成工作：
 
 ### 阶段 1: 采集 (Capture)
 - 网页内容已预先抓取并附在用户消息中，直接使用即可
@@ -104,13 +104,40 @@ export function buildSystemPrompt(scrapedContent: string, wikiContext?: string):
 - **如果 Wiki 中已有含义相同的技术，必须复用其 id，禁止新建**
 ${wikiSection}
 ### 阶段 4: 组合分析 (Compose)
-分析文章如何组合上述技术。
+分析文章如何组合上述技术，理解其技术贡献的完整脉络。
 
-- 用 composed-of 关系连接组合技术与其组成部分
-- 说清楚组合的创新点
-- 输出能解决什么实际问题
+输出两个结构化 JSON，分别用标记包裹：
 
-输出结构化 JSON（用 ===ANALYSIS_START=== 和 ===ANALYSIS_END=== 包裹）:
+**A) 叙事报告**（用 ===NARRATIVE_START=== 和 ===NARRATIVE_END=== 包裹）:
+
+这是面向读者的研究报告，目标是让读者 10 分钟内达到"能判断该技术是否对自己有用 + 知道如何复现"的理解深度。
+
+===NARRATIVE_START===
+{
+  "oneliner": "一句非技术语言说清楚这篇在干什么（给 5 秒判断要不要读）",
+  "situation": "现状与矛盾（Markdown）：当前做法是什么、碰到了什么天花板、用具体数据/现象锚定问题严重程度、为什么现有方案解决不了（本质矛盾）。目标：让读者产生'确实需要新方案'的判断",
+  "insight": "核心洞察（Markdown）：作者发现了什么关键事实/规律、这个发现为什么能打破上面的矛盾。这是全文最重要的一段",
+  "insightHighlight": "一句话提炼洞察（用于视觉高亮框，方便回看）",
+  "mechanism": "方案机制（Markdown）：具体怎么做的（步骤级描述，可复现）、每步为什么这样设计（连接回核心洞察）、关键参数/配置/选择 + 作者的实验结论",
+  "evidence": "效果与边界（Markdown）：核心实验数据（用 Markdown 表格）、在什么条件下有效/失效、与主流替代方案的 trade-off 对比",
+  "implications": "启发（Markdown）：这个工作打开了什么新可能、对后续研究或工程实践的潜在影响",
+  "conceptIndex": ["concept-id-1", "concept-id-2"]
+}
+===NARRATIVE_END===
+
+叙事报告写作原则：
+- 以事实为基础，不主观评价
+- 渐入式深入：每层建立在上一层之上
+- 正文中首次出现核心概念时用 **加粗** 标记
+- situation 要花足够篇幅让读者建立问题感，不要跳过直接讲方案
+- mechanism 不是罗列步骤，是讲推理——每步为什么这样做
+- evidence 必须包含具体数据，用 Markdown 表格呈现对比
+- 每段控制在 2-4 个自然段，避免大段文字墙
+
+**B) 概念拆解**（用 ===ANALYSIS_START=== 和 ===ANALYSIS_END=== 包裹）:
+
+这是给 Wiki 积累的结构化数据。
+
 ===ANALYSIS_START===
 {
   "tldr": "一句话概括",
@@ -136,39 +163,41 @@ ${wikiSection}
 }
 ===ANALYSIS_END===
 
-输出规则：
+概念拆解规则：
 - concepts 中的 name 必须是公认名称，不是自创概念名
 - 已知技术必须复用 Wiki 中的 id 和名称，禁止重复创建
 - 组合技术通过 composed-of 关系指向其组成部分
 - isNew 严格基于 Wiki 列表判断
 
 ### 阶段 5: 归档 (Archive)
-- 生成完整的 Markdown 研究报告
+- 生成完整的 Markdown 研究报告（留档用，将叙事报告展开为完整文章）
 - 报告格式（用 ===REPORT_START=== 和 ===REPORT_END=== 包裹）:
 ===REPORT_START===
 # 标题
 
-> TLDR
+> 一句话概括
 
 ## 来源
 - [来源名](URL)
 
-## 结构分解
-（用文字描述组合概念由哪些原子组成，创新点是什么）
-
-## 概念名 1
-### 是什么
-...
-### 能做什么
-...
-### 现状与局限
+## 现状与矛盾
 ...
 
-## 概念名 2
+## 核心洞察
 ...
 
-## 横向对比
+## 方案机制
 ...
+
+## 效果与边界
+...
+
+## 启发
+...
+
+## 概念索引
+- **概念名1**: 一句话概要
+- **概念名2**: 一句话概要
 
 ---
 日期: YYYY-MM-DD
@@ -279,12 +308,18 @@ function extractAnalysisFromReport(report: string): AnalysisResult | null {
 // 解析 Agent 输出中的结构化数据
 function parseStructuredData(fullText: string) {
   let analysis: AnalysisResult | null = null;
+  let narrative: NarrativeReport | null = null;
   let sources: SourceInfo[] = [];
-  let demo: { language: string; filename: string; code: string; instructions: string } | null = null;
   let report = '';
   let title = '';
 
-  // 解析分析结果
+  // 解析叙事报告
+  const narrativeMatch = fullText.match(/===NARRATIVE_START===([\s\S]*?)===NARRATIVE_END===/);
+  if (narrativeMatch) {
+    narrative = safeParseJSON<NarrativeReport>(narrativeMatch[1], 'narrative');
+  }
+
+  // 解析概念拆解
   const analysisMatch = fullText.match(/===ANALYSIS_START===([\s\S]*?)===ANALYSIS_END===/);
   if (analysisMatch) {
     analysis = safeParseJSON<AnalysisResult>(analysisMatch[1], 'analysis');
@@ -294,12 +329,6 @@ function parseStructuredData(fullText: string) {
   const sourcesMatch = fullText.match(/===SOURCES_START===([\s\S]*?)===SOURCES_END===/);
   if (sourcesMatch) {
     sources = safeParseJSON<SourceInfo[]>(sourcesMatch[1], 'sources') || [];
-  }
-
-  // 解析 Demo
-  const demoMatch = fullText.match(/===DEMO_START===([\s\S]*?)===DEMO_END===/);
-  if (demoMatch) {
-    demo = safeParseJSON<typeof demo>(demoMatch[1], 'demo');
   }
 
   // 解析报告
@@ -312,6 +341,13 @@ function parseStructuredData(fullText: string) {
     }
   }
 
+  // 将 narrative 合入 analysis
+  if (narrative && analysis) {
+    analysis.narrative = narrative;
+  } else if (narrative && !analysis) {
+    analysis = { tldr: narrative.oneliner, narrative, tags: [] };
+  }
+
   // fallback: 标记解析失败时从报告 markdown 中提取
   if (!analysis) {
     analysis = extractAnalysisFromReport(report);
@@ -320,101 +356,7 @@ function parseStructuredData(fullText: string) {
     }
   }
 
-  return { analysis, sources, demo, report, title };
-}
-
-// Demo 生成：通过本地 Codex CLI（ChatGPT OAuth 登录态）执行
-async function generateDemo(
-  url: string,
-  analysis: AnalysisResult,
-  report: string,
-  abortController: AbortController,
-): Promise<{ language: string; filename: string; code: string; instructions: string } | null> {
-  const conceptContext = analysis.concepts?.length
-    ? analysis.concepts.map(c => `### ${c.name}\n${c.summary}\n${c.what?.slice(0, 400)}`).join('\n\n')
-    : `核心要点: ${analysis.keyPoints?.join('; ') || ''}\n技术分析: ${analysis.technical?.slice(0, 800) || ''}`;
-
-  const context = `
-## 项目信息
-- URL: ${url}
-- TLDR: ${analysis.tldr}
-
-## 核心概念
-${conceptContext}
-${report ? `\n## 研究报告摘要\n${report.slice(0, 1500)}` : ''}
-`.trim();
-
-  const demoPrompt = `你是一个前端 Demo 生成专家。基于以下研究内容，生成一个可交互的浏览器 Demo。不要读取任何文件，不要执行任何命令，直接输出。所有输出用中文。
-
-${context}
-
-要求：
-1. 纯 HTML/CSS/JS 单文件，可直接在 iframe 中运行
-2. 禁止依赖外部 CDN 或网络资源
-3. 必须有交互性（点击、输入、动画等）
-4. 所有展示内容必须基于上面的真实研究数据，禁止编造
-5. 视觉精致，体现设计感
-
-严格按以下格式输出，不要输出其他内容：
-
-===INSTRUCTIONS===
-一句话说明这个 demo 展示了什么
-===HTML_START===
-完整的 HTML 文件内容（<!DOCTYPE html> 开头）
-===HTML_END===`;
-
-  const outputFile = path.join(process.cwd(), 'data', `.demo-output-${Date.now()}.txt`);
-
-  try {
-    const codexBin = path.join(process.cwd(), 'node_modules', '.bin', 'codex');
-    const { stdout } = await execFileAsync(codexBin, [
-      'exec',
-      '-c', 'model_reasoning_effort=medium',
-      '--sandbox', 'read-only',
-      '--ephemeral',
-      '--skip-git-repo-check',
-      '-o', outputFile,
-      demoPrompt,
-    ], {
-      timeout: 4 * 60 * 1000,
-      signal: abortController.signal,
-      cwd: '/tmp',
-    });
-
-    // 优先从 -o 输出文件读取，fallback 到 stdout
-    let demoText = '';
-    try {
-      const fs = await import('fs/promises');
-      demoText = await fs.readFile(outputFile, 'utf-8');
-    } catch {
-      demoText = stdout;
-    }
-
-    // 清理临时文件
-    try { const fs = await import('fs/promises'); await fs.unlink(outputFile); } catch { /* 忽略 */ }
-
-    // 解析纯文本标记（避免 JSON 转义问题）
-    const htmlMatch = demoText.match(/===HTML_START===([\s\S]*?)===HTML_END===/);
-    if (htmlMatch) {
-      const code = htmlMatch[1].trim();
-      const instrMatch = demoText.match(/===INSTRUCTIONS===\s*\n?([\s\S]*?)===HTML_START===/);
-      const instructions = instrMatch?.[1]?.trim() || 'Demo';
-      return { language: 'html', filename: 'demo.html', code, instructions };
-    }
-
-    // fallback: 兼容旧的 JSON 标记格式
-    const jsonMatch = demoText.match(/===DEMO_START===([\s\S]*?)===DEMO_END===/);
-    if (jsonMatch) {
-      const parsed = safeParseJSON<{ language: string; filename: string; code: string; instructions: string }>(jsonMatch[1], 'generateDemo');
-      if (parsed) return parsed;
-    }
-
-    console.warn('[demo] Codex 输出中未找到 Demo 标记，输出前 500 字:', demoText.slice(0, 500));
-    return null;
-  } catch (err) {
-    console.warn('[demo] Codex Demo 生成失败:', (err as Error).message);
-    return null;
-  }
+  return { analysis, sources, report, title };
 }
 
 // 检查 URL 是否已有分析
@@ -469,7 +411,7 @@ export async function runDigest(
   let fullText = '';
   let currentPhase: DigestPhase = 'capture';
 
-  // 阶段顺序：采集→溯源→分解→组合分析→归档（practice 由独立 Agent 处理）
+  // 阶段顺序：采集→溯源→分解→组合分析→归档
   const phaseOrder: DigestPhase[] = ['capture', 'trace', 'decompose', 'compose', 'archive'];
   let currentPhaseIdx = 0;
 
@@ -515,11 +457,9 @@ export async function runDigest(
             const labels: Record<string, string> = {
               capture: '正在采集内容...',
               trace: '正在溯源搜索...',
-              decompose: '正在分解原子概念...',
-              compose: '正在分析组合创新...',
-              analyze: '正在深度分析...',
-              practice: '正在生成 Demo...',
-              archive: '正在生成报告...',
+              decompose: '正在识别核心技术...',
+              compose: '正在构建叙事报告...',
+              archive: '正在归档...',
             };
             send('phase', { phase, label: labels[phase] || phase });
           }
@@ -540,22 +480,6 @@ export async function runDigest(
     // 解析完整输出
     const parsed = parseStructuredData(fullText);
 
-    // Demo 由独立 Agent 生成（干净上下文，不累积主流程 tokens）
-    let finalDemo: { language: string; filename: string; code: string; instructions: string } | null = null;
-    if (parsed.analysis) {
-      send('phase', { phase: 'practice', label: '正在生成 Demo...' });
-      try {
-        finalDemo = await generateDemo(url, parsed.analysis, parsed.report, abortController);
-        if (!finalDemo) {
-          console.warn('[demo] generateDemo 返回 null，Demo 标记未匹配');
-          send('text', { content: '\n⚠️ Demo 生成未返回有效结果，已跳过\n', phase: 'practice' });
-        }
-      } catch (err) {
-        console.error('[demo] generateDemo 异常:', err);
-        send('text', { content: `\n⚠️ Demo 生成失败: ${(err as Error).message}\n`, phase: 'practice' });
-      }
-    }
-
     // 构建知识库条目
     const entry: DigestEntry = {
       id: sessionId,
@@ -570,7 +494,6 @@ export async function runDigest(
         tags: [],
       },
       sources: parsed.sources,
-      demo: finalDemo || undefined,
       fullMarkdown: parsed.report || fullText,
     };
 
@@ -585,9 +508,6 @@ export async function runDigest(
     }
 
     send('analysis', entry.analysis);
-    if (entry.demo) {
-      send('demo', entry.demo);
-    }
     send('complete', { entryId: entry.id, title: entry.title });
 
     return sessionId;

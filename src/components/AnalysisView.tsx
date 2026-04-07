@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { DigestEntry, DemoInfo, WikiIndexEntry } from '@/lib/types';
+import { DigestEntry, WikiIndexEntry } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -17,6 +17,7 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
   }, [entry.id]);
 
   const { analysis } = entry;
+  const narrative = analysis.narrative;
   const hasConcepts = analysis.concepts && analysis.concepts.length > 0;
 
   let sectionNum = 0;
@@ -24,27 +25,126 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
 
   return (
     <article className="space-y-10">
-      {/* TLDR */}
-      {analysis.tldr && (
-        <blockquote
-          className="relative pl-5 py-1"
-          style={{ borderLeft: '2px solid var(--accent)' }}
-        >
-          <p
-            className="font-medium leading-relaxed"
-            style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
-          >
-            {analysis.tldr}
-          </p>
-        </blockquote>
-      )}
-
-      {hasConcepts ? (
+      {/* ── 叙事报告（新格式） ── */}
+      {narrative ? (
         <>
+          {/* 一句话 */}
+          <blockquote
+            className="relative pl-5 py-1"
+            style={{ borderLeft: '2px solid var(--accent)' }}
+          >
+            <p
+              className="font-medium leading-relaxed"
+              style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
+            >
+              {narrative.oneliner}
+            </p>
+          </blockquote>
+
+          {/* 现状与矛盾 */}
+          {narrative.situation && (
+            <Section title="现状与矛盾" number={nextNum()}>
+              <Prose>{narrative.situation}</Prose>
+            </Section>
+          )}
+
+          {/* 核心洞察 */}
+          {narrative.insight && (
+            <Section title="核心洞察" number={nextNum()}>
+              <Prose>{narrative.insight}</Prose>
+              {narrative.insightHighlight && (
+                <div
+                  className="mt-5 px-5 py-4 rounded-md"
+                  style={{
+                    background: 'var(--accent-subtle)',
+                    border: '1px solid var(--accent)',
+                  }}
+                >
+                  <p
+                    className="font-medium leading-relaxed"
+                    style={{ fontSize: 'var(--text-sm)', color: 'var(--accent-text)' }}
+                  >
+                    {narrative.insightHighlight}
+                  </p>
+                </div>
+              )}
+            </Section>
+          )}
+
+          {/* 方案机制 */}
+          {narrative.mechanism && (
+            <Section title="方案机制" number={nextNum()}>
+              <Prose>{narrative.mechanism}</Prose>
+            </Section>
+          )}
+
+          {/* 效果与边界 */}
+          {narrative.evidence && (
+            <Section title="效果与边界" number={nextNum()}>
+              <Prose>{narrative.evidence}</Prose>
+            </Section>
+          )}
+
+          {/* 启发 */}
+          {narrative.implications && (
+            <Section title="启发" number={nextNum()}>
+              <Prose>{narrative.implications}</Prose>
+            </Section>
+          )}
+
+          {/* 概念索引 */}
+          {relatedWiki.length > 0 && (
+            <Section title="概念索引" number={nextNum()}>
+              <div className="space-y-2">
+                {relatedWiki.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => onSelectWiki?.(c.id)}
+                    className="flex items-baseline gap-3 w-full text-left group"
+                    style={{ cursor: onSelectWiki ? 'pointer' : 'default' }}
+                  >
+                    <span
+                      className="font-medium shrink-0"
+                      style={{
+                        fontSize: 'var(--text-sm)',
+                        color: 'var(--accent-text)',
+                        transition: 'color var(--duration-fast) var(--ease-out)',
+                      }}
+                    >
+                      {c.name}
+                    </span>
+                    <span
+                      className="truncate"
+                      style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}
+                    >
+                      {c.summary}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </Section>
+          )}
+        </>
+      ) : hasConcepts ? (
+        <>
+          {/* ── 旧概念格式（兼容已有条目） ── */}
+          {analysis.tldr && (
+            <blockquote
+              className="relative pl-5 py-1"
+              style={{ borderLeft: '2px solid var(--accent)' }}
+            >
+              <p
+                className="font-medium leading-relaxed"
+                style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
+              >
+                {analysis.tldr}
+              </p>
+            </blockquote>
+          )}
+
           {/* 结构分解图 */}
           {(() => {
             const compositions = analysis.concepts!.filter(c => c.relations?.some(r => r.type === 'composed-of'));
-            const atoms = analysis.concepts!.filter(c => !c.relations?.some(r => r.type === 'composed-of'));
             if (compositions.length > 0) {
               return (
                 <Section title="结构分解" number={nextNum()}>
@@ -71,11 +171,6 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
                         </div>
                       </div>
                     ))}
-                    {compositions[0]?.relations?.some(r => r.type === 'composed-of') && (
-                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: '1.65' }}>
-                        {compositions.map(c => c.summary).filter(Boolean).join(' ')}
-                      </p>
-                    )}
                   </div>
                 </Section>
               );
@@ -86,7 +181,6 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
           {/* 概念卡片 */}
           {analysis.concepts!.map(concept => (
             <Section title={concept.name} number={nextNum()} key={concept.id}>
-              {/* 标签行 */}
               <div className="flex items-center gap-2 mb-4">
                 {concept.isNew === false && (
                   <span className="px-2 py-0.5 rounded" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', background: 'var(--bg-subtle)', fontWeight: 500 }}>✓已知</span>
@@ -103,7 +197,6 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
                   <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>{concept.origin}</span>
                 )}
               </div>
-              {/* 概要 */}
               {concept.summary && (
                 <blockquote className="relative pl-4 py-0.5 mb-6" style={{ borderLeft: '2px solid var(--border)' }}>
                   <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: '1.65' }}>
@@ -117,16 +210,56 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
             </Section>
           ))}
 
-          {/* 横向对比 */}
           {analysis.comparison && (
             <Section title="横向对比" number={nextNum()}>
               <Prose>{analysis.comparison}</Prose>
             </Section>
           )}
+
+          {/* 关联 Wiki（旧格式用） */}
+          {relatedWiki.length > 0 && (
+            <Section title="关联 Wiki" number={nextNum()}>
+              <div className="flex flex-wrap gap-2">
+                {relatedWiki.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => onSelectWiki?.(c.id)}
+                    className="px-3 py-1.5 rounded-md"
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--accent-text)',
+                      background: 'var(--accent-subtle)',
+                      border: '1px solid transparent',
+                      fontWeight: 500,
+                      cursor: onSelectWiki ? 'pointer' : 'default',
+                      transition: 'border-color var(--duration-fast) var(--ease-out)',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </Section>
+          )}
         </>
       ) : (
         <>
-          {/* ── 旧格式兼容 ── */}
+          {/* ── 最旧格式兼容 ── */}
+          {analysis.tldr && (
+            <blockquote
+              className="relative pl-5 py-1"
+              style={{ borderLeft: '2px solid var(--accent)' }}
+            >
+              <p
+                className="font-medium leading-relaxed"
+                style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
+              >
+                {analysis.tldr}
+              </p>
+            </blockquote>
+          )}
           {analysis.keyPoints && analysis.keyPoints.length > 0 && (
             <Section title="核心要点" number={nextNum()}>
               <div className="space-y-3">
@@ -159,13 +292,6 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
         </>
       )}
 
-      {/* Demo */}
-      {entry.demo && (
-        <Section title="Demo" number={nextNum()}>
-          <DemoBlock demo={entry.demo} />
-        </Section>
-      )}
-
       {/* 来源 */}
       {entry.sources.length > 0 && (
         <Section title="来源" number={nextNum()}>
@@ -188,34 +314,6 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
                   {src.title || src.url}
                 </a>
               </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* 关联 Wiki */}
-      {relatedWiki.length > 0 && (
-        <Section title="关联 Wiki" number={nextNum()}>
-          <div className="flex flex-wrap gap-2">
-            {relatedWiki.map(c => (
-              <button
-                key={c.id}
-                onClick={() => onSelectWiki?.(c.id)}
-                className="px-3 py-1.5 rounded-md"
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--accent-text)',
-                  background: 'var(--accent-subtle)',
-                  border: '1px solid transparent',
-                  fontWeight: 500,
-                  cursor: onSelectWiki ? 'pointer' : 'default',
-                  transition: 'border-color var(--duration-fast) var(--ease-out)',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}
-              >
-                {c.name}
-              </button>
             ))}
           </div>
         </Section>
@@ -293,79 +391,5 @@ function Prose({ children }: { children: string }) {
     <div className="prose prose-neutral prose-sm max-w-none" style={{ color: 'var(--text-primary)' }}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
     </div>
-  );
-}
-
-// === Demo 相关 ===
-
-function DemoBlock({ demo }: { demo: DemoInfo }) {
-  const [tab, setTab] = useState<'preview' | 'code'>('preview');
-
-  return (
-    <div>
-      <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-        <div
-          className="flex items-center px-4 py-2"
-          style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border)' }}
-        >
-          <div className="flex items-center gap-1">
-            <TabBtn active={tab === 'preview'} onClick={() => setTab('preview')}>预览</TabBtn>
-            <TabBtn active={tab === 'code'} onClick={() => setTab('code')}>代码</TabBtn>
-          </div>
-          <button
-            onClick={() => navigator.clipboard.writeText(demo.code)}
-            className="ml-auto link-subtle"
-            style={{ fontSize: 'var(--text-xs)' }}
-          >
-            复制代码
-          </button>
-        </div>
-        {tab === 'preview' ? (
-          <iframe
-            srcDoc={demo.code}
-            sandbox="allow-scripts"
-            className="w-full"
-            style={{ height: '400px', border: 'none', background: '#fff' }}
-          />
-        ) : (
-          <pre
-            className="overflow-x-auto px-4 py-4"
-            style={{
-              background: 'oklch(12% 0.01 75)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-sm)',
-              color: 'oklch(85% 0.005 75)',
-              lineHeight: '1.7',
-              margin: 0,
-            }}
-          >
-            {demo.code}
-          </pre>
-        )}
-      </div>
-      {demo.instructions && (
-        <p className="mt-3" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>
-          {demo.instructions}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className="px-2.5 py-1 rounded"
-      style={{
-        fontSize: 'var(--text-xs)',
-        fontWeight: active ? 500 : 400,
-        color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
-        background: active ? 'var(--bg-elevated)' : 'transparent',
-        transition: 'color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out)',
-      }}
-    >
-      {children}
-    </button>
   );
 }
