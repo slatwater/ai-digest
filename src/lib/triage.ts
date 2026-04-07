@@ -195,18 +195,26 @@ function parseTriageOutput(fullText: string): TriageOutput | null {
     if (result) return result;
   }
 
-  // 方式 2：尝试从全文中找 JSON 对象（Agent 可能省略了标记）
-  const jsonMatch = fullText.match(/\{[\s\S]*"verdict"[\s\S]*"explanation"[\s\S]*\}/);
+  // 方式 2：尝试从全文中找包含 verdict 的 JSON 对象（宽松匹配字段顺序）
+  const jsonMatch = fullText.match(/\{[\s\S]*"verdict"[\s\S]*\}/);
   if (jsonMatch) {
     const result = safeParseJSON<TriageOutput>(jsonMatch[0], 'triage-fallback');
-    if (result) return result;
+    if (result?.verdict) return result;
   }
 
   // 方式 3：去掉 markdown 围栏再试
   const stripped = stripCodeFence(fullText);
   if (stripped.startsWith('{')) {
     const result = safeParseJSON<TriageOutput>(stripped, 'triage-stripped');
-    if (result) return result;
+    if (result?.verdict) return result;
+  }
+
+  // 方式 4：提取最后一个完整 JSON 块（Agent 可能在 JSON 前后输出了其他文本）
+  const allJsonBlocks = [...fullText.matchAll(/```(?:json)?\s*\n(\{[\s\S]*?\})\s*\n```/g)];
+  if (allJsonBlocks.length > 0) {
+    const lastBlock = allJsonBlocks[allJsonBlocks.length - 1][1];
+    const result = safeParseJSON<TriageOutput>(lastBlock, 'triage-codeblock');
+    if (result?.verdict) return result;
   }
 
   console.warn('[triage] 解析失败，输出全文长度:', fullText.length, '| 前 1000 字:', fullText.slice(0, 1000));
@@ -303,8 +311,46 @@ ${knowledgeContext.entriesCtx}
       entry.relatedEntries = result.relatedEntries || [];
       entry.status = 'done';
     } else {
-      entry.status = 'error';
-      entry.error = '无法解析研判结果';
+      // 解析失败：自动重试一次（简化 prompt，只要求 JSON）
+      console.warn(`[triage] ${entry.url} 首次解析失败，重试中...`);
+      try {
+        let retryText = '';
+        const retryQ = query({
+          prompt: `你的上次输出未能被解析。请只输出 ===TRIAGE_START=== 和 ===TRIAGE_END=== 包裹的 JSON，不要输出其他内容。\n\n原始内容摘要（前2000字）：\n${fullText.slice(0, 2000)}`,
+          options: {
+            systemPrompt: buildTriagePrompt(knowledgeContext.wikiCtx),
+            cwd: process.cwd(),
+            allowedTools: [],
+            permissionMode: 'bypassPermissions' as const,
+            allowDangerouslySkipPermissions: true,
+            maxTurns: 1,
+            abortController: new AbortController(),
+            persistSession: false,
+          },
+        });
+        for await (const msg of retryQ) {
+          const t = extractText(msg);
+          if (t) retryText += t;
+        }
+        const retryResult = parseTriageOutput(retryText);
+        if (retryResult) {
+          entry.title = retryResult.title || entry.url;
+          entry.verdict = retryResult.verdict;
+          entry.concepts = retryResult.concepts || [];
+          entry.narrative = retryResult.narrative;
+          entry.delta = retryResult.delta;
+          entry.verdictReason = retryResult.verdictReason;
+          entry.relatedEntries = retryResult.relatedEntries || [];
+          entry.status = 'done';
+          console.log(`[triage] ${entry.url} 重试成功`);
+        } else {
+          entry.status = 'error';
+          entry.error = '无法解析研判结果（重试后仍失败）';
+        }
+      } catch {
+        entry.status = 'error';
+        entry.error = '无法解析研判结果';
+      }
     }
   } catch (err) {
     entry.status = 'error';

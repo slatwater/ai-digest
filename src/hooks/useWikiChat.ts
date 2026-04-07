@@ -20,6 +20,60 @@ export function useWikiChat() {
 
   const abortRef = useRef<AbortController | null>(null);
 
+  // 公共 SSE 流读取逻辑
+  const streamFromResponse = useCallback(async (res: Response) => {
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('无法读取响应流');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullReply = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'text') {
+            fullReply += event.data.content;
+            setState(prev => ({ ...prev, currentReply: fullReply }));
+          } else if (event.type === 'error') {
+            throw new Error(event.data.message);
+          }
+        } catch (e) {
+          if (e instanceof Error &&
+              e.message !== 'Unexpected end of JSON input' &&
+              !e.message.startsWith('Unexpected token')) {
+            throw e;
+          }
+        }
+      }
+    }
+
+    if (fullReply) {
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: fullReply,
+        timestamp: Date.now(),
+      };
+      setState(prev => ({
+        ...prev,
+        messages: [...prev.messages, assistantMsg],
+        isStreaming: false,
+        currentReply: '',
+      }));
+    } else {
+      setState(prev => ({ ...prev, isStreaming: false }));
+    }
+  }, []);
+
   const ask = useCallback(async (question: string) => {
     if (!question.trim()) return;
 
@@ -56,56 +110,7 @@ export function useWikiChat() {
         throw new Error(err.error || '请求失败');
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('无法读取响应流');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let fullReply = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === 'text') {
-              fullReply += event.data.content;
-              setState(prev => ({ ...prev, currentReply: fullReply }));
-            } else if (event.type === 'error') {
-              throw new Error(event.data.message);
-            }
-          } catch (e) {
-            if (e instanceof Error &&
-                e.message !== 'Unexpected end of JSON input' &&
-                !e.message.startsWith('Unexpected token')) {
-              throw e;
-            }
-          }
-        }
-      }
-
-      if (fullReply) {
-        const assistantMsg: ChatMessage = {
-          role: 'assistant',
-          content: fullReply,
-          timestamp: Date.now(),
-        };
-        setState(prev => ({
-          ...prev,
-          messages: [...prev.messages, assistantMsg],
-          isStreaming: false,
-          currentReply: '',
-        }));
-      } else {
-        setState(prev => ({ ...prev, isStreaming: false }));
-      }
+      await streamFromResponse(res);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setState(prev => ({
@@ -116,12 +121,57 @@ export function useWikiChat() {
         }));
       }
     }
-  }, [state.messages]);
+  }, [state.messages, streamFromResponse]);
+
+  // 知识库健康检查
+  const lint = useCallback(async () => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: '知识库健康检查',
+      timestamp: Date.now(),
+    };
+
+    setState(prev => ({
+      ...prev,
+      messages: [...prev.messages, userMsg],
+      isStreaming: true,
+      currentReply: '',
+      error: null,
+    }));
+
+    try {
+      const res = await fetch('/api/wiki-lint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || '请求失败');
+      }
+
+      await streamFromResponse(res);
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        setState(prev => ({
+          ...prev,
+          error: (error as Error).message,
+          isStreaming: false,
+          currentReply: '',
+        }));
+      }
+    }
+  }, [streamFromResponse]);
 
   const clear = useCallback(() => {
     abortRef.current?.abort();
     setState({ messages: [], isStreaming: false, currentReply: '', error: null });
   }, []);
 
-  return { ...state, ask, clear };
+  return { ...state, ask, lint, clear };
 }

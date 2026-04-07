@@ -21,6 +21,18 @@
       "conceptName": "Context Governance",
       "type": "composed-of",
       "description": "上下文治理是 Harness 的记忆与预算管理器官"
+    },
+    {
+      "conceptId": "agent-skills-standard",
+      "conceptName": "Agent Skills",
+      "type": "builds-on",
+      "description": "Agent Skills 是 Harness Engineering 控制面（提示词分层与组装）的可移植载体，将硬编码的控制逻辑外化为标准化的程序性知识文件"
+    },
+    {
+      "conceptId": "gepa-prompt-evolution",
+      "conceptName": "GEPA (Genetic-Pareto Prompt Evolution)",
+      "type": "enables",
+      "description": "GEPA 为 Harness Engineering 的文本制品（提示词、工具描述、技能文件）提供自动化进化优化能力，使 harness 调优从手工走向系统化"
     }
   ],
   "sources": [
@@ -33,7 +45,7 @@
   ],
   "tags": [],
   "createdAt": "2026-04-07T05:55:52.069Z",
-  "updatedAt": "2026-04-07T05:55:52.069Z"
+  "updatedAt": "2026-04-07T09:21:21.908Z"
 }
 ---
 

@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDigest } from '@/hooks/useDigest';
 import { PhaseIndicator } from '@/components/PhaseIndicator';
-import { StreamView } from '@/components/StreamView';
+import { PhaseSummaryView } from '@/components/PhaseSummaryView';
 import { AnalysisView } from '@/components/AnalysisView';
 import { Sidebar } from '@/components/Sidebar';
 import { BlueprintView } from '@/components/BlueprintView';
@@ -266,8 +266,13 @@ export default function Home() {
                   </div>
                 )}
 
-                {digest.messages.length > 0 && !activeEntry && (
-                  <StreamView messages={digest.messages} isRunning={digest.isRunning} />
+                {(digest.isRunning || (digest.phase === 'complete' && !activeEntry)) && (
+                  <PhaseSummaryView
+                    currentPhase={digest.phase}
+                    phaseSummary={digest.phaseSummary}
+                    messages={digest.messages}
+                    isRunning={digest.isRunning}
+                  />
                 )}
 
                 {activeEntry && (

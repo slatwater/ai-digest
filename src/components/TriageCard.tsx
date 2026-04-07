@@ -412,16 +412,47 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
   );
 }
 
-// ── 骨架屏 ──
-function Skeleton() {
+// ── 处理中状态 ──
+function ProcessingState({ url, status }: { url: string; status: 'pending' | 'processing' }) {
+  // 从 URL 提取显示名
+  const displayUrl = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
   return (
-    <div className="py-5 px-5 rounded-lg" style={{ border: '1px solid var(--border-subtle)' }}>
-      <div className="animate-pulse space-y-3">
-        <div className="h-4 w-2/3 rounded" style={{ background: 'var(--bg-subtle)' }} />
-        <div className="h-3 w-full rounded" style={{ background: 'var(--bg-subtle)' }} />
-        <div className="h-3 w-full rounded" style={{ background: 'var(--bg-subtle)' }} />
-        <div className="h-3 w-1/2 rounded" style={{ background: 'var(--bg-subtle)' }} />
-      </div>
+    <div
+      className="py-4 px-5 rounded-lg flex items-center gap-3"
+      style={{ border: '1px solid var(--border-subtle)' }}
+    >
+      <span className="shrink-0 flex items-center gap-1">
+        {status === 'processing' ? (
+          [0, 1, 2].map(i => (
+            <span
+              key={i}
+              className="w-1 h-1 rounded-full animate-pulse"
+              style={{ background: 'var(--accent)', animationDelay: `${i * 200}ms` }}
+            />
+          ))
+        ) : (
+          <span style={{ color: 'var(--text-quaternary)', fontSize: 'var(--text-xs)' }}>·</span>
+        )}
+      </span>
+      <span
+        className="truncate min-w-0"
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-xs)',
+          color: status === 'processing' ? 'var(--text-secondary)' : 'var(--text-quaternary)',
+        }}
+      >
+        {displayUrl}
+      </span>
+      {status === 'processing' && (
+        <span
+          className="shrink-0 ml-auto"
+          style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}
+        >
+          解析中
+        </span>
+      )}
     </div>
   );
 }
@@ -431,7 +462,9 @@ export function TriageCard({ entry, verdict, onVerdictChange }: Props) {
   const [expanded, setExpanded] = useState<boolean>(verdict !== 'skip');
   const [popupConcept, setPopupConcept] = useState<TriageConcept | null>(null);
 
-  if (entry.status === 'pending' || entry.status === 'processing') return <Skeleton />;
+  if (entry.status === 'pending' || entry.status === 'processing') {
+    return <ProcessingState url={entry.url} status={entry.status} />;
+  }
 
   if (entry.status === 'error') {
     return (

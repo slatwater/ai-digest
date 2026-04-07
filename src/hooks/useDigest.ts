@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { DigestPhase, StreamMessage, QuestionEvent, DigestEntry } from '@/lib/types';
+import { DigestPhase, StreamMessage, QuestionEvent, DigestEntry, PhaseSummary, SourceInfo, AnalysisConcept } from '@/lib/types';
 
 interface DuplicateInfo {
   entryId: string;
@@ -12,6 +12,7 @@ interface DigestState {
   phase: DigestPhase | null;
   phaseLabel: string;
   messages: StreamMessage[];
+  phaseSummary: PhaseSummary;
   question: QuestionEvent | null;
   isRunning: boolean;
   entry: DigestEntry | null;
@@ -24,6 +25,7 @@ export function useDigest() {
     phase: null,
     phaseLabel: '',
     messages: [],
+    phaseSummary: {},
     question: null,
     isRunning: false,
     entry: null,
@@ -40,6 +42,7 @@ export function useDigest() {
       phase: 'capture',
       phaseLabel: '正在采集内容...',
       messages: [],
+      phaseSummary: {},
       question: null,
       isRunning: true,
       entry: null,
@@ -123,13 +126,16 @@ export function useDigest() {
 
   const handleEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
     switch (event.type) {
-      case 'phase':
-        setState(prev => ({
-          ...prev,
-          phase: event.data.phase as DigestPhase,
-          phaseLabel: event.data.label as string,
-        }));
+      case 'phase': {
+        const phase = event.data.phase as DigestPhase;
+        setState(prev => {
+          const ps = { ...prev.phaseSummary };
+          if (phase === 'compose') ps.compose = { done: false };
+          if (phase === 'archive') ps.archive = { done: false };
+          return { ...prev, phase, phaseLabel: event.data.label as string, phaseSummary: ps };
+        });
         break;
+      }
 
       case 'text': {
         const msg: StreamMessage = {
@@ -150,6 +156,37 @@ export function useDigest() {
         setState(prev => ({
           ...prev,
           question: event.data as unknown as QuestionEvent,
+        }));
+        break;
+
+      case 'title':
+        setState(prev => ({
+          ...prev,
+          phaseSummary: { ...prev.phaseSummary, capture: { ...prev.phaseSummary.capture, title: event.data.title as string } },
+        }));
+        break;
+
+      case 'sources':
+        setState(prev => ({
+          ...prev,
+          phaseSummary: { ...prev.phaseSummary, trace: { sources: event.data.sources as SourceInfo[] } },
+        }));
+        break;
+
+      case 'concepts':
+        setState(prev => ({
+          ...prev,
+          phaseSummary: {
+            ...prev.phaseSummary,
+            decompose: { concepts: (event.data.concepts as Array<{ name: string; isNew?: boolean }>) },
+          },
+        }));
+        break;
+
+      case 'narrative':
+        setState(prev => ({
+          ...prev,
+          phaseSummary: { ...prev.phaseSummary, compose: { done: true } },
         }));
         break;
 

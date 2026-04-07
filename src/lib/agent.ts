@@ -410,6 +410,7 @@ export async function runDigest(
 
   let fullText = '';
   let currentPhase: DigestPhase = 'capture';
+  const sentMarkers = new Set<string>(); // 防止增量事件重复发送
 
   // 阶段顺序：采集→溯源→分解→组合分析→归档
   const phaseOrder: DigestPhase[] = ['capture', 'trace', 'decompose', 'compose', 'archive'];
@@ -462,6 +463,61 @@ export async function runDigest(
               archive: '正在归档...',
             };
             send('phase', { phase, label: labels[phase] || phase });
+          }
+        }
+
+        // 增量结构化事件：标记闭合后立即发送，同时补推 phase
+        // （Agent 可能跳过 ===PHASE:xxx=== 标记，用数据就绪来兜底）
+        const advancePhase = (target: DigestPhase) => {
+          const idx = phaseOrder.indexOf(target);
+          if (idx > currentPhaseIdx) {
+            currentPhaseIdx = idx;
+            currentPhase = target;
+            session.phase = target;
+            const labels: Record<string, string> = {
+              capture: '正在采集内容...',
+              trace: '正在溯源搜索...',
+              decompose: '正在识别核心技术...',
+              compose: '正在构建叙事报告...',
+              archive: '正在归档...',
+            };
+            send('phase', { phase: target, label: labels[target] || target });
+          }
+        };
+
+        if (!sentMarkers.has('sources')) {
+          const m = fullText.match(/===SOURCES_START===([\s\S]*?)===SOURCES_END===/);
+          if (m) {
+            sentMarkers.add('sources');
+            advancePhase('trace');
+            const parsed = safeParseJSON<SourceInfo[]>(m[1], 'sources-incr');
+            if (parsed) send('sources', { sources: parsed });
+          }
+        }
+        if (!sentMarkers.has('title')) {
+          const m = fullText.match(/===REPORT_START===[\s\S]*?# (.+)$/m);
+          if (m) {
+            sentMarkers.add('title');
+            send('title', { title: m[1] });
+          }
+        }
+        if (!sentMarkers.has('concepts')) {
+          const m = fullText.match(/===ANALYSIS_START===([\s\S]*?)===ANALYSIS_END===/);
+          if (m) {
+            sentMarkers.add('concepts');
+            advancePhase('decompose');
+            const parsed = safeParseJSON<AnalysisResult>(m[1], 'concepts-incr');
+            if (parsed?.concepts) {
+              send('concepts', { concepts: parsed.concepts.map(c => ({ name: c.name, isNew: c.isNew })) });
+            }
+          }
+        }
+        if (!sentMarkers.has('narrative')) {
+          const m = fullText.match(/===NARRATIVE_START===([\s\S]*?)===NARRATIVE_END===/);
+          if (m) {
+            sentMarkers.add('narrative');
+            advancePhase('compose');
+            send('narrative', { done: true });
           }
         }
 

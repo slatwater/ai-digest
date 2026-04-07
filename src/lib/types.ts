@@ -8,8 +8,20 @@ export type SSEEventType =
   | 'question'     // 向用户提问
   | 'sources'      // 发现的相关来源
   | 'analysis'     // 结构化分析结果
+  | 'title'        // 报告标题（增量）
+  | 'concepts'     // 概念列表（增量）
+  | 'narrative'    // 叙事报告（增量）
   | 'complete'     // 完成
   | 'error';       // 错误
+
+// 深研过程中各阶段的摘要数据
+export interface PhaseSummary {
+  capture?: { title?: string };
+  trace?: { sources: SourceInfo[] };
+  decompose?: { concepts: Array<{ name: string; isNew?: boolean }> };
+  compose?: { done: boolean };
+  archive?: { done: boolean };
+}
 
 export interface SSEEvent {
   type: SSEEventType;

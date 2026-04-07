@@ -12,12 +12,13 @@ interface WikiChatProps {
     currentReply: string;
     error: string | null;
     ask: (question: string) => void;
+    lint: () => void;
     clear: () => void;
   };
 }
 
 export function WikiChatView({ chat }: WikiChatProps) {
-  const { messages, isStreaming, currentReply, error, ask, clear } = chat;
+  const { messages, isStreaming, currentReply, error, ask, lint, clear } = chat;
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +72,21 @@ export function WikiChatView({ chat }: WikiChatProps) {
               向知识库提问，获得基于所有研究积累的回答。
             </p>
             <div className="space-y-2">
+              {/* 健康检查 */}
+              <button
+                onClick={lint}
+                className="block w-full text-left px-4 py-2.5 rounded-md"
+                style={{
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: 500,
+                  color: 'var(--accent-text)',
+                  background: 'var(--accent-subtle)',
+                  border: '1px solid var(--accent)',
+                }}
+              >
+                知识库健康检查 — 矛盾检测 · 孤立概念 · 关系补全 · 空白分析
+              </button>
+              {/* 预设问题 */}
               {[
                 '目前知识库中有哪些关键概念？它们之间是什么关系？',
                 '有哪些概念之间存在矛盾或不同观点？',
