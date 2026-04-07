@@ -10,11 +10,13 @@ import { BlueprintView } from '@/components/BlueprintView';
 import { ChatPanel } from '@/components/ChatPanel';
 import { TriageView } from '@/components/TriageView';
 import { WikiDetail } from '@/components/WikiDetail';
+import { WikiChatView } from '@/components/WikiChatView';
 import { useWiki } from '@/hooks/useWiki';
+import { useWikiChat } from '@/hooks/useWikiChat';
 import { useTriage } from '@/hooks/useTriage';
 import { DigestEntry } from '@/lib/types';
 
-type View = 'triage' | 'digest' | 'entry' | 'blueprint' | 'wiki-detail';
+type View = 'triage' | 'digest' | 'entry' | 'blueprint' | 'wiki-detail' | 'wiki-chat';
 
 export default function Home() {
   const [view, setView] = useState<View>('triage');
@@ -22,8 +24,10 @@ export default function Home() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [digestQueue, setDigestQueue] = useState<string[]>([]);
   const [lastUrl, setLastUrl] = useState('');
+  const [chatOpen, setChatOpen] = useState(false);
   const digest = useDigest();
   const wikiHook = useWiki();
+  const wikiChat = useWikiChat();
   const triage = useTriage();
   const prevPhaseRef = useRef<string | null>(null);
 
@@ -77,6 +81,11 @@ export default function Home() {
     setSelectedEntry(null);
   }, []);
 
+  const handleShowWikiChat = useCallback(() => {
+    setView('wiki-chat');
+    setSelectedEntry(null);
+  }, []);
+
   const handleSelectWiki = useCallback((id: string) => {
     setView('wiki-detail');
     setSelectedEntry(null);
@@ -119,6 +128,11 @@ export default function Home() {
 
   const activeEntry = view === 'entry' ? selectedEntry : digest.entry;
 
+  // 追问面板可用的条目 ID
+  const chatEntryId = view === 'entry' ? selectedEntry?.id
+    : (view === 'digest' && digest.phase === 'complete') ? activeEntry?.id
+    : undefined;
+
   return (
     <div className="h-full flex">
       <Sidebar
@@ -127,6 +141,7 @@ export default function Home() {
         onDeleteEntry={handleDeleteEntry}
         onShowTriage={handleShowTriage}
         onShowBlueprint={handleShowBlueprint}
+        onShowWikiChat={handleShowWikiChat}
         selectedEntryId={view === 'entry' ? selectedEntry?.id : undefined}
         selectedWikiId={view === 'wiki-detail' ? wikiHook.entry?.id : undefined}
         refreshTrigger={refreshTrigger}
@@ -150,6 +165,9 @@ export default function Home() {
             {/* 原理 */}
             {view === 'blueprint' && <BlueprintView />}
 
+            {/* Wiki 对话 */}
+            {view === 'wiki-chat' && <WikiChatView chat={wikiChat} />}
+
             {/* Wiki 详情 */}
             {view === 'wiki-detail' && wikiHook.entry && (
               <WikiDetail
@@ -158,6 +176,7 @@ export default function Home() {
                 onBack={handleShowTriage}
                 onSelectWiki={handleSelectWiki}
                 onSelectEntry={handleWikiSelectEntry}
+                onRecompiled={() => wikiHook.loadEntry(wikiHook.entry!.id)}
               />
             )}
 
@@ -191,7 +210,6 @@ export default function Home() {
                 </div>
                 <EntryHeader title={selectedEntry.title} url={selectedEntry.url} />
                 <AnalysisView entry={selectedEntry} onSelectWiki={handleSelectWiki} />
-                <div className="h-16" /> {/* 底部留白给浮动输入栏 */}
               </div>
             )}
 
@@ -256,8 +274,7 @@ export default function Home() {
                   <div>
                     <EntryHeader title={activeEntry.title} url={activeEntry.url} />
                     <AnalysisView entry={activeEntry} onSelectWiki={handleSelectWiki} />
-                    <div className="h-16" /> {/* 底部留白给浮动输入栏 */}
-                  </div>
+                      </div>
                 )}
 
                 {!digest.isRunning && !digest.phase && !activeEntry && (
@@ -324,9 +341,32 @@ export default function Home() {
         )}
       </main>
 
-      {/* 浮动追问面板：阅读过程中随时可用 */}
-      {((view === 'entry' && selectedEntry) || (view === 'digest' && activeEntry && digest.phase === 'complete')) && (
-        <ChatPanel entryId={(view === 'entry' ? selectedEntry?.id : activeEntry?.id) || ''} />
+      {/* 右侧追问面板 */}
+      {chatEntryId && chatOpen && (
+        <ChatPanel entryId={chatEntryId} onClose={() => setChatOpen(false)} />
+      )}
+
+      {/* 追问入口按钮 */}
+      {chatEntryId && !chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          className="fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2.5 rounded-lg"
+          style={{
+            zIndex: 20,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            boxShadow: '0 4px 16px oklch(0% 0 0 / 0.1)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--accent)',
+            fontWeight: 500,
+            cursor: 'pointer',
+          }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          追问
+        </button>
       )}
     </div>
   );

@@ -1,5 +1,48 @@
 [
   {
+    "id": "context-governance",
+    "name": "Context Governance",
+    "aliases": [
+      "上下文治理",
+      "Context Budget Management",
+      "上下文预算管理"
+    ],
+    "domain": "AI Agent Runtime / LLM Context Management",
+    "summary": "一套管理 AI Agent 长会话中上下文窗口有限性的工程机制，包括项目级约束文件（CLAUDE.md）、上下文压缩（Compact）和记忆持久化。核心理念是将上下文视为预算而非无限资源，通过制度化的管理防止行为漂移。",
+    "relationCount": 2,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-07T05:55:52.069Z"
+  },
+  {
+    "id": "agent-query-loop",
+    "name": "Agent Query Loop",
+    "aliases": [
+      "Agentic Loop",
+      "主循环",
+      "Agent Loop",
+      "ReAct Loop（扩展版）"
+    ],
+    "domain": "AI Agent Runtime",
+    "summary": "AI Agent 的核心运行时循环，负责接收模型输出、解析 tool call、执行权限检查、调用工具、注入结果、触发下一轮推理。Claude Code 实现为单线程循环+实时转向队列，Codex 实现为 Thread/Rollout/State 三层持久化结构。",
+    "relationCount": 2,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-07T05:55:52.069Z"
+  },
+  {
+    "id": "harness-engineering",
+    "name": "Harness Engineering",
+    "aliases": [
+      "线束工程",
+      "驾驭工程",
+      "Agent Harness Engineering"
+    ],
+    "domain": "AI Agent Architecture / Software Engineering",
+    "summary": "一种新兴工程学科，研究如何设计约束结构（提示词、工具、权限、状态、恢复、验证、制度）使 AI 编码代理在真实工程环境中可靠运行。核心主张是：一旦能写代码的模型进入真实工程环境，主要问题不再是回答质量而是行为后果。",
+    "relationCount": 2,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-07T05:55:52.069Z"
+  },
+  {
     "id": "precision-exploration-conflict",
     "name": "Precision-Exploration Conflict",
     "aliases": [

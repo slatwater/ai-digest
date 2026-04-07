@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { WikiEntry } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +11,7 @@ interface WikiDetailProps {
   onBack: () => void;
   onSelectWiki: (id: string) => void;
   onSelectEntry: (entryId: string) => void;
+  onRecompiled?: (entry: WikiEntry) => void;
 }
 
 const RELATION_LABELS: Record<string, string> = {
@@ -21,7 +23,21 @@ const RELATION_LABELS: Record<string, string> = {
   'related': '相关',
 };
 
-export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEntry }: WikiDetailProps) {
+export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEntry, onRecompiled }: WikiDetailProps) {
+  const [recompiling, setRecompiling] = useState(false);
+
+  const handleRecompile = async () => {
+    setRecompiling(true);
+    try {
+      const res = await fetch(`/api/wiki?recompile=${entry.id}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.ok && data.entry) {
+        onRecompiled?.(data.entry);
+      }
+    } catch { /* ignore */ }
+    setRecompiling(false);
+  };
+
   // 自动判断：有 composed-of 子节点 → 组合概念，否则 → 原子概念
   const composedOf = entry.relations.filter(r => r.type === 'composed-of');
   const otherRelations = entry.relations.filter(r => r.type !== 'composed-of');
@@ -82,6 +98,16 @@ export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEnt
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
               {entry.origin}
             </span>
+          )}
+          {entry.sources.length >= 2 && (
+            <button
+              onClick={handleRecompile}
+              disabled={recompiling}
+              className="link-subtle ml-auto"
+              style={{ fontSize: 'var(--text-xs)' }}
+            >
+              {recompiling ? '编译中...' : `综合编译（${entry.sources.length} 篇来源）`}
+            </button>
           )}
         </div>
       </header>

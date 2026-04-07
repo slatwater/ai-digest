@@ -12,6 +12,7 @@ interface SidebarProps {
   onDeleteEntry?: (id: string) => void;
   onShowTriage: () => void;
   onShowBlueprint: () => void;
+  onShowWikiChat: () => void;
   selectedEntryId?: string;
   selectedWikiId?: string;
   refreshTrigger?: number;
@@ -19,7 +20,7 @@ interface SidebarProps {
 
 export function Sidebar({
   onSelectEntry, onSelectWiki, onDeleteEntry,
-  onShowTriage, onShowBlueprint,
+  onShowTriage, onShowBlueprint, onShowWikiChat,
   selectedEntryId, selectedWikiId, refreshTrigger,
 }: SidebarProps) {
   const [tab, setTab] = useState<Tab>('entries');
@@ -412,14 +413,28 @@ export function Sidebar({
         )}
       </nav>
 
-      {/* Footer: 原理 */}
-      <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+      {/* Footer */}
+      <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <button
+          onClick={onShowWikiChat}
+          className="flex items-center gap-1.5"
+          style={{
+            fontSize: 'var(--text-xs)', color: 'var(--accent)',
+            fontWeight: 500,
+            transition: 'opacity var(--duration-fast) var(--ease-out)',
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          Wiki 对话
+        </button>
         <button
           onClick={onShowBlueprint}
           className="flex items-center gap-1.5"
           style={{
             fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)',
-            fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
             transition: 'color var(--duration-fast) var(--ease-out)',
           }}
           onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
@@ -429,7 +444,7 @@ export function Sidebar({
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
           </svg>
-          运行原理
+          原理
         </button>
       </div>
     </aside>

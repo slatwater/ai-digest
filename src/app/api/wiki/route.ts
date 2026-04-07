@@ -1,4 +1,5 @@
 import { getWikiEntries, getWikiEntry, getWikiEntriesByIds } from '@/lib/storage';
+import { recompileWikiEntry } from '@/lib/compiler';
 import { WikiEntry } from '@/lib/types';
 import { NextRequest } from 'next/server';
 
@@ -38,4 +39,19 @@ export async function GET(req: NextRequest) {
 
   const entries = await getWikiEntries();
   return Response.json(entries);
+}
+
+// POST /api/wiki?recompile=<id> — 手动触发词条重编译
+export async function POST(req: NextRequest) {
+  const id = req.nextUrl.searchParams.get('recompile');
+  if (!id) {
+    return Response.json({ error: '需要 recompile 参数' }, { status: 400 });
+  }
+
+  const success = await recompileWikiEntry(id);
+  if (success) {
+    const updated = await getWikiEntry(id);
+    return Response.json({ ok: true, entry: updated });
+  }
+  return Response.json({ ok: false, error: '重编译失败或来源不足' }, { status: 400 });
 }

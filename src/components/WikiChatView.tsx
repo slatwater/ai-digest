@@ -1,22 +1,31 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useChat } from '@/hooks/useChat';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ChatMessage } from '@/lib/types';
 
-export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () => void }) {
-  const { messages, isStreaming, currentReply, error, ask, clear } = useChat(entryId);
+interface WikiChatProps {
+  chat: {
+    messages: ChatMessage[];
+    isStreaming: boolean;
+    currentReply: string;
+    error: string | null;
+    ask: (question: string) => void;
+    clear: () => void;
+  };
+}
+
+export function WikiChatView({ chat }: WikiChatProps) {
+  const { messages, isStreaming, currentReply, error, ask, clear } = chat;
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 自动滚动到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentReply]);
 
-  // 打开时聚焦输入框
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -29,54 +38,63 @@ export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () =
   };
 
   return (
-    <aside
-      className="shrink-0 flex flex-col h-full"
-      style={{
-        width: '360px',
-        borderLeft: '1px solid var(--border)',
-        background: 'var(--bg)',
-      }}
-    >
-      {/* 头部 */}
-      <div
-        className="flex items-center justify-between px-4 py-3 shrink-0"
-        style={{ borderBottom: '1px solid var(--border-subtle)' }}
-      >
-        <span
-          className="font-semibold tracking-tight"
-          style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}
-        >
-          追问
-        </span>
-        <div className="flex items-center gap-2">
-          {messages.length > 0 && (
-            <button
-              onClick={clear}
-              className="link-subtle"
-              style={{ fontSize: 'var(--text-xs)' }}
-            >
-              清空
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className="link-subtle flex items-center justify-center w-6 h-6 rounded"
-            style={{ fontSize: 'var(--text-sm)' }}
-            title="关闭"
+    <div className="flex flex-col h-full" style={{ minHeight: 0 }}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2
+            className="font-semibold tracking-tight"
+            style={{ fontSize: 'var(--text-xl)', color: 'var(--text-primary)' }}
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+            Wiki 对话
+          </h2>
+          <p className="mt-1" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
+            基于整个知识库回答，支持跨概念推理
+          </p>
         </div>
+        {messages.length > 0 && (
+          <button
+            onClick={clear}
+            className="link-subtle"
+            style={{ fontSize: 'var(--text-xs)' }}
+          >
+            清空对话
+          </button>
+        )}
       </div>
 
       {/* 对话区域 */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex-1 space-y-6">
         {messages.length === 0 && !isStreaming && (
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-quaternary)', lineHeight: '1.6' }}>
-            阅读过程中有任何疑问，在下方输入提问。回答基于研究报告全文。
-          </p>
+          <div className="space-y-4 pt-8">
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', lineHeight: '1.7' }}>
+              向知识库提问，获得基于所有研究积累的回答。
+            </p>
+            <div className="space-y-2">
+              {[
+                '目前知识库中有哪些关键概念？它们之间是什么关系？',
+                '有哪些概念之间存在矛盾或不同观点？',
+                '知识库中还有哪些明显的空白领域？',
+              ].map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setInput(q); }}
+                  className="block w-full text-left px-4 py-2.5 rounded-md"
+                  style={{
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--text-secondary)',
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-subtle)',
+                    transition: 'border-color var(--duration-fast) var(--ease-out)',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         {messages.map((msg, i) => (
@@ -84,7 +102,7 @@ export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () =
             {msg.role === 'user' ? (
               <div className="flex justify-end">
                 <div
-                  className="px-3.5 py-2 rounded-xl max-w-[90%]"
+                  className="px-4 py-2.5 rounded-xl max-w-[85%]"
                   style={{
                     background: 'var(--accent)',
                     color: '#fff',
@@ -124,7 +142,7 @@ export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () =
                 className="w-1.5 h-1.5 rounded-full"
                 style={{
                   background: 'var(--text-quaternary)',
-                  animation: `chatPulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                  animation: `wikiChatPulse 1.2s ease-in-out ${i * 0.2}s infinite`,
                 }}
               />
             ))}
@@ -137,12 +155,8 @@ export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () =
       {/* Error */}
       {error && (
         <div
-          className="mx-4 mb-2 px-3 py-2 rounded-md"
-          style={{
-            background: 'var(--error-bg)',
-            fontSize: 'var(--text-xs)',
-            color: 'var(--error)',
-          }}
+          className="mb-3 px-4 py-3 rounded-md"
+          style={{ background: 'var(--error-bg)', fontSize: 'var(--text-sm)', color: 'var(--error)' }}
         >
           {error}
         </div>
@@ -151,7 +165,7 @@ export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () =
       {/* 输入区 */}
       <form
         onSubmit={handleSubmit}
-        className="shrink-0 flex items-center gap-2 px-4 py-3"
+        className="flex items-center gap-3 pt-4"
         style={{ borderTop: '1px solid var(--border-subtle)' }}
       >
         <input
@@ -159,11 +173,11 @@ export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () =
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder="输入问题..."
-          className="input-field flex-1 px-3 py-2 rounded-md"
+          placeholder="向知识库提问..."
+          className="input-field flex-1 px-4 py-2.5 rounded-md"
           style={{
             fontSize: 'var(--text-sm)',
-            background: 'var(--bg-elevated)',
+            background: 'var(--bg)',
             border: '1px solid var(--border)',
             color: 'var(--text-primary)',
           }}
@@ -172,19 +186,19 @@ export function ChatPanel({ entryId, onClose }: { entryId: string; onClose: () =
         <button
           type="submit"
           disabled={!input.trim() || isStreaming}
-          className="btn btn-primary shrink-0 px-3 py-2 rounded-md font-medium"
+          className="btn btn-primary px-4 py-2.5 rounded-md font-medium"
           style={{ fontSize: 'var(--text-sm)' }}
         >
-          {isStreaming ? '...' : '发送'}
+          {isStreaming ? '思考中...' : '提问'}
         </button>
       </form>
 
       <style jsx>{`
-        @keyframes chatPulse {
+        @keyframes wikiChatPulse {
           0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
           40% { opacity: 1; transform: scale(1); }
         }
       `}</style>
-    </aside>
+    </div>
   );
 }
