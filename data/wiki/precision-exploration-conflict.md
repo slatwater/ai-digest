@@ -12,7 +12,7 @@
     {
       "conceptId": "simple-self-distillation",
       "conceptName": "Simple Self-Distillation (SSD)",
-      "type": "enables",
+      "type": "related",
       "description": "精确-探索冲突是 SSD 有效性的理论解释"
     }
   ],

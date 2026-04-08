@@ -36,7 +36,6 @@ export function Sidebar({
   // Wiki 状态
   const [wikiEntries, setWikiEntries] = useState<WikiIndexEntry[]>([]);
   const [wikiLoading, setWikiLoading] = useState(false);
-  const [wikiCollapsed, setWikiCollapsed] = useState<Record<string, boolean>>({});
 
   // 选中 wiki 时自动切 tab
   useEffect(() => {
@@ -94,15 +93,6 @@ export function Sidebar({
     );
   }, [wikiEntries, query]);
 
-  const groupedWiki: [string, WikiIndexEntry[]][] = useMemo(() => {
-    const map: Record<string, WikiIndexEntry[]> = {};
-    for (const w of filteredWiki) {
-      const d = w.domain || 'Uncategorized';
-      if (!map[d]) map[d] = [];
-      map[d].push(w);
-    }
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredWiki]);
 
   const hasContent = tab === 'entries' ? entries.length > 0 : wikiEntries.length > 0;
 
@@ -144,7 +134,7 @@ export function Sidebar({
         >
           {tab === 'entries'
             ? (entries.length > 0 ? `${entries.length} 条研究记录` : '前沿技术研究助手')
-            : (wikiEntries.length > 0 ? `${wikiEntries.length} 个词条 · ${groupedWiki.length} 个领域` : '前沿技术研究助手')
+            : (wikiEntries.length > 0 ? `${wikiEntries.length} 个词条` : '前沿技术研究助手')
           }
         </p>
       </div>
@@ -348,64 +338,34 @@ export function Sidebar({
               无匹配结果
             </div>
           ) : (
-            groupedWiki.map(([domain, items]) => {
-              const isCollapsed = wikiCollapsed[domain];
+            filteredWiki.map(w => {
+              const isSelected = selectedWikiId === w.id;
               return (
-                <div key={domain}>
+                <div key={w.id} className="sidebar-item relative" data-selected={isSelected}>
                   <button
-                    onClick={() => setWikiCollapsed(prev => ({ ...prev, [domain]: !prev[domain] }))}
-                    className="w-full text-left px-5 py-1.5 sticky top-0 flex items-center gap-1.5"
-                    style={{
-                      fontSize: '0.6875rem', fontWeight: 500,
-                      color: 'var(--text-quaternary)', letterSpacing: '0.06em',
-                      background: 'var(--bg-elevated)',
-                    }}
+                    onClick={() => onSelectWiki(w.id)}
+                    className="w-full text-left px-5 py-1.5"
+                    aria-current={isSelected ? 'page' : undefined}
                   >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    {isSelected && (
+                      <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full"
+                        style={{ background: 'var(--accent)' }} />
+                    )}
+                    <div className="font-medium leading-snug"
                       style={{
-                        transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                        transition: 'transform var(--duration-fast) var(--ease-out)',
-                        flexShrink: 0,
+                        fontSize: 'var(--text-sm)',
+                        color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
                       }}>
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                    {domain}
-                    <span style={{ color: 'var(--text-quaternary)', opacity: 0.6, marginLeft: 'auto' }}>
-                      {items.length}
-                    </span>
+                      {w.name}
+                    </div>
+                    <div className="mt-0.5 leading-normal"
+                      style={{
+                        fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                      {w.summary}
+                    </div>
                   </button>
-                  {!isCollapsed && items.map(w => {
-                    const isSelected = selectedWikiId === w.id;
-                    return (
-                      <div key={w.id} className="sidebar-item relative" data-selected={isSelected}>
-                        <button
-                          onClick={() => onSelectWiki(w.id)}
-                          className="w-full text-left px-5 py-1.5"
-                          aria-current={isSelected ? 'page' : undefined}
-                        >
-                          {isSelected && (
-                            <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full"
-                              style={{ background: 'var(--accent)' }} />
-                          )}
-                          <div className="font-medium leading-snug"
-                            style={{
-                              fontSize: 'var(--text-sm)',
-                              color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
-                            }}>
-                            {w.name}
-                          </div>
-                          <div className="mt-0.5 leading-normal"
-                            style={{
-                              fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)',
-                              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                            }}>
-                            {w.summary}
-                          </div>
-                        </button>
-                      </div>
-                    );
-                  })}
                 </div>
               );
             })

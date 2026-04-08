@@ -16,10 +16,7 @@ interface WikiDetailProps {
 
 const RELATION_LABELS: Record<string, string> = {
   'composed-of': '组成',
-  'builds-on': '基于',
-  'enables': '使能',
   'part-of': '属于',
-  'contrasts': '对比',
   'related': '相关',
 };
 
@@ -39,8 +36,9 @@ export function WikiDetail({ entry, neighbors, onBack, onSelectWiki, onSelectEnt
   };
 
   // 自动判断：有 composed-of 子节点 → 组合概念，否则 → 原子概念
-  const composedOf = entry.relations.filter(r => r.type === 'composed-of');
-  const otherRelations = entry.relations.filter(r => r.type !== 'composed-of');
+  const relations = entry.relations || [];
+  const composedOf = relations.filter(r => r.type === 'composed-of');
+  const otherRelations = relations.filter(r => r.type !== 'composed-of');
   const isComposition = composedOf.length > 0;
 
   // 反向引用：哪些邻居的 composed-of 指向本词条

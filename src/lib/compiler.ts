@@ -21,16 +21,14 @@ export async function saveConceptsToWiki(
   if (!concepts || concepts.length === 0) return;
 
   const now = new Date().toISOString();
-  const sourceRef = {
-    entryId: entry.id,
-    entryTitle: entry.title,
-    date: entry.date,
-    contribution: entry.tldr || entry.title,
-  };
-
-  const toRecompile: string[] = [];
 
   for (const concept of concepts) {
+    const sourceRef = {
+      entryId: entry.id,
+      entryTitle: entry.title,
+      date: entry.date,
+      contribution: concept.contribution || entry.tldr || entry.title,
+    };
     const content = buildContent(concept);
     const existing = await getWikiEntry(concept.id);
 
@@ -42,14 +40,14 @@ export async function saveConceptsToWiki(
         continue;
       }
 
-      // 先追加来源和元数据（内容由 recompile 重写）
+      // 先追加来源和元数据
       const mergedSources = [...existing.sources, sourceRef];
       const existingRelIds = new Set(existing.relations.map(r => r.conceptId));
       const newRelations = (concept.relations || []).filter(r => !existingRelIds.has(r.conceptId));
 
       const merged: WikiEntry = {
         ...existing,
-        content: existing.content, // 暂不动内容，等 recompile
+        content: existing.content, // 暂不动内容，等增量融合
         summary: concept.summary || existing.summary,
         origin: concept.origin || existing.origin,
         aliases: [...new Set([...existing.aliases, ...(concept.aliases || [])])],
@@ -59,7 +57,6 @@ export async function saveConceptsToWiki(
       };
       await saveWikiEntry(merged);
       console.log(`[wiki] 更新词条元数据: ${merged.name}，累积 ${mergedSources.length} 个来源`);
-      toRecompile.push(concept.id);
     } else {
       // 新建：直接用当前内容
       const wikiEntry: WikiEntry = {
@@ -83,13 +80,6 @@ export async function saveConceptsToWiki(
 
   console.log(`[wiki] 完成: 从 "${entry.title}" 存入 ${concepts.length} 个词条`);
 
-  // 对有多个来源的词条触发重编译
-  for (const id of toRecompile) {
-    recompileWikiEntry(id).catch(err => {
-      console.warn(`[wiki] 重编译 ${id} 失败:`, err);
-    });
-  }
-
   // 跨概念关联发现：新概念与已有概念之间的隐含关系
   const conceptIds = concepts.map(c => c.id);
   discoverRelations(conceptIds).catch(err => {
@@ -98,7 +88,7 @@ export async function saveConceptsToWiki(
 }
 
 // ============================================================
-// 重编译：从所有原始报告综合重写 Wiki 词条
+// Wiki 编译：增量融合（自动）+ 全量重编译（手动）
 // ============================================================
 
 function extractText(message: SDKMessage): string | null {
@@ -117,6 +107,15 @@ function extractText(message: SDKMessage): string | null {
   return null;
 }
 
+// 生成摘要（取前两句）
+function extractSummary(text: string, fallback: string): string {
+  const firstParagraph = text.replace(/^#.*\n+/, '').trim().split('\n\n')[0] || '';
+  const sentences = firstParagraph.split(/[。！？]/).filter(Boolean);
+  const summary = sentences.slice(0, 2).join('。') + '。';
+  return summary.length > 20 ? summary : fallback;
+}
+
+// 全量重编译：从所有来源报告重新综合（手动触发）
 export async function recompileWikiEntry(conceptId: string): Promise<boolean> {
   const wiki = await getWikiEntry(conceptId);
   if (!wiki) {
@@ -129,9 +128,8 @@ export async function recompileWikiEntry(conceptId: string): Promise<boolean> {
     return false;
   }
 
-  console.log(`[wiki-compile] 开始重编译 ${wiki.name}，${wiki.sources.length} 个来源`);
+  console.log(`[wiki-compile] 全量重编译 ${wiki.name}，${wiki.sources.length} 个来源`);
 
-  // 加载所有来源的原始研究报告
   const sourceTexts: string[] = [];
   for (const src of wiki.sources) {
     const entry = await getEntry(src.entryId);
@@ -205,20 +203,14 @@ ${sourceTexts.join('\n\n---\n\n')}`;
       return false;
     }
 
-    // 生成摘要（取前两句）
-    const firstParagraph = fullText.replace(/^#.*\n+/, '').trim().split('\n\n')[0] || '';
-    const sentences = firstParagraph.split(/[。！？]/).filter(Boolean);
-    const summary = sentences.slice(0, 2).join('。') + '。';
-
-    // 更新词条
     const updated: WikiEntry = {
       ...wiki,
       content: fullText.trim(),
-      summary: summary.length > 20 ? summary : wiki.summary,
+      summary: extractSummary(fullText, wiki.summary),
       updatedAt: new Date().toISOString(),
     };
     await saveWikiEntry(updated);
-    console.log(`[wiki-compile] ${wiki.name} 重编译完成，综合 ${sourceTexts.length} 篇来源`);
+    console.log(`[wiki-compile] ${wiki.name} 全量重编译完成，综合 ${sourceTexts.length} 篇来源`);
     return true;
   } catch (err) {
     console.error(`[wiki-compile] ${wiki.name} 重编译失败:`, err);
@@ -236,6 +228,13 @@ interface DiscoveredRelation {
   type: WikiRelation['type'];
   description: string;
 }
+
+// 反向类型映射
+const INVERSE_TYPE: Record<string, WikiRelation['type']> = {
+  'composed-of': 'part-of',
+  'part-of': 'composed-of',
+  'related': 'related',
+};
 
 async function discoverRelations(newConceptIds: string[]): Promise<void> {
   const allIndex = await getWikiEntries();
@@ -278,17 +277,13 @@ ${existingDetails}
 ## 任务
 找出新概念与已有概念之间**尚未在"已有关系"中记录的**隐含关系。只输出有实质意义的关系，不要为了输出而输出。
 
-关系类型：
-- builds-on: A 在 B 的基础上发展
-- contrasts: A 和 B 在某方面形成对比/互为替代
-- enables: A 使 B 成为可能
-- related: A 和 B 在某方面有关联但不属于以上类型
+所有关系类型统一为 related，用 description 字段描述具体关系（如"A 在 B 基础上发展"、"A 使 B 成为可能"、"A 与 B 互为替代"）。
 
 严格按以下 JSON 格式输出，用标记包裹。如果没有发现新关系，输出空数组。
 
 ===RELATIONS_START===
 [
-  { "from": "concept-id-a", "to": "concept-id-b", "type": "contrasts", "description": "一句话说明关系" }
+  { "from": "concept-id-a", "to": "concept-id-b", "type": "related", "description": "一句话说明具体关系" }
 ]
 ===RELATIONS_END===`;
 
@@ -335,7 +330,7 @@ ${existingDetails}
       return;
     }
 
-    // 写入双向关系
+    // 写入双向关系（有向关系使用反向类型）
     const now = new Date().toISOString();
     for (const rel of relations) {
       // 正向：from → to
@@ -352,17 +347,20 @@ ${existingDetails}
         await saveWikiEntry(fromEntry);
       }
 
-      // 反向：to → from（镜像关系）
-      const toEntry = await getWikiEntry(rel.to);
-      if (toEntry && !toEntry.relations.some(r => r.conceptId === rel.from && r.type === rel.type)) {
-        toEntry.relations.push({
-          conceptId: rel.from,
-          conceptName: fromEntry?.name || rel.from,
-          type: rel.type,
-          description: rel.description,
-        });
-        toEntry.updatedAt = now;
-        await saveWikiEntry(toEntry);
+      // 反向：to → from（使用反向类型，如 enables → enabled-by）
+      const inverseType = INVERSE_TYPE[rel.type];
+      if (inverseType) {
+        const toEntry = await getWikiEntry(rel.to);
+        if (toEntry && !toEntry.relations.some(r => r.conceptId === rel.from && r.type === inverseType)) {
+          toEntry.relations.push({
+            conceptId: rel.from,
+            conceptName: fromEntry?.name || rel.from,
+            type: inverseType,
+            description: rel.description,
+          });
+          toEntry.updatedAt = now;
+          await saveWikiEntry(toEntry);
+        }
       }
 
       console.log(`[wiki-link] 发现关系: ${rel.from} --${rel.type}--> ${rel.to}: ${rel.description}`);

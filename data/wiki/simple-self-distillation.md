@@ -12,7 +12,7 @@
     {
       "conceptId": "self-distillation",
       "conceptName": "Self-Distillation",
-      "type": "builds-on",
+      "type": "related",
       "description": "SSD 是自蒸馏在 LLM 代码生成场景下的极简实现，去掉了验证和过滤步骤"
     },
     {
@@ -24,7 +24,7 @@
     {
       "conceptId": "grpo",
       "conceptName": "Group Relative Policy Optimization (GRPO)",
-      "type": "contrasts",
+      "type": "related",
       "description": "GRPO 需要奖励信号和 RL 训练，SSD 完全不需要外部信号，但两者可互补"
     }
   ],

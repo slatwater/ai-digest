@@ -13,13 +13,13 @@
     {
       "conceptId": "context-governance",
       "conceptName": "Context Governance",
-      "type": "builds-on",
+      "type": "related",
       "description": "Honcho 扩展了上下文治理的范围，从静态文件管理扩展到动态用户模型推理"
     },
     {
       "conceptId": "hermes-agent-loop",
       "conceptName": "Hermes Agent Loop",
-      "type": "enables",
+      "type": "related",
       "description": "Honcho 的辩证推理用户模型可作为 Hermes 记忆预取机制的深层记忆源，提供超越事实存储的用户理解"
     }
   ],

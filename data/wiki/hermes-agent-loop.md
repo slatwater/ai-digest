@@ -12,7 +12,7 @@
     {
       "conceptId": "agent-query-loop",
       "conceptName": "Agent Query Loop",
-      "type": "builds-on",
+      "type": "related",
       "description": "Hermes Agent Loop 是 Agent Query Loop 模式的一个具体实现，增加了记忆预取、RL 训练集成和平台无关抽象"
     },
     {
@@ -24,19 +24,19 @@
     {
       "conceptId": "agent-skills-standard",
       "conceptName": "Agent Skills",
-      "type": "builds-on",
+      "type": "related",
       "description": "Hermes 将 Agent Skills 标准扩展为完整的三阶段生命周期管理（自主创建→运行时改进→进化优化），是该标准最深度的运行时集成"
     },
     {
       "conceptId": "gepa-prompt-evolution",
       "conceptName": "GEPA (Genetic-Pareto Prompt Evolution)",
-      "type": "enables",
+      "type": "related",
       "description": "Hermes 的执行轨迹（错误日志、profiling 数据、推理日志）正是 GEPA 诊断失败根因所需的输入数据源"
     },
     {
       "conceptId": "honcho-dialectic-memory",
       "conceptName": "Honcho Dialectic Memory",
-      "type": "enables",
+      "type": "related",
       "description": "Honcho 的辩证推理用户模型可作为 Hermes 记忆预取机制的深层记忆源，提供超越事实存储的用户理解"
     }
   ],

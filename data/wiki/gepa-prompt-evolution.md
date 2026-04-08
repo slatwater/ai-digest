@@ -13,25 +13,25 @@
     {
       "conceptId": "agent-skills-standard",
       "conceptName": "Agent Skills",
-      "type": "enables",
+      "type": "related",
       "description": "GEPA 的主要优化对象是 Agent Skills 格式的技能文件"
     },
     {
       "conceptId": "simple-self-distillation",
       "conceptName": "Simple Self-Distillation",
-      "type": "contrasts",
+      "type": "related",
       "description": "SSD 通过采样+SFT 改进模型权重，GEPA 通过进化搜索改进提示词/技能文本，两者在不同层面提升 Agent 能力"
     },
     {
       "conceptId": "hermes-agent-loop",
       "conceptName": "Hermes Agent Loop",
-      "type": "enables",
+      "type": "related",
       "description": "Hermes 的执行轨迹（错误日志、profiling 数据、推理日志）正是 GEPA 诊断失败根因所需的输入数据源"
     },
     {
       "conceptId": "harness-engineering",
       "conceptName": "Harness Engineering",
-      "type": "enables",
+      "type": "related",
       "description": "GEPA 为 Harness Engineering 的文本制品（提示词、工具描述、技能文件）提供自动化进化优化能力，使 harness 调优从手工走向系统化"
     }
   ],

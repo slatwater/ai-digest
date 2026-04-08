@@ -66,10 +66,11 @@ export interface AnalysisConcept {
   origin?: string;     // 来源：论文/作者/年份
   isNew?: boolean;     // 是否为 Wiki 中不存在的新概念
   summary: string;     // 2-3 句概要
+  contribution?: string; // 本文对该概念的具体贡献（一句话，已知技术必填）
   what: string;        // 是什么（Markdown）
   enables: string;     // 能做什么（Markdown）
   limitations: string; // 现状与局限（Markdown）
-  relations: { conceptId: string; conceptName: string; type: 'builds-on' | 'contrasts' | 'related' | 'enables' | 'part-of' | 'composed-of'; description: string }[];
+  relations: { conceptId: string; conceptName: string; type: WikiRelation['type']; description: string }[];
 }
 
 // 叙事报告：问题驱动的渐进式深度研究
@@ -357,6 +358,7 @@ export interface TriageConcept {
   root: string;           // 溯源：起源 → 核心机制 → 突破点
   whatItEnables: string;   // 拿到它能做什么、造什么
   sourceUrl?: string;      // 一手来源 URL
+  delta?: string;          // 已知概念的增量描述（本文带来了什么新信息）
 }
 
 // 旧版打分（兼容历史数据）
@@ -371,6 +373,7 @@ export interface TriageScores {
 export interface TriageDelta {
   newCount: number;         // 新原子概念数量
   knownCount: number;       // 已知概念数量
+  knownWithDelta?: number;  // 有实质增量的已知概念数
   compositionNew: boolean;  // 组合方式是否新
   gap: string;              // 填补知识库什么空白
 }
@@ -415,7 +418,7 @@ export interface WikiSourceRef {
 export interface WikiRelation {
   conceptId: string;     // slug
   conceptName: string;
-  type: 'builds-on' | 'contrasts' | 'related' | 'enables' | 'part-of' | 'composed-of';
+  type: 'composed-of' | 'part-of' | 'related';
   description: string;
 }
 

@@ -103,6 +103,28 @@ body {
   line-height: 1.7;
 }
 
+.prose :where(h2, h3, h4) {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.35;
+}
+
+.prose :where(h2) {
+  font-size: 1.15em;
+}
+
+.prose :where(h3) {
+  font-size: 1.05em;
+}
+
+.prose :where(h4) {
+  font-size: 1em;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 .prose pre {
   background: oklch(16% 0.01 75);
   border-radius: 6px;

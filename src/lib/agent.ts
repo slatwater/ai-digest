@@ -99,10 +99,18 @@ export function buildSystemPrompt(scrapedContent: string, wikiContext?: string):
 对每个技术：
 - 用 WebSearch 查证其来源（论文/作者/年份/项目）
 - 对比 Wiki 列表判断是否已有：名称或别名匹配 → 已知，否则 → 新技术
-- 已知技术：只写本文对该技术的新贡献
-- 新技术：完整描述 what/enables/limitations
+- 已知技术：在 contribution 字段用一句话写明本文对该技术的具体新贡献（新数据、新场景、新机制、新发现），what/enables/limitations 只写增量部分
+- 新技术：完整描述 what/enables/limitations，contribution 留空
 - **如果 Wiki 中已有含义相同的技术，必须复用其 id，禁止新建**
 ${wikiSection}
+### 阶段 3.5: 知识回顾
+对于阶段 3 中识别到的**已知技术**，使用 Read 工具读取对应的 Wiki 词条文件 \`data/wiki/{概念id}.md\`，了解已积累的知识。然后：
+- 在 contribution 字段写明：相比 Wiki 已有内容，本文具体贡献了什么（一句话）
+- what/enables/limitations 只写增量，不重复 Wiki 已有的内容
+- 如果本文与 Wiki 已有知识矛盾，在 contribution 中用"修正："前缀标注，并在 evidence 中详细分析
+- 如果本文对该已知技术无任何新信息，不要将其列入 concepts
+- 利用已有知识做更深层的对比和关联分析
+
 ### 阶段 4: 组合分析 (Compose)
 分析文章如何组合上述技术，理解其技术贡献的完整脉络。
 
@@ -130,9 +138,11 @@ ${wikiSection}
 - 渐入式深入：每层建立在上一层之上
 - 正文中首次出现核心概念时用 **加粗** 标记
 - situation 要花足够篇幅让读者建立问题感，不要跳过直接讲方案
-- mechanism 不是罗列步骤，是讲推理——每步为什么这样做
+- mechanism 不是罗列步骤，是讲推理——每步为什么这样做。如有多个步骤，用 ### 小标题分隔每个步骤/阶段
 - evidence 必须包含具体数据，用 Markdown 表格呈现对比
 - 每段控制在 2-4 个自然段，避免大段文字墙
+- **全文口径一致**：同一数据/指标在不同章节中必须保持一致，不得出现矛盾说法。如果不同来源提供了矛盾的信息，在 evidence 中明确标注并分析差异原因，而不是在不同章节各取一种
+- 不确定的信息标注"据...报道"或"尚待验证"，避免一处断言、另一处质疑
 
 **B) 概念拆解**（用 ===ANALYSIS_START=== 和 ===ANALYSIS_END=== 包裹）:
 
@@ -150,11 +160,12 @@ ${wikiSection}
       "origin": "来源（论文/作者/年份 或 项目/组织）",
       "isNew": true,
       "summary": "2-3句概要",
+      "contribution": "本文对该概念的具体贡献（一句话，已知技术必填，新技术留空）",
       "what": "核心原理（Markdown，已知技术只写本文新贡献）",
       "enables": "能解决什么问题、应用场景（Markdown）",
       "limitations": "局限与争议（Markdown）",
       "relations": [
-        { "conceptId": "slug", "conceptName": "名称", "type": "composed-of|builds-on|contrasts|related|enables|part-of", "description": "关系说明" }
+        { "conceptId": "slug", "conceptName": "名称", "type": "composed-of|part-of|related", "description": "关系说明（具体描述两者的关系，如：A 在 B 基础上发展、A 使 B 成为可能、A 与 B 互为替代）" }
       ]
     }
   ],
@@ -210,6 +221,7 @@ ${wikiSection}
 3. 技术内容要准确，不确定的要标注
 4. 所有输出用中文
 5. 找到的来源用 ===SOURCES_START=== 和 ===SOURCES_END=== 包裹，格式为 JSON 数组
+6. **跨章节一致性**：在输出叙事报告前，检查 situation/insight/mechanism/evidence/implications 是否描述同一个技术贡献、使用一致的数据和术语。如果你在不同阶段获取到了相互矛盾的信息，统一到 evidence 中对比分析，不要在不同章节各取其一
 `;
 }
 
@@ -396,12 +408,12 @@ export async function runDigest(
     ? '\n\n## 抓取状态\n直接抓取失败。请使用 WebFetch 获取内容，如果失败则用 WebSearch 搜索。'
     : `\n\n## 预抓取内容\n${scraped}`;
 
-  // 构建 Wiki 上下文，让 Agent 判断概念新旧
+  // 构建 Wiki 上下文：索引（判断新旧），全文由 Agent 按需 Read
   let wikiContext: string | undefined;
   try {
-    const wikiEntries = await getWikiEntries();
-    if (wikiEntries.length > 0) {
-      wikiContext = wikiEntries.map(w => {
+    const wikiIndex = await getWikiEntries();
+    if (wikiIndex.length > 0) {
+      wikiContext = wikiIndex.map(w => {
         const names = [w.name, ...(w.aliases || [])].join(' / ');
         return `- [${w.id}] ${names} (${w.domain}): ${w.summary}`;
       }).join('\n');

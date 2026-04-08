@@ -1,5 +1,31 @@
 [
   {
+    "id": "context-governance",
+    "name": "Context Governance",
+    "aliases": [
+      "上下文治理",
+      "Context Budget Management",
+      "上下文预算管理"
+    ],
+    "domain": "AI Agent Runtime / LLM Context Management",
+    "summary": "一套管理 AI Agent 长会话中上下文窗口有限性的工程机制，包括项目级约束文件（CLAUDE.md）、上下文压缩（Compact）和记忆持久化。核心理念是将上下文视为预算而非无限资源，通过制度化的管理防止行为漂移。",
+    "relationCount": 3,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-07T13:49:19.619Z"
+  },
+  {
+    "id": "awesome-design-md",
+    "name": "awesome-design-md",
+    "aliases": [
+      "VoltAgent/awesome-design-md"
+    ],
+    "domain": "Open Source / Design System Collection",
+    "summary": "一个开源的 DESIGN.md 文件集合，收录 58+ 顶级产品（Stripe、Notion、Apple 等）的设计规范，从公开 CSS 中提取并标准化为 DESIGN.md 格式，供 AI 编码代理直接使用。",
+    "relationCount": 4,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-07T13:49:19.619Z"
+  },
+  {
     "id": "harness-engineering",
     "name": "Harness Engineering",
     "aliases": [
@@ -9,23 +35,36 @@
     ],
     "domain": "AI Agent Architecture / Software Engineering",
     "summary": "一种新兴工程学科，研究如何设计约束结构（提示词、工具、权限、状态、恢复、验证、制度）使 AI 编码代理在真实工程环境中可靠运行。核心主张是：一旦能写代码的模型进入真实工程环境，主要问题不再是回答质量而是行为后果。",
-    "relationCount": 4,
+    "relationCount": 5,
     "sourceCount": 1,
-    "updatedAt": "2026-04-07T09:21:21.908Z"
+    "updatedAt": "2026-04-07T13:49:19.619Z"
   },
   {
-    "id": "gepa-prompt-evolution",
-    "name": "GEPA (Genetic-Pareto Prompt Evolution)",
+    "id": "design-md-format",
+    "name": "DESIGN.md",
     "aliases": [
-      "Genetic-Pareto Prompt Evolution",
-      "GEPA",
-      "hermes-agent-self-evolution"
+      "Design.md",
+      "DESIGN.md Format",
+      "设计规范 Markdown"
     ],
-    "domain": "Prompt Optimization / Evolutionary Computation",
-    "summary": "一种基于遗传算法和 Pareto 优化的提示词/技能进化方法，通过 API 调用（无需 GPU）读取执行轨迹和错误日志，诊断失败原因，生成候选变体并自动选择最优版本。",
+    "domain": "AI Agent / Design System / UI Generation",
+    "summary": "一种纯 Markdown 格式的设计系统描述文件，由 Google Stitch 引入，让 AI 编码代理直接读取并生成风格一致的 UI。九段标准结构涵盖从视觉氛围到组件状态到 Agent 提示指南的完整设计语言。",
     "relationCount": 4,
     "sourceCount": 1,
-    "updatedAt": "2026-04-07T09:21:21.908Z"
+    "updatedAt": "2026-04-07T13:49:19.619Z"
+  },
+  {
+    "id": "google-stitch",
+    "name": "Google Stitch",
+    "aliases": [
+      "Stitch",
+      "Google Labs Stitch"
+    ],
+    "domain": "AI Design Tool / UI Generation",
+    "summary": "Google Labs 推出的 AI 原生 UI 设计平台，从文本提示生成 UI 界面。2026 年 3 月更新引入多屏幕生成、无限画布、交互原型，并定义了 DESIGN.md 格式作为设计系统的可移植标准。",
+    "relationCount": 2,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-07T13:49:19.619Z"
   },
   {
     "id": "agent-skills-standard",
@@ -37,6 +76,20 @@
     ],
     "domain": "AI Agent / Interoperability Standard",
     "summary": "一种开放的 Agent 技能描述格式，用文件夹 + SKILL.md（YAML frontmatter + Markdown 指令）定义可移植的程序性知识。已被 VS Code Copilot、OpenAI Codex、Gemini CLI 等 20+ 平台采纳。",
+    "relationCount": 5,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-07T13:49:19.619Z"
+  },
+  {
+    "id": "gepa-prompt-evolution",
+    "name": "GEPA (Genetic-Pareto Prompt Evolution)",
+    "aliases": [
+      "Genetic-Pareto Prompt Evolution",
+      "GEPA",
+      "hermes-agent-self-evolution"
+    ],
+    "domain": "Prompt Optimization / Evolutionary Computation",
+    "summary": "一种基于遗传算法和 Pareto 优化的提示词/技能进化方法，通过 API 调用（无需 GPU）读取执行轨迹和错误日志，诊断失败原因，生成候选变体并自动选择最优版本。",
     "relationCount": 4,
     "sourceCount": 1,
     "updatedAt": "2026-04-07T09:21:21.908Z"
@@ -95,20 +148,6 @@
     "relationCount": 3,
     "sourceCount": 1,
     "updatedAt": "2026-04-07T09:07:58.154Z"
-  },
-  {
-    "id": "context-governance",
-    "name": "Context Governance",
-    "aliases": [
-      "上下文治理",
-      "Context Budget Management",
-      "上下文预算管理"
-    ],
-    "domain": "AI Agent Runtime / LLM Context Management",
-    "summary": "一套管理 AI Agent 长会话中上下文窗口有限性的工程机制，包括项目级约束文件（CLAUDE.md）、上下文压缩（Compact）和记忆持久化。核心理念是将上下文视为预算而非无限资源，通过制度化的管理防止行为漂移。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-07T05:55:52.069Z"
   },
   {
     "id": "precision-exploration-conflict",

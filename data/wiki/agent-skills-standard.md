@@ -19,20 +19,26 @@
     {
       "conceptId": "gepa-prompt-evolution",
       "conceptName": "GEPA",
-      "type": "enables",
+      "type": "related",
       "description": "GEPA 可以自动优化 Skill Document 的内容，提升技能质量"
     },
     {
       "conceptId": "hermes-agent-loop",
       "conceptName": "Hermes Agent Loop",
-      "type": "builds-on",
+      "type": "related",
       "description": "Hermes 将 Agent Skills 标准扩展为完整的三阶段生命周期管理（自主创建→运行时改进→进化优化），是该标准最深度的运行时集成"
     },
     {
       "conceptId": "harness-engineering",
       "conceptName": "Harness Engineering",
-      "type": "builds-on",
+      "type": "related",
       "description": "Agent Skills 是 Harness Engineering 控制面（提示词分层与组装）的可移植载体，将硬编码的控制逻辑外化为标准化的程序性知识文件"
+    },
+    {
+      "conceptId": "awesome-design-md",
+      "conceptName": "awesome-design-md",
+      "type": "related",
+      "description": "两者遵循相同模式：社区驱动的结构化 Markdown 规范集合供 AI Agent 消费——一个面向 UI 设计系统，一个面向程序性技能"
     }
   ],
   "sources": [
@@ -45,7 +51,7 @@
   ],
   "tags": [],
   "createdAt": "2026-04-07T09:20:31.265Z",
-  "updatedAt": "2026-04-07T09:21:21.908Z"
+  "updatedAt": "2026-04-07T13:49:19.619Z"
 }
 ---
 

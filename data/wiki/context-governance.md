@@ -21,6 +21,12 @@
       "conceptName": "Agent Query Loop",
       "type": "related",
       "description": "每轮循环消耗上下文预算，治理机制决定何时压缩"
+    },
+    {
+      "conceptId": "awesome-design-md",
+      "conceptName": "awesome-design-md",
+      "type": "related",
+      "description": "awesome-design-md 提供即用型设计约束文件库，直接充当 Context Governance 第一层（约束注入）的预制内容源"
     }
   ],
   "sources": [
@@ -33,7 +39,7 @@
   ],
   "tags": [],
   "createdAt": "2026-04-07T05:55:52.069Z",
-  "updatedAt": "2026-04-07T05:55:52.069Z"
+  "updatedAt": "2026-04-07T13:49:19.619Z"
 }
 ---
 

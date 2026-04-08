@@ -80,8 +80,14 @@ function buildTriagePrompt(wikiCtx: string): string {
 
 每篇文章识别 1-3 个核心技术，宁少勿滥。
 
-### 第三步：匹配 Wiki
+### 第三步：匹配 Wiki + 增量评估
 对比下方的已有 Wiki 列表。**如果 Wiki 中已有含义相同的技术（即使名称写法不同），必须标记为 isKnown=true 并填写 wikiId，禁止创建重复词条。**
+
+对于已知技术（isKnown=true），还需要判断本文提供了什么新信息：
+- 新实验数据/benchmark → delta 写具体数据
+- 新应用场景/用法 → delta 写新场景
+- 新机制/新发现 → delta 写新发现
+- 无任何新信息（纯复述）→ delta 留空字符串
 
 ${wikiCtx ? `## 已有 Wiki\n${wikiCtx}` : '## 已有 Wiki\n（Wiki 为空，所有技术都是新的）'}
 
@@ -92,9 +98,9 @@ ${wikiCtx ? `## 已有 Wiki\n${wikiCtx}` : '## 已有 Wiki\n（Wiki 为空，所
 客观统计 delta，然后给 verdict：
 
 verdict 规则：
-- **deep-dive**: 有 Wiki 中不存在的新技术，或组合方式有实际创新
-- **save**: 技术已知但组合有参考价值，或填补了知识库的空白领域
-- **skip**: 全部已知 + 组合也已知 / 纯营销 / 内容空洞
+- **deep-dive**: 有 Wiki 中不存在的新技术，或已知技术有重要新发现（新数据/新场景/新机制，即 knownWithDelta > 0 且增量重要），或组合方式有实际创新
+- **save**: 技术已知且增量较小（补充验证、次要应用场景），或组合有参考价值
+- **skip**: 全部已知 + 无增量（knownWithDelta=0）+ 组合也已知 / 纯营销 / 内容空洞
 
 ## 输出格式
 
@@ -108,13 +114,15 @@ verdict 规则：
       "wikiId": "匹配到的 Wiki 词条 id（已知时必填，新技术留空）",
       "root": "来源（论文/作者/年份）→ 一句话核心原理",
       "whatItEnables": "一句话：能做什么",
-      "sourceUrl": "一手来源 URL"
+      "sourceUrl": "一手来源 URL",
+      "delta": "本文对该已知技术的新增量（已知技术必填，新技术留空）"
     }
   ],
   "narrative": "连贯的技术叙述（见下方规则）",
   "delta": {
     "newCount": 0,
     "knownCount": 0,
+    "knownWithDelta": 0,
     "compositionNew": true,
     "gap": "填补知识库什么空白（一句话）"
   },
