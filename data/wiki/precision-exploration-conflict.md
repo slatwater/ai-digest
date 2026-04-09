@@ -14,6 +14,18 @@
       "conceptName": "Simple Self-Distillation (SSD)",
       "type": "related",
       "description": "精确-探索冲突是 SSD 有效性的理论解释"
+    },
+    {
+      "conceptId": "medusa-decoding",
+      "conceptName": "Medusa",
+      "type": "related",
+      "description": "Medusa 的 Typical Acceptance 机制（高熵放宽、低熵收紧）本质上是在解码验证层面对 Precision-Exploration Conflict 的工程化应对——按位置熵动态调整接受阈值，而非使用全局固定标准"
+    },
+    {
+      "conceptId": "typical-acceptance",
+      "conceptName": "Typical Acceptance",
+      "type": "related",
+      "description": "Typical Acceptance 的熵自适应阈值是精确-探索冲突在推理验证阶段的直接解法：低熵（lock position）时收紧接受条件保精确，高熵（fork position）时放宽接受条件容探索"
     }
   ],
   "sources": [
@@ -26,7 +38,7 @@
   ],
   "tags": [],
   "createdAt": "2026-04-07T03:59:04.797Z",
-  "updatedAt": "2026-04-07T03:59:04.797Z"
+  "updatedAt": "2026-04-09T05:11:14.068Z"
 }
 ---
 

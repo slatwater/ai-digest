@@ -26,6 +26,18 @@
       "conceptName": "Group Relative Policy Optimization (GRPO)",
       "type": "related",
       "description": "GRPO 需要奖励信号和 RL 训练，SSD 完全不需要外部信号，但两者可互补"
+    },
+    {
+      "conceptId": "medusa-decoding",
+      "conceptName": "Medusa",
+      "type": "related",
+      "description": "SSD 重塑 backbone 隐藏层的表示分布，可能使 Medusa 的单层 FFN 解码头更容易预测未来 token，缓解其'单层前馈网络预测能力有限'的局限"
+    },
+    {
+      "conceptId": "typical-acceptance",
+      "conceptName": "Typical Acceptance",
+      "type": "related",
+      "description": "两者都实现上下文相关的 token 分布重塑以应对精确-探索冲突，但作用层面互补：SSD 在后训练权重层面重塑（产生 spike/plateau 效应），Typical Acceptance 在推理验证阶段通过熵阈值重塑接受标准"
     }
   ],
   "sources": [
@@ -38,7 +50,7 @@
   ],
   "tags": [],
   "createdAt": "2026-04-07T03:59:04.797Z",
-  "updatedAt": "2026-04-07T09:07:58.154Z"
+  "updatedAt": "2026-04-09T05:11:14.069Z"
 }
 ---
 

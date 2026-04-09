@@ -281,6 +281,7 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleSend = useCallback(async () => {
@@ -289,6 +290,7 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
     setQuestion('');
     setMessages(prev => [...prev, { role: 'user', content: q }]);
     setLoading(true);
+    setToolStatus(null);
 
     try {
       const res = await fetch('/api/triage-chat', {
@@ -318,7 +320,10 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
           if (!line.startsWith('data: ')) continue;
           try {
             const event = JSON.parse(line.slice(6));
-            if (event.type === 'text') {
+            if (event.type === 'tool_status') {
+              setToolStatus(event.data.label);
+            } else if (event.type === 'text') {
+              setToolStatus(null);
               answer += event.data.content;
               setMessages(prev => {
                 const copy = [...prev];
@@ -338,6 +343,7 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
       setMessages(prev => [...prev, { role: 'assistant', content: '回答失败，请重试' }]);
     } finally {
       setLoading(false);
+      setToolStatus(null);
     }
   }, [question, loading, entry]);
 
@@ -379,7 +385,7 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
             background: loading ? 'var(--bg-subtle)' : 'var(--accent)',
           }}
         >
-          {loading ? '思考中...' : '提问'}
+          {loading ? (toolStatus || '思考中...') : '提问'}
         </button>
       </form>
       {/* 对话记录 */}
@@ -550,6 +556,41 @@ export function TriageCard({ entry, verdict, onVerdictChange }: Props) {
           <ConceptPopup concept={popupConcept} onClose={() => setPopupConcept(null)} />
         )}
       </div>
+
+      {/* ── 来源链接 ── */}
+      {(() => {
+        const sources = entry.sources?.length
+          ? entry.sources
+          : (entry.concepts || []).filter(c => c.sourceUrl).map(c => ({ url: c.sourceUrl!, title: c.name, type: 'related' as const }));
+        if (sources.length === 0) return null;
+        const typeLabels: Record<string, string> = { paper: '论文', github: 'GitHub', docs: '文档', original: '原文', related: '相关' };
+        return (
+          <div className="px-6 pb-4">
+            <p style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontWeight: 500, letterSpacing: '0.06em', marginBottom: '6px' }}>
+              来源 · {sources.length}
+            </p>
+            <div className="flex flex-col gap-0.5">
+              {sources.map((s, i) => {
+                let host: string;
+                try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch { host = s.url; }
+                return (
+                  <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
+                    className="grid items-center py-0.5 transition-colors"
+                    style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', gridTemplateColumns: '3rem 1fr auto', gap: '0 8px' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
+                    <span className="text-right" style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)' }}>
+                      {typeLabels[s.type] || '相关'}
+                    </span>
+                    <span className="truncate min-w-0">{s.title || host}</span>
+                    <span style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>{host}</span>
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── 聊天区 ── */}
       <div className="px-6 pb-5">

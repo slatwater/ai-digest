@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
-import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept } from './types';
+import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept, SourceInfo } from './types';
 import { safeScrape, safeParseJSON, stripCodeFence } from './agent';
 import { getEntries, saveTriageBatch, getWikiEntries } from './storage';
 import { reportFromSDKMessage } from './token-report';
@@ -71,6 +71,7 @@ function buildTriagePrompt(wikiCtx: string): string {
 
 ### 第一步：采集 + 溯源
 读取文章内容。如果是二手转载，用 WebSearch/WebFetch 找到一手来源。
+把溯源过程中找到的所有有价值链接记下来（论文、GitHub、官方文档、博客原文等），填入 sources 数组。
 
 ### 第二步：识别具名技术
 找出文章涉及的具名技术，每个必须：
@@ -107,6 +108,9 @@ verdict 规则：
 ===TRIAGE_START===
 {
   "title": "核心技术/项目名（中文）",
+  "sources": [
+    { "url": "来源URL", "title": "来源标题", "type": "original|paper|github|docs|related" }
+  ],
   "concepts": [
     {
       "name": "技术的公认名称",
@@ -183,6 +187,7 @@ function extractText(message: SDKMessage): string | null {
 // 解析 triage 输出
 interface TriageOutput {
   title: string;
+  sources?: { url: string; title: string; type: string }[];
   concepts: TriageConcept[];
   narrative?: string;
   composition?: string;
@@ -303,6 +308,10 @@ ${knowledgeContext.entriesCtx}
       entry.title = result.title || entry.url;
       entry.verdict = result.verdict;
       entry.concepts = result.concepts || [];
+      entry.sources = (result.sources || []).map(s => ({
+        url: s.url, title: s.title,
+        type: (['original', 'related', 'github', 'paper', 'docs'].includes(s.type) ? s.type : 'related') as SourceInfo['type'],
+      }));
       entry.narrative = result.narrative;
       entry.composition = result.composition;
       entry.solves = result.solves;
@@ -345,6 +354,10 @@ ${knowledgeContext.entriesCtx}
           entry.title = retryResult.title || entry.url;
           entry.verdict = retryResult.verdict;
           entry.concepts = retryResult.concepts || [];
+          entry.sources = (retryResult.sources || []).map(s => ({
+            url: s.url, title: s.title,
+            type: (['original', 'related', 'github', 'paper', 'docs'].includes(s.type) ? s.type : 'related') as SourceInfo['type'],
+          }));
           entry.narrative = retryResult.narrative;
           entry.delta = retryResult.delta;
           entry.verdictReason = retryResult.verdictReason;

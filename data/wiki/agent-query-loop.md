@@ -22,6 +22,12 @@
       "conceptName": "Context Governance",
       "type": "related",
       "description": "循环的每一轮都消耗和管理上下文预算"
+    },
+    {
+      "conceptId": "honcho-dialectic-memory",
+      "conceptName": "Honcho Dialectic Memory",
+      "type": "related",
+      "description": "Honcho 的记忆在每轮 Agent Query Loop 迭代前被预取并注入系统提示词，为循环中的推理决策提供用户上下文"
     }
   ],
   "sources": [
@@ -34,7 +40,7 @@
   ],
   "tags": [],
   "createdAt": "2026-04-07T05:55:52.069Z",
-  "updatedAt": "2026-04-07T09:13:07.189Z"
+  "updatedAt": "2026-04-08T14:43:53.733Z"
 }
 ---
 

@@ -1,5 +1,103 @@
 [
   {
+    "id": "typical-acceptance",
+    "name": "Typical Acceptance",
+    "aliases": [
+      "Typical Acceptance Scheme",
+      "典型接受方案",
+      "Entropy-based Acceptance"
+    ],
+    "domain": "LLM Decoding / Sampling Strategy",
+    "summary": "一种基于信息论的候选 token 验证策略，用目标模型分布的熵动态调整接受阈值，替代推测解码中的拒绝采样。",
+    "relationCount": 4,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-09T05:11:16.025Z"
+  },
+  {
+    "id": "tree-attention-verification",
+    "name": "Tree Attention Verification",
+    "aliases": [
+      "Tree-based Attention",
+      "树状注意力验证",
+      "Token Tree Verification"
+    ],
+    "domain": "LLM Inference Acceleration",
+    "summary": "一种在 LLM 推理中并行验证多条候选路径的注意力机制，通过树状 token 结构和自定义注意力掩码在单次前向传播中验证指数级候选。",
+    "relationCount": 2,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-09T05:11:16.022Z"
+  },
+  {
+    "id": "medusa-decoding",
+    "name": "Medusa",
+    "aliases": [
+      "Medusa Decoding",
+      "Medusa Heads",
+      "Multi-Head Speculative Decoding",
+      "Multiple Decoding Heads"
+    ],
+    "domain": "LLM Inference Acceleration",
+    "summary": "一种 LLM 推理加速框架，在模型最后一层隐藏状态上附加多个轻量 FFN 解码头，各头并行预测不同位置的未来 token，再通过树结构注意力一次性验证所有候选，将多步自回归压缩为单步验证。",
+    "relationCount": 4,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-09T05:11:16.018Z"
+  },
+  {
+    "id": "simple-self-distillation",
+    "name": "Simple Self-Distillation (SSD)",
+    "aliases": [
+      "SSD",
+      "Embarrassingly Simple Self-Distillation"
+    ],
+    "domain": "LLM Post-Training / Code Generation",
+    "summary": "一种极简的后训练方法：从冻结模型采样输出（高温度+截断），不做任何正确性过滤，直接用标准 SFT 训练。通过上下文相关的 token 分布重塑，释放模型已有但被贪婪解码锁住的能力。",
+    "relationCount": 5,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-09T05:11:14.069Z"
+  },
+  {
+    "id": "precision-exploration-conflict",
+    "name": "Precision-Exploration Conflict",
+    "aliases": [
+      "Lock-Fork Duality",
+      "精确-探索冲突"
+    ],
+    "domain": "LLM Decoding Theory",
+    "summary": "代码生成中 token 序列存在两类位置：需要精确的「锁定位置」和需要多样性的「分叉位置」。任何全局固定解码温度必须在两者之间妥协，这是温度调优效果有限的根本原因。",
+    "relationCount": 3,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-09T05:11:14.068Z"
+  },
+  {
+    "id": "agent-query-loop",
+    "name": "Agent Query Loop",
+    "aliases": [
+      "Agentic Loop",
+      "主循环",
+      "Agent Loop",
+      "ReAct Loop（扩展版）"
+    ],
+    "domain": "AI Agent Runtime",
+    "summary": "AI Agent 的核心运行时循环，负责接收模型输出、解析 tool call、执行权限检查、调用工具、注入结果、触发下一轮推理。Claude Code 实现为单线程循环+实时转向队列，Codex 实现为 Thread/Rollout/State 三层持久化结构。",
+    "relationCount": 3,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-08T14:43:53.733Z"
+  },
+  {
+    "id": "honcho-dialectic-memory",
+    "name": "Honcho Dialectic Memory",
+    "aliases": [
+      "Honcho",
+      "Dialectic User Modeling",
+      "辩证用户建模"
+    ],
+    "domain": "AI Agent Memory / User Modeling",
+    "summary": "一种 AI 原生记忆后端，通过对话后辩证推理（dialectic reasoning）构建跨 12 个身份层的用户模型，超越简单的事实存储，推导用户的偏好模式、思维习惯和隐含目标。",
+    "relationCount": 3,
+    "sourceCount": 1,
+    "updatedAt": "2026-04-08T14:43:53.733Z"
+  },
+  {
     "id": "context-governance",
     "name": "Context Governance",
     "aliases": [
@@ -106,60 +204,5 @@
     "relationCount": 5,
     "sourceCount": 1,
     "updatedAt": "2026-04-07T09:21:21.908Z"
-  },
-  {
-    "id": "honcho-dialectic-memory",
-    "name": "Honcho Dialectic Memory",
-    "aliases": [
-      "Honcho",
-      "Dialectic User Modeling",
-      "辩证用户建模"
-    ],
-    "domain": "AI Agent Memory / User Modeling",
-    "summary": "一种 AI 原生记忆后端，通过对话后辩证推理（dialectic reasoning）构建跨 12 个身份层的用户模型，超越简单的事实存储，推导用户的偏好模式、思维习惯和隐含目标。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-07T09:21:21.908Z"
-  },
-  {
-    "id": "agent-query-loop",
-    "name": "Agent Query Loop",
-    "aliases": [
-      "Agentic Loop",
-      "主循环",
-      "Agent Loop",
-      "ReAct Loop（扩展版）"
-    ],
-    "domain": "AI Agent Runtime",
-    "summary": "AI Agent 的核心运行时循环，负责接收模型输出、解析 tool call、执行权限检查、调用工具、注入结果、触发下一轮推理。Claude Code 实现为单线程循环+实时转向队列，Codex 实现为 Thread/Rollout/State 三层持久化结构。",
-    "relationCount": 2,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-07T09:13:07.189Z"
-  },
-  {
-    "id": "simple-self-distillation",
-    "name": "Simple Self-Distillation (SSD)",
-    "aliases": [
-      "SSD",
-      "Embarrassingly Simple Self-Distillation"
-    ],
-    "domain": "LLM Post-Training / Code Generation",
-    "summary": "一种极简的后训练方法：从冻结模型采样输出（高温度+截断），不做任何正确性过滤，直接用标准 SFT 训练。通过上下文相关的 token 分布重塑，释放模型已有但被贪婪解码锁住的能力。",
-    "relationCount": 3,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-07T09:07:58.154Z"
-  },
-  {
-    "id": "precision-exploration-conflict",
-    "name": "Precision-Exploration Conflict",
-    "aliases": [
-      "Lock-Fork Duality",
-      "精确-探索冲突"
-    ],
-    "domain": "LLM Decoding Theory",
-    "summary": "代码生成中 token 序列存在两类位置：需要精确的「锁定位置」和需要多样性的「分叉位置」。任何全局固定解码温度必须在两者之间妥协，这是温度调优效果有限的根本原因。",
-    "relationCount": 1,
-    "sourceCount": 1,
-    "updatedAt": "2026-04-07T03:59:04.797Z"
   }
 ]

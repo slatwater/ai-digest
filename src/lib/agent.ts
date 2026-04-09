@@ -446,6 +446,8 @@ export async function runDigest(
     for await (const message of q) {
       if (abortController.signal.aborted) break;
 
+
+
       // 捕获 session ID
       if (message.type === 'system' && message.subtype === 'init') {
         session.claudeSessionId = message.session_id;
@@ -453,6 +455,25 @@ export async function runDigest(
 
       // 上报 token 用量到 token monitor
       reportFromSDKMessage('ai-digest', message, session.claudeSessionId || sessionId);
+
+      // 从 assistant 消息的 tool_use block 中检测工具调用，推送状态
+      if (message.type === 'assistant') {
+        const blocks = message.message?.content;
+        if (Array.isArray(blocks)) {
+          const toolLabels: Record<string, string> = {
+            WebSearch: '正在搜索...',
+            WebFetch: '正在抓取网页...',
+            Read: '正在读取文件...',
+            Glob: '正在查找文件...',
+            Grep: '正在搜索内容...',
+          };
+          for (const block of blocks) {
+            if (block.type === 'tool_use' && typeof block.name === 'string' && toolLabels[block.name]) {
+              send('tool_status', { tool: block.name, label: toolLabels[block.name] });
+            }
+          }
+        }
+      }
 
       const text = extractText(message);
       if (text) {

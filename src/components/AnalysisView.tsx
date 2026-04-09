@@ -1,9 +1,51 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DigestEntry, WikiIndexEntry } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+// 导出为 Markdown（仅叙事内容，不含标签/索引/链接）
+function buildExportMarkdown(entry: DigestEntry): string {
+  const { analysis, title } = entry;
+  const narrative = analysis.narrative;
+  const parts: string[] = [`# ${title}`, ''];
+
+  if (narrative) {
+    parts.push(`> ${narrative.oneliner}`, '');
+    if (narrative.situation) parts.push('## 现状与矛盾', '', narrative.situation, '');
+    if (narrative.insight) {
+      parts.push('## 核心洞察', '', narrative.insight, '');
+      if (narrative.insightHighlight) parts.push(`> **${narrative.insightHighlight}**`, '');
+    }
+    if (narrative.mechanism) parts.push('## 方案机制', '', narrative.mechanism, '');
+    if (narrative.evidence) parts.push('## 效果与边界', '', narrative.evidence, '');
+    if (narrative.implications) parts.push('## 启发', '', narrative.implications, '');
+  } else if (analysis.concepts && analysis.concepts.length > 0) {
+    if (analysis.tldr) parts.push(`> ${analysis.tldr}`, '');
+    for (const concept of analysis.concepts) {
+      parts.push(`## ${concept.name}`, '');
+      if (concept.summary) parts.push(`> ${concept.summary}`, '');
+      if (concept.what) parts.push('### 是什么', '', concept.what, '');
+      if (concept.enables) parts.push('### 能做什么', '', concept.enables, '');
+      if (concept.limitations) parts.push('### 现状与局限', '', concept.limitations, '');
+    }
+    if (analysis.comparison) parts.push('## 横向对比', '', analysis.comparison, '');
+  } else {
+    if (analysis.tldr) parts.push(`> ${analysis.tldr}`, '');
+    if (analysis.keyPoints?.length) {
+      parts.push('## 核心要点', '');
+      analysis.keyPoints.forEach((p, i) => parts.push(`${i + 1}. ${p}`));
+      parts.push('');
+    }
+    if (analysis.technical) parts.push('## 技术分析', '', analysis.technical, '');
+    if (analysis.significance) parts.push('## 行业意义', '', analysis.significance, '');
+    if (analysis.limitations) parts.push('## 局限与争议', '', analysis.limitations, '');
+    if (analysis.comparison) parts.push('## 横向对比', '', analysis.comparison, '');
+  }
+
+  return parts.join('\n');
+}
 
 export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSelectWiki?: (id: string) => void }) {
   const [relatedWiki, setRelatedWiki] = useState<WikiIndexEntry[]>([]);
@@ -20,11 +62,61 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
   const narrative = analysis.narrative;
   const hasConcepts = analysis.concepts && analysis.concepts.length > 0;
 
+  const [exporting, setExporting] = useState(false);
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const md = buildExportMarkdown(entry);
+      const res = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: entry.title, content: md }),
+      });
+      if (!res.ok) throw new Error('导出失败');
+    } finally {
+      setExporting(false);
+    }
+  }, [entry]);
+
   let sectionNum = 0;
   const nextNum = () => String(++sectionNum).padStart(2, '0');
 
   return (
     <article className="space-y-10">
+      {/* 导出按钮 */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md"
+          style={{
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-tertiary)',
+            background: 'var(--bg-subtle)',
+            border: '1px solid var(--border-subtle)',
+            cursor: exporting ? 'default' : 'pointer',
+            opacity: exporting ? 0.5 : 1,
+            transition: 'color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)',
+          }}
+          onMouseEnter={e => {
+            if (!exporting) {
+              e.currentTarget.style.color = 'var(--text-primary)';
+              e.currentTarget.style.borderColor = 'var(--border)';
+            }
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.color = 'var(--text-tertiary)';
+            e.currentTarget.style.borderColor = 'var(--border-subtle)';
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          {exporting ? '导出中...' : '导出'}
+        </button>
+      </div>
       {/* ── 叙事报告（新格式） ── */}
       {narrative ? (
         <>

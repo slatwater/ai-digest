@@ -11,6 +11,7 @@ interface DuplicateInfo {
 interface DigestState {
   phase: DigestPhase | null;
   phaseLabel: string;
+  toolStatus: string | null;
   messages: StreamMessage[];
   phaseSummary: PhaseSummary;
   question: QuestionEvent | null;
@@ -24,6 +25,7 @@ export function useDigest() {
   const [state, setState] = useState<DigestState>({
     phase: null,
     phaseLabel: '',
+    toolStatus: null,
     messages: [],
     phaseSummary: {},
     question: null,
@@ -41,6 +43,7 @@ export function useDigest() {
     setState({
       phase: 'capture',
       phaseLabel: '正在采集内容...',
+      toolStatus: null,
       messages: [],
       phaseSummary: {},
       question: null,
@@ -132,8 +135,13 @@ export function useDigest() {
           const ps = { ...prev.phaseSummary };
           if (phase === 'compose') ps.compose = { done: false };
           if (phase === 'archive') ps.archive = { done: false };
-          return { ...prev, phase, phaseLabel: event.data.label as string, phaseSummary: ps };
+          return { ...prev, phase, phaseLabel: event.data.label as string, toolStatus: null, phaseSummary: ps };
         });
+        break;
+      }
+
+      case 'tool_status': {
+        setState(prev => ({ ...prev, toolStatus: event.data.label as string }));
         break;
       }
 
@@ -147,6 +155,7 @@ export function useDigest() {
         };
         setState(prev => ({
           ...prev,
+          toolStatus: null,
           messages: [...prev.messages, msg],
         }));
         break;

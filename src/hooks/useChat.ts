@@ -28,6 +28,9 @@ export function useChat(entryId: string | null) {
   });
 
   const abortRef = useRef<AbortController | null>(null);
+  // 用 ref 跟踪最新 messages，避免 async 回调中闭包陈旧
+  const messagesRef = useRef<ChatMessage[]>([]);
+  messagesRef.current = state.messages;
 
   // 加载已有 chat 历史
   useEffect(() => {
@@ -42,6 +45,54 @@ export function useChat(entryId: string | null) {
       .catch(() => { /* 忽略 */ });
   }, [entryId]);
 
+  // SSE 流解析（独立回调，无外部状态依赖）
+  const streamFromResponse = useCallback(async (res: Response) => {
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('无法读取响应流');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullReply = '';
+
+    const parseEvent = (line: string) => {
+      if (!line.startsWith('data: ')) return;
+      try {
+        const event = JSON.parse(line.slice(6));
+        if (event.type === 'text') {
+          fullReply += event.data.content;
+          setState(prev => ({ ...prev, currentReply: fullReply }));
+        } else if (event.type === 'error') {
+          throw new Error(event.data.message);
+        }
+      } catch (e) {
+        if (e instanceof Error &&
+            e.message !== 'Unexpected end of JSON input' &&
+            !e.message.startsWith('Unexpected token')) {
+          throw e;
+        }
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        // 处理残留 buffer
+        if (buffer.trim()) parseEvent(buffer.trim());
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        parseEvent(line);
+      }
+    }
+
+    return fullReply;
+  }, []);
+
   const ask = useCallback(async (question: string) => {
     if (!entryId || !question.trim()) return;
 
@@ -54,6 +105,9 @@ export function useChat(entryId: string | null) {
       content: question.trim(),
       timestamp: Date.now(),
     };
+
+    // 快照当前历史（在 setState 之前读 ref，确保拿到最新值）
+    const history = messagesRef.current;
 
     setState(prev => ({
       ...prev,
@@ -70,7 +124,7 @@ export function useChat(entryId: string | null) {
         body: JSON.stringify({
           entryId,
           question: question.trim(),
-          history: state.messages,
+          history,
         }),
         signal: abortRef.current.signal,
       });
@@ -80,42 +134,7 @@ export function useChat(entryId: string | null) {
         throw new Error(err.error || '请求失败');
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('无法读取响应流');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let fullReply = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === 'text') {
-              fullReply += event.data.content;
-              setState(prev => ({ ...prev, currentReply: fullReply }));
-            } else if (event.type === 'error') {
-              throw new Error(event.data.message);
-            }
-          } catch (e) {
-            if (e instanceof Error && e.message !== '请求失败') {
-              // JSON 解析失败忽略，其他错误向上抛
-              if (e.message !== 'Unexpected end of JSON input' &&
-                  !e.message.startsWith('Unexpected token')) {
-                throw e;
-              }
-            }
-          }
-        }
-      }
+      const fullReply = await streamFromResponse(res);
 
       // 流结束，将完整回复追加到历史并持久化
       if (fullReply) {
@@ -147,7 +166,7 @@ export function useChat(entryId: string | null) {
         }));
       }
     }
-  }, [entryId, state.messages]);
+  }, [entryId, streamFromResponse]);
 
   const clear = useCallback(() => {
     abortRef.current?.abort();

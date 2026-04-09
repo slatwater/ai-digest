@@ -29,7 +29,8 @@ src/
 │   ├── api/wiki/route.ts     # Wiki 词条 API（GET + POST 重编译）
 │   ├── api/blueprint/route.ts # 返回系统提示词（原理页）
 │   ├── api/respond/route.ts  # 用户交互回复
-│   └── api/entries/route.ts  # 知识库条目 API（GET + PUT 留底 + PATCH + DELETE）
+│   ├── api/entries/route.ts  # 知识库条目 API（GET + PUT 留底 + PATCH + DELETE）
+│   └── api/export/route.ts   # 研究报告导出 Markdown（→ ~/Desktop/研究/）
 ├── lib/
 │   ├── triage.ts             # 解析 Agent（具名技术识别 + Wiki 匹配 + 组合分析 + 增量统计）
 │   ├── agent.ts              # 深研 Agent（采集→溯源→识别→叙事报告+概念拆解→归档）

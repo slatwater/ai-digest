@@ -50,22 +50,33 @@ export async function POST(req: NextRequest) {
           options: {
             systemPrompt,
             cwd: process.cwd(),
-            allowedTools: [],
+            allowedTools: ['WebSearch'],
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
-            maxTurns: 1,
+            maxTurns: 3,
             abortController: new AbortController(),
             persistSession: false,
           },
         });
 
         for await (const message of q) {
-          // 只取 assistant 消息，跳过 result（会重复）
-          if (message.type !== 'assistant') continue;
-          const text = extractText(message);
-          if (text) {
-            const event = `data: ${JSON.stringify({ type: 'text', data: { content: text } })}\n\n`;
-            try { controller.enqueue(encoder.encode(event)); } catch { /* closed */ }
+          if (message.type === 'assistant') {
+            // 检测工具调用，推送状态
+            const blocks = message.message?.content;
+            if (Array.isArray(blocks)) {
+              for (const block of blocks) {
+                if (block.type === 'tool_use' && block.name === 'WebSearch') {
+                  const status = `data: ${JSON.stringify({ type: 'tool_status', data: { label: '正在搜索...' } })}\n\n`;
+                  try { controller.enqueue(encoder.encode(status)); } catch { /* closed */ }
+                }
+              }
+            }
+            // 提取文本
+            const text = extractText(message);
+            if (text) {
+              const event = `data: ${JSON.stringify({ type: 'text', data: { content: text } })}\n\n`;
+              try { controller.enqueue(encoder.encode(event)); } catch { /* closed */ }
+            }
           }
         }
 

@@ -21,6 +21,12 @@
       "conceptName": "Hermes Agent Loop",
       "type": "related",
       "description": "Honcho 的辩证推理用户模型可作为 Hermes 记忆预取机制的深层记忆源，提供超越事实存储的用户理解"
+    },
+    {
+      "conceptId": "agent-query-loop",
+      "conceptName": "Agent Query Loop",
+      "type": "related",
+      "description": "Honcho 的记忆在每轮 Agent Query Loop 迭代前被预取并注入系统提示词，为循环中的推理决策提供用户上下文"
     }
   ],
   "sources": [
@@ -33,7 +39,7 @@
   ],
   "tags": [],
   "createdAt": "2026-04-07T09:20:31.265Z",
-  "updatedAt": "2026-04-07T09:21:21.908Z"
+  "updatedAt": "2026-04-08T14:43:53.733Z"
 }
 ---
 

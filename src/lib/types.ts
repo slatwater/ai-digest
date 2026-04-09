@@ -387,6 +387,7 @@ export interface TriageEntry {
   // 以下字段在 status=done 时填充
   verdict?: TriageVerdict;
   concepts?: TriageConcept[];    // 识别到的具名技术
+  sources?: SourceInfo[];        // 溯源找到的来源列表
   narrative?: string;            // 连贯叙述（技术名用 [[name|new/known:id]] 标记）
   composition?: string;          // 组合方式（结构化备份）
   solves?: string;               // 能解决什么（结构化备份）

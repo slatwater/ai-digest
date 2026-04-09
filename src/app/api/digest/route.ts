@@ -26,6 +26,15 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      // 每 15 秒发送 SSE 注释保活，防止连接超时断开
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 15_000);
+
       const send = (type: string, data: unknown) => {
         const event = `data: ${JSON.stringify({ type, data })}\n\n`;
         try {
@@ -40,6 +49,7 @@ export async function POST(req: NextRequest) {
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : 'Unknown error' });
       } finally {
+        clearInterval(heartbeat);
         try {
           controller.close();
         } catch {

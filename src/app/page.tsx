@@ -258,6 +258,11 @@ export default function Home() {
                 {(digest.isRunning || digest.phase === 'complete') && (
                   <div className="mb-6">
                     <PhaseIndicator currentPhase={digest.phase} />
+                    {digest.toolStatus && digest.isRunning && (
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '6px' }}>
+                        {digest.toolStatus}
+                      </p>
+                    )}
                     {digestQueue.length > 0 && (
                       <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '8px' }}>
                         队列中还有 {digestQueue.length} 条待研究
