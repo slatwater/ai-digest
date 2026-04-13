@@ -2,282 +2,216 @@
 
 import { useState, useCallback } from 'react';
 import { useTriage } from '@/hooks/useTriage';
-import { TriageCard } from './TriageCard';
+import { TriageSection } from './TriageSection';
 import { TriageEntry } from '@/lib/types';
 
 interface Props {
   triage: ReturnType<typeof useTriage>;
-  onStartDigest: (urls: string[]) => void;
-  onStartDeepResearch: (url: string) => void;
-  onConfirm?: (stats: { saved: number; skipped: number }) => void;
-  isDigestRunning?: boolean;
+  onExpand?: (entry: TriageEntry, question: string) => void;
 }
 
-// verdict 排序权重
-function verdictOrder(entry: TriageEntry, overrides: Record<string, string>): number {
-  const v = overrides[entry.id] ?? entry.verdict;
-  if (v === 'deep-dive') return 0;
-  if (v === 'save') return 1;
-  if (v === 'skip') return 2;
-  return 3; // pending
+// ── 处理工单（逐步打勾进度） ──
+function ProcessingEntry({ entry }: { entry: TriageEntry }) {
+  const isProcessing = entry.status === 'processing';
+  const phases = entry.livePhases || [];
+  const current = entry.liveStatus;
+
+  return (
+    <div className="py-4">
+      {/* 头部 */}
+      <div className="flex items-center gap-3 mb-3">
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: isProcessing ? 'var(--text-new)' : 'var(--text-quaternary)', fontWeight: 500 }}>
+          {isProcessing ? 'processing' : 'queued'}
+        </span>
+        <div className="flex-1 h-px" style={{ background: isProcessing ? 'var(--border-new)' : 'var(--border-subtle)' }} />
+      </div>
+
+      {/* URL */}
+      <div className="truncate mb-3" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+        {entry.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+      </div>
+
+      {/* 阶段进度 */}
+      {isProcessing && (phases.length > 0 || current) && (
+        <div className="flex items-center gap-3 flex-wrap" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+          {phases.map((phase, i) => (
+            <span key={i} className="flex items-center gap-1.5" style={{ color: 'var(--text-tertiary)' }}>
+              <span style={{ color: 'var(--text-new)' }}>✓</span>
+              {phase}
+            </span>
+          ))}
+          {current && (
+            <span className="flex items-center gap-1.5" style={{ color: 'var(--text-new)' }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--text-new)', animation: 'pulseDot 2s ease-in-out infinite' }} />
+              {current}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
-export function TriageView({ triage, onStartDigest, onStartDeepResearch, onConfirm, isDigestRunning }: Props) {
+export function TriageView({ triage, onExpand }: Props) {
   const [input, setInput] = useState('');
-  const [singleUrl, setSingleUrl] = useState('');
 
-  // 单条深度研究
-  const handleSingleSubmit = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    if (!singleUrl.trim() || isDigestRunning) return;
-    onStartDeepResearch(singleUrl.trim());
-    setSingleUrl('');
-  }, [singleUrl, isDigestRunning, onStartDeepResearch]);
-
-  // 批量解析
-  const handleSubmit = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    const urls = input
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.startsWith('http'));
+  const handleSubmit = useCallback((e?: React.FormEvent) => {
+    e?.preventDefault();
+    const urls = input.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
     if (urls.length === 0) return;
     triage.submit(urls);
   }, [input, triage]);
 
-  const handleConfirm = useCallback(async () => {
-    const saved = triage.counts.save;
-    const skipped = triage.counts.skip;
-    const urls = await triage.confirm();
-    if (urls.length > 0) {
-      onStartDigest(urls);
-    }
-    onConfirm?.({ saved, skipped });
-    triage.reset();
-  }, [triage, onStartDigest, onConfirm]);
-
-  // 排序：deep-dive > save > skip > pending
-  const sortedEntries = triage.batch?.entries
-    ? [...triage.batch.entries].sort((a, b) => {
-        const oa = verdictOrder(a, triage.overrides);
-        const ob = verdictOrder(b, triage.overrides);
-        return oa - ob;
-      })
-    : [];
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); handleSubmit(); }
+  }, [handleSubmit]);
 
   const hasBatch = triage.batch !== null;
-  const hasResults = sortedEntries.some(e => e.status === 'done');
-  const allDone = triage.batch?.status === 'done';
   const validUrlCount = input.split('\n').filter(l => l.trim().startsWith('http')).length;
+  const hasUrls = validUrlCount > 0;
+  const allDone = hasBatch && !triage.isProcessing;
+  const doneEntries = triage.batch?.entries.filter(e => e.status === 'done') || [];
+  const processingEntries = triage.batch?.entries.filter(e => e.status === 'pending' || e.status === 'processing') || [];
+  const errorEntries = triage.batch?.entries.filter(e => e.status === 'error') || [];
 
-  return (
-    <div>
-      {/* 空状态：输入区 */}
-      {!hasBatch && (
-        <div className="py-12">
-          {/* ── 批量解析 ── */}
-          <div
-            className="rounded-lg px-6 py-6"
-            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-          >
-            <h2
-              className="font-semibold tracking-tight"
-              style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)' }}
+  // ═══ 空态 ═══
+  if (!hasBatch) {
+    return (
+      <div className="h-full relative overflow-hidden">
+        {/* 渐变光晕 */}
+        <div className="absolute inset-0 pointer-events-none" style={{
+          background: [
+            'radial-gradient(ellipse 900px 700px at 25% 35%, oklch(94% 0.035 192 / 0.35) 0%, transparent 70%)',
+            'radial-gradient(ellipse 700px 600px at 75% 55%, oklch(95% 0.025 260 / 0.25) 0%, transparent 70%)',
+            'radial-gradient(ellipse 500px 400px at 55% 85%, oklch(96% 0.02 320 / 0.15) 0%, transparent 70%)',
+          ].join(', '),
+        }} />
+
+        {/* 内容 */}
+        <div className="relative h-full flex flex-col items-center justify-center" style={{ zIndex: 1 }}>
+          <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 480, padding: '0 24px' }}>
+            {triage.error && (
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--error)', marginBottom: 16 }}>{triage.error}</p>
+            )}
+
+            {/* 毛玻璃卡片 */}
+            <div
+              style={{
+                background: hasUrls ? 'oklch(100% 0 0 / 0.75)' : 'oklch(100% 0 0 / 0.55)',
+                backdropFilter: 'blur(24px)',
+                WebkitBackdropFilter: 'blur(24px)',
+                border: hasUrls ? '1px solid var(--border-new)' : '1px solid oklch(90% 0.005 260 / 0.6)',
+                borderRadius: 16,
+                padding: '28px 28px 20px',
+                boxShadow: hasUrls
+                  ? '0 0 0 1px oklch(55% 0.15 192 / 0.08), 0 8px 40px oklch(55% 0.15 192 / 0.06)'
+                  : '0 0 0 1px oklch(0% 0 0 / 0.03), 0 8px 32px oklch(0% 0 0 / 0.04)',
+                transition: 'border-color 0.3s, box-shadow 0.3s, background 0.3s',
+              }}
             >
-              批量解析
-            </h2>
-            <p
-              className="mt-1"
-              style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}
-            >
-              粘贴多个链接，逐一快速扫描后选择方向
-            </p>
-            <form onSubmit={handleSubmit} className="mt-4">
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder={'每行一个链接\nhttps://...\nhttps://...'}
+                onKeyDown={handleKeyDown}
+                placeholder="粘贴链接，每行一个"
                 rows={4}
-                className="w-full px-4 py-3 rounded-md resize-none"
+                autoFocus
+                className="w-full resize-none"
                 style={{
                   fontSize: 'var(--text-sm)',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border-subtle)',
+                  background: 'transparent',
+                  border: 'none',
                   color: 'var(--text-primary)',
-                  lineHeight: '1.8',
+                  lineHeight: '2',
+                  padding: 0,
+                  outline: 'none',
                 }}
                 disabled={triage.isSubmitting}
               />
-              <div className="flex items-center justify-between mt-3">
-                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-                  {validUrlCount} 条有效链接
-                </span>
-                <button
-                  type="submit"
-                  disabled={triage.isSubmitting || !input.trim()}
-                  className="btn btn-primary px-5 py-2 rounded-md font-medium"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                >
-                  {triage.isSubmitting ? '提交中...' : '开始解析'}
-                </button>
-              </div>
-            </form>
-          </div>
 
-          {/* ── 深度研究 ── */}
-          <div className="mt-5 px-6 py-5 rounded-lg" style={{ border: '1px solid var(--border-subtle)' }}>
-            <h2
-              className="font-semibold tracking-tight"
-              style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)' }}
-            >
-              深度研究
-            </h2>
-            <p
-              className="mt-1"
-              style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}
-            >
-              单条链接，跳过筛选直接全面分析
-            </p>
-            <form onSubmit={handleSingleSubmit} className="mt-4 flex gap-3">
-              <input
-                type="url"
-                value={singleUrl}
-                onChange={e => setSingleUrl(e.target.value)}
-                placeholder="粘贴链接"
-                disabled={isDigestRunning}
-                className="input-field flex-1 px-4 py-2 rounded-md"
-                style={{
-                  fontSize: 'var(--text-sm)',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                }}
-              />
-              {isDigestRunning ? (
-                <span
-                  className="px-4 py-2 rounded-md font-medium flex items-center gap-2"
-                  style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
-                  研究中
-                </span>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={!singleUrl.trim()}
-                  className="btn btn-primary px-5 py-2 rounded-md font-medium"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                >
-                  研究
-                </button>
-              )}
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Error */}
-      {triage.error && (
-        <div
-          className="mb-6 px-4 py-3 rounded-md"
-          style={{ background: 'var(--error-bg)', fontSize: 'var(--text-sm)', color: 'var(--error)' }}
-        >
-          {triage.error}
-        </div>
-      )}
-
-      {/* Batch 处理中 / 完成 */}
-      {hasBatch && (
-        <div>
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2
-                className="font-semibold tracking-tight"
-                style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
-              >
-                解析结果
-              </h2>
-              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                {triage.isProcessing
-                  ? `正在处理... ${triage.counts.done}/${triage.counts.total}`
-                  : `${triage.counts.total} 条处理完成`
-                }
-              </p>
-            </div>
-            <button
-              onClick={() => triage.reset()}
-              className="link-subtle"
-              style={{ fontSize: 'var(--text-xs)' }}
-            >
-              重新开始
-            </button>
-          </div>
-
-          {triage.isProcessing && (
-            <div className="mb-6 h-1 rounded-full overflow-hidden" style={{ background: 'var(--bg-subtle)' }}>
+              {/* 卡片内底栏 */}
               <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  background: 'var(--accent)',
-                  width: `${triage.counts.total > 0 ? (triage.counts.done / triage.counts.total) * 100 : 0}%`,
-                  transition: 'width 0.5s ease-out',
-                }}
-              />
-            </div>
-          )}
-
-          <div className="space-y-3">
-            {sortedEntries.map(entry => (
-              <TriageCard
-                key={entry.id}
-                entry={entry}
-                verdict={triage.getVerdict(entry.id)}
-                onVerdictChange={(v) => triage.setVerdict(entry.id, v)}
-              />
-            ))}
-          </div>
-
-          {hasResults && (
-            <div
-              className="mt-8 px-5 py-4 rounded-lg flex items-center justify-between"
-              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-            >
-              <div className="flex gap-4" style={{ fontSize: 'var(--text-sm)' }}>
-                {triage.counts['deep-dive'] > 0 && (
-                  <span style={{ color: 'var(--accent)', fontWeight: 500 }}>
-                    {triage.counts['deep-dive']} 深入
-                  </span>
-                )}
-                {triage.counts.save > 0 && (
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {triage.counts.save} 留底
-                  </span>
-                )}
-                {triage.counts.skip > 0 && (
-                  <span style={{ color: 'var(--text-quaternary)' }}>
-                    {triage.counts.skip} 跳过
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={handleConfirm}
-                disabled={!allDone}
-                className="btn btn-primary px-5 py-2.5 rounded-md font-medium"
-                style={{ fontSize: 'var(--text-sm)' }}
+                className="flex items-center justify-between pt-3 mt-2"
+                style={{ borderTop: '1px solid oklch(90% 0.005 260 / 0.4)' }}
               >
-                {!allDone
-                  ? '等待处理完成...'
-                  : triage.counts['deep-dive'] > 0
-                    ? `确认，开始研究 ${triage.counts['deep-dive']} 条`
-                    : triage.counts.save > 0
-                      ? `确认，留底 ${triage.counts.save} 条`
-                      : '确认，全部跳过'
-                }
-              </button>
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>
+                  {hasUrls ? `${validUrlCount} 条链接` : '自动溯源 · 识别具名技术 · 匹配 Wiki'}
+                </span>
+
+                <button
+                  type="submit"
+                  disabled={triage.isSubmitting || !hasUrls}
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 500,
+                    color: hasUrls ? 'var(--text-new)' : 'var(--text-quaternary)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: hasUrls ? 'pointer' : 'default',
+                    opacity: hasUrls ? 1 : 0,
+                    transition: 'opacity 0.2s, color 0.2s',
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {triage.isSubmitting ? '解析中...' : '解析 →'}
+                </button>
+              </div>
             </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ 有 batch ═══
+  return (
+    <div className="max-w-[860px] mx-auto px-8 py-10 pb-24">
+      <div className="flex items-center justify-between mb-10">
+        <div className="flex items-center gap-4" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>
+          {triage.isProcessing && (
+            <span className="flex items-center gap-2" style={{ color: 'var(--text-new)' }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--text-new)', animation: 'pulseDot 2s ease-in-out infinite' }} />
+              {triage.counts.done}/{triage.counts.total}
+            </span>
+          )}
+          {allDone && (
+            <span style={{ color: 'var(--text-tertiary)' }}>
+              {triage.counts.total} 条解析完成
+              {doneEntries.reduce((s, e) => s + (e.concepts?.length || 0), 0) > 0 &&
+                ` · ${doneEntries.reduce((s, e) => s + (e.concepts?.length || 0), 0)} 概念`}
+            </span>
           )}
         </div>
+        <button onClick={() => triage.reset()}
+          style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-quaternary)')}>
+          重新开始
+        </button>
+      </div>
+
+      {doneEntries.map((entry, i) => (
+        <div key={entry.id} style={{ animation: 'fadeIn 0.3s ease-out' }}>
+          <TriageSection entry={entry} index={i + 1} onExpand={onExpand} />
+        </div>
+      ))}
+
+      {processingEntries.length > 0 && (
+        <div className="rounded -mx-4 px-4" style={{ background: 'var(--bg-processing)' }}>
+          {processingEntries.map(entry => <ProcessingEntry key={entry.id} entry={entry} />)}
+        </div>
       )}
+
+      {errorEntries.map(entry => (
+        <div key={entry.id} className="py-4" style={{ fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
+          {entry.title} — {entry.error || '解析失败'}
+        </div>
+      ))}
+
     </div>
   );
 }

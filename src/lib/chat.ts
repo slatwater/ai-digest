@@ -91,7 +91,7 @@ export async function runChat(
     });
 
     for await (const message of q) {
-      reportFromSDKMessage('ai-digest', message);
+      reportFromSDKMessage('aidigest', message);
       const text = extractText(message);
       if (text) {
         fullReply += text;

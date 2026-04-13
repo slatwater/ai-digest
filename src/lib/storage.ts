@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { DigestEntry, ChatMessage, TriageBatch, WikiEntry, WikiIndexEntry } from './types';
+import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -85,9 +85,6 @@ export async function deleteEntry(id: string): Promise<boolean> {
   const dateDir = getDateDir(entry.date);
   try { await fs.unlink(path.join(dateDir, `${id}.json`)); } catch { /* 忽略 */ }
   try { await fs.unlink(path.join(dateDir, `${id}.md`)); } catch { /* 忽略 */ }
-
-  // 清理 Wiki 中对该条目的来源引用
-  await cleanWikiSources(id);
 
   return true;
 }
@@ -181,53 +178,54 @@ export async function deleteTriageBatch(id: string): Promise<boolean> {
 // === Wiki 存储 ===
 
 const WIKI_DIR = path.join(DATA_DIR, 'wiki');
+const WIKI_CATEGORIES_PATH = path.join(WIKI_DIR, 'categories.json');
 const WIKI_INDEX_PATH = path.join(WIKI_DIR, 'index.json');
+const WIKI_ITEMS_DIR = path.join(WIKI_DIR, 'items');
 
-function wikiToFrontmatter(c: WikiEntry): string {
-  const meta = {
-    id: c.id, name: c.name, aliases: c.aliases, domain: c.domain,
-    summary: c.summary, relations: c.relations, sources: c.sources,
-    tags: c.tags, createdAt: c.createdAt, updatedAt: c.updatedAt,
+function toWikiSummary(item: WikiItem): WikiItemSummary {
+  return {
+    id: item.id,
+    name: item.name,
+    categoryId: item.categoryId,
+    sectionHeadings: item.sections.map(s => s.heading),
+    sourceCount: item.sourceLinks.length,
+    updatedAt: item.updatedAt,
   };
-  return `---\n${JSON.stringify(meta, null, 2)}\n---\n\n${c.content}`;
 }
 
-function parseFrontmatter(raw: string): WikiEntry | null {
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/);
-  if (!match) return null;
+function buildWikiItemMarkdown(item: WikiItem): string {
+  const lines: string[] = [`# ${item.name}`, ''];
+  for (const section of item.sections) {
+    lines.push(`## ${section.heading}`, '', section.content, '');
+  }
+  if (item.sourceLinks.length > 0) {
+    lines.push('## 来源', '');
+    for (const link of item.sourceLinks) {
+      lines.push(`- [${link.title || link.url}](${link.url})`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+// ── 分类 ──
+
+export async function getWikiCategories(): Promise<WikiCategory[]> {
   try {
-    const meta = JSON.parse(match[1]);
-    return { ...meta, content: match[2] };
+    return JSON.parse(await fs.readFile(WIKI_CATEGORIES_PATH, 'utf-8'));
   } catch {
-    return null;
+    return [];
   }
 }
 
-function toIndexEntry(c: WikiEntry): WikiIndexEntry {
-  return {
-    id: c.id, name: c.name, aliases: c.aliases || [], domain: c.domain, summary: c.summary,
-    relationCount: c.relations.length, sourceCount: c.sources.length,
-    updatedAt: c.updatedAt,
-  };
-}
-
-export async function saveWikiEntry(entry: WikiEntry): Promise<void> {
+export async function saveWikiCategories(categories: WikiCategory[]): Promise<void> {
   await fs.mkdir(WIKI_DIR, { recursive: true });
-  await fs.writeFile(
-    path.join(WIKI_DIR, `${entry.id}.md`),
-    wikiToFrontmatter(entry), 'utf-8',
-  );
-  // 更新索引
-  let index: WikiIndexEntry[] = [];
-  try {
-    index = JSON.parse(await fs.readFile(WIKI_INDEX_PATH, 'utf-8'));
-  } catch { /* 文件不存在 */ }
-  index = index.filter(c => c.id !== entry.id);
-  index.unshift(toIndexEntry(entry));
-  await fs.writeFile(WIKI_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+  await fs.writeFile(WIKI_CATEGORIES_PATH, JSON.stringify(categories, null, 2), 'utf-8');
 }
 
-export async function getWikiEntries(): Promise<WikiIndexEntry[]> {
+// ── 条目 ──
+
+export async function getWikiIndex(): Promise<WikiItemSummary[]> {
   try {
     return JSON.parse(await fs.readFile(WIKI_INDEX_PATH, 'utf-8'));
   } catch {
@@ -235,65 +233,43 @@ export async function getWikiEntries(): Promise<WikiIndexEntry[]> {
   }
 }
 
-export async function getWikiEntry(id: string): Promise<WikiEntry | null> {
+export async function getWikiItemsByCategory(categoryId: string): Promise<WikiItemSummary[]> {
+  const index = await getWikiIndex();
+  return index.filter(i => i.categoryId === categoryId);
+}
+
+export async function saveWikiItem(item: WikiItem): Promise<void> {
+  await fs.mkdir(WIKI_ITEMS_DIR, { recursive: true });
+  // 写 JSON
+  await fs.writeFile(path.join(WIKI_ITEMS_DIR, `${item.id}.json`), JSON.stringify(item, null, 2), 'utf-8');
+  // 写派生 MD（给 wiki-chat agent 读取）
+  await fs.writeFile(path.join(WIKI_ITEMS_DIR, `${item.id}.md`), buildWikiItemMarkdown(item), 'utf-8');
+  // 更新索引
+  let index: WikiItemSummary[] = [];
+  try { index = JSON.parse(await fs.readFile(WIKI_INDEX_PATH, 'utf-8')); } catch { /* */ }
+  index = index.filter(i => i.id !== item.id);
+  index.unshift(toWikiSummary(item));
+  await fs.writeFile(WIKI_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+}
+
+export async function getWikiItem(id: string): Promise<WikiItem | null> {
   try {
-    const raw = await fs.readFile(path.join(WIKI_DIR, `${id}.md`), 'utf-8');
-    return parseFrontmatter(raw);
+    return JSON.parse(await fs.readFile(path.join(WIKI_ITEMS_DIR, `${id}.json`), 'utf-8'));
   } catch {
     return null;
   }
 }
 
-export async function getWikiEntriesByIds(ids: string[]): Promise<WikiEntry[]> {
-  const results = await Promise.all(ids.map(id => getWikiEntry(id)));
-  return results.filter((c): c is WikiEntry => c !== null);
-}
-
-// 清理 Wiki 中对已删除条目的来源引用；来源清空的词条一并删除
-async function cleanWikiSources(entryId: string): Promise<void> {
-  let index: WikiIndexEntry[];
-  try {
-    index = JSON.parse(await fs.readFile(WIKI_INDEX_PATH, 'utf-8'));
-  } catch { return; }
-
-  const toRemove: string[] = [];
-
-  for (const item of index) {
-    const wiki = await getWikiEntry(item.id);
-    if (!wiki) continue;
-
-    const hadSource = wiki.sources.some(s => s.entryId === entryId);
-    if (!hadSource) continue;
-
-    wiki.sources = wiki.sources.filter(s => s.entryId !== entryId);
-
-    if (wiki.sources.length === 0) {
-      // 无来源，删除整个词条
-      toRemove.push(wiki.id);
-      try { await fs.unlink(path.join(WIKI_DIR, `${wiki.id}.md`)); } catch { /* 忽略 */ }
-    } else {
-      wiki.updatedAt = new Date().toISOString();
-      await saveWikiEntry(wiki);
-    }
-  }
-
-  if (toRemove.length > 0) {
-    const removeSet = new Set(toRemove);
-    index = index.filter(c => !removeSet.has(c.id));
-    await fs.writeFile(WIKI_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
-
-    // 清理其他词条中指向已删除词条的 relations
-    for (const item of index) {
-      const wiki = await getWikiEntry(item.id);
-      if (!wiki) continue;
-      const before = wiki.relations.length;
-      wiki.relations = wiki.relations.filter(r => !removeSet.has(r.conceptId));
-      if (wiki.relations.length < before) {
-        wiki.updatedAt = new Date().toISOString();
-        await saveWikiEntry(wiki);
-      }
-    }
-  }
+export async function deleteWikiItem(id: string): Promise<boolean> {
+  let index: WikiItemSummary[] = [];
+  try { index = JSON.parse(await fs.readFile(WIKI_INDEX_PATH, 'utf-8')); } catch { return false; }
+  const before = index.length;
+  index = index.filter(i => i.id !== id);
+  if (index.length === before) return false;
+  await fs.writeFile(WIKI_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+  try { await fs.unlink(path.join(WIKI_ITEMS_DIR, `${id}.json`)); } catch { /* */ }
+  try { await fs.unlink(path.join(WIKI_ITEMS_DIR, `${id}.md`)); } catch { /* */ }
+  return true;
 }
 
 // 保存 demo 文件

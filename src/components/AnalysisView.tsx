@@ -1,63 +1,37 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { DigestEntry, WikiIndexEntry } from '@/lib/types';
+import { useState, useCallback } from 'react';
+import { DigestEntry } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-// 导出为 Markdown（仅叙事内容，不含标签/索引/链接）
 function buildExportMarkdown(entry: DigestEntry): string {
   const { analysis, title } = entry;
   const narrative = analysis.narrative;
   const parts: string[] = [`# ${title}`, ''];
-
   if (narrative) {
     parts.push(`> ${narrative.oneliner}`, '');
     if (narrative.situation) parts.push('## 现状与矛盾', '', narrative.situation, '');
-    if (narrative.insight) {
-      parts.push('## 核心洞察', '', narrative.insight, '');
-      if (narrative.insightHighlight) parts.push(`> **${narrative.insightHighlight}**`, '');
-    }
+    if (narrative.insight) { parts.push('## 核心洞察', '', narrative.insight, ''); if (narrative.insightHighlight) parts.push(`> **${narrative.insightHighlight}**`, ''); }
     if (narrative.mechanism) parts.push('## 方案机制', '', narrative.mechanism, '');
     if (narrative.evidence) parts.push('## 效果与边界', '', narrative.evidence, '');
     if (narrative.implications) parts.push('## 启发', '', narrative.implications, '');
-  } else if (analysis.concepts && analysis.concepts.length > 0) {
+  } else if (analysis.concepts?.length) {
     if (analysis.tldr) parts.push(`> ${analysis.tldr}`, '');
-    for (const concept of analysis.concepts) {
-      parts.push(`## ${concept.name}`, '');
-      if (concept.summary) parts.push(`> ${concept.summary}`, '');
-      if (concept.what) parts.push('### 是什么', '', concept.what, '');
-      if (concept.enables) parts.push('### 能做什么', '', concept.enables, '');
-      if (concept.limitations) parts.push('### 现状与局限', '', concept.limitations, '');
-    }
+    for (const c of analysis.concepts) { parts.push(`## ${c.name}`, ''); if (c.summary) parts.push(`> ${c.summary}`, ''); if (c.what) parts.push('### 是什么', '', c.what, ''); if (c.enables) parts.push('### 能做什么', '', c.enables, ''); if (c.limitations) parts.push('### 现状与局限', '', c.limitations, ''); }
     if (analysis.comparison) parts.push('## 横向对比', '', analysis.comparison, '');
   } else {
     if (analysis.tldr) parts.push(`> ${analysis.tldr}`, '');
-    if (analysis.keyPoints?.length) {
-      parts.push('## 核心要点', '');
-      analysis.keyPoints.forEach((p, i) => parts.push(`${i + 1}. ${p}`));
-      parts.push('');
-    }
+    if (analysis.keyPoints?.length) { parts.push('## 核心要点', ''); analysis.keyPoints.forEach((p, i) => parts.push(`${i + 1}. ${p}`)); parts.push(''); }
     if (analysis.technical) parts.push('## 技术分析', '', analysis.technical, '');
     if (analysis.significance) parts.push('## 行业意义', '', analysis.significance, '');
     if (analysis.limitations) parts.push('## 局限与争议', '', analysis.limitations, '');
     if (analysis.comparison) parts.push('## 横向对比', '', analysis.comparison, '');
   }
-
   return parts.join('\n');
 }
 
-export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSelectWiki?: (id: string) => void }) {
-  const [relatedWiki, setRelatedWiki] = useState<WikiIndexEntry[]>([]);
-
-  // 加载关联 Wiki 词条
-  useEffect(() => {
-    fetch(`/api/wiki?entryId=${entry.id}`)
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setRelatedWiki(data); })
-      .catch(() => {});
-  }, [entry.id]);
-
+export function AnalysisView({ entry }: { entry: DigestEntry }) {
   const { analysis } = entry;
   const narrative = analysis.narrative;
   const hasConcepts = analysis.concepts && analysis.concepts.length > 0;
@@ -67,233 +41,77 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
     setExporting(true);
     try {
       const md = buildExportMarkdown(entry);
-      const res = await fetch('/api/export', {
+      await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: entry.title, content: md }),
       });
-      if (!res.ok) throw new Error('导出失败');
-    } finally {
-      setExporting(false);
-    }
+    } finally { setExporting(false); }
   }, [entry]);
-
-  let sectionNum = 0;
-  const nextNum = () => String(++sectionNum).padStart(2, '0');
 
   return (
     <article className="space-y-10">
-      {/* 导出按钮 */}
+      {/* 导出 */}
       <div className="flex justify-end">
         <button
           onClick={handleExport}
           disabled={exporting}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md"
           style={{
             fontSize: 'var(--text-xs)',
-            color: 'var(--text-tertiary)',
-            background: 'var(--bg-subtle)',
-            border: '1px solid var(--border-subtle)',
-            cursor: exporting ? 'default' : 'pointer',
+            color: 'var(--text-quaternary)',
             opacity: exporting ? 0.5 : 1,
-            transition: 'color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)',
+            transition: 'color var(--duration-fast) var(--ease-out)',
           }}
-          onMouseEnter={e => {
-            if (!exporting) {
-              e.currentTarget.style.color = 'var(--text-primary)';
-              e.currentTarget.style.borderColor = 'var(--border)';
-            }
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color = 'var(--text-tertiary)';
-            e.currentTarget.style.borderColor = 'var(--border-subtle)';
-          }}
+          onMouseEnter={e => { if (!exporting) e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-quaternary)')}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          {exporting ? '导出中...' : '导出'}
+          {exporting ? '导出中...' : '导出 Markdown'}
         </button>
       </div>
-      {/* ── 叙事报告（新格式） ── */}
+
+      {/* ── 叙事报告 ── */}
       {narrative ? (
         <>
-          {/* 一句话 */}
-          <blockquote
-            className="relative pl-5 py-1"
-            style={{ borderLeft: '2px solid var(--accent)' }}
-          >
-            <p
-              className="font-medium leading-relaxed"
-              style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
-            >
+          <blockquote className="relative pl-5 py-1" style={{ borderLeft: '2px solid var(--accent)' }}>
+            <p className="font-medium leading-relaxed" style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>
               {narrative.oneliner}
             </p>
           </blockquote>
-
-          {/* 现状与矛盾 */}
-          {narrative.situation && (
-            <Section title="现状与矛盾" number={nextNum()}>
-              <Prose>{narrative.situation}</Prose>
-            </Section>
-          )}
-
-          {/* 核心洞察 */}
+          {narrative.situation && <Section title="现状与矛盾"><Prose>{narrative.situation}</Prose></Section>}
           {narrative.insight && (
-            <Section title="核心洞察" number={nextNum()}>
+            <Section title="核心洞察">
               <Prose>{narrative.insight}</Prose>
               {narrative.insightHighlight && (
-                <div
-                  className="mt-5 px-5 py-4 rounded-md"
-                  style={{
-                    background: 'var(--accent-subtle)',
-                    border: '1px solid var(--accent)',
-                  }}
-                >
-                  <p
-                    className="font-medium leading-relaxed"
-                    style={{ fontSize: 'var(--text-sm)', color: 'var(--accent-text)' }}
-                  >
+                <div className="mt-4 pl-5 py-3" style={{ borderLeft: '2px solid var(--accent)' }}>
+                  <p className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--accent-text)', lineHeight: '1.6' }}>
                     {narrative.insightHighlight}
                   </p>
                 </div>
               )}
             </Section>
           )}
-
-          {/* 方案机制 */}
-          {narrative.mechanism && (
-            <Section title="方案机制" number={nextNum()}>
-              <Prose>{narrative.mechanism}</Prose>
-            </Section>
-          )}
-
-          {/* 效果与边界 */}
-          {narrative.evidence && (
-            <Section title="效果与边界" number={nextNum()}>
-              <Prose>{narrative.evidence}</Prose>
-            </Section>
-          )}
-
-          {/* 启发 */}
-          {narrative.implications && (
-            <Section title="启发" number={nextNum()}>
-              <Prose>{narrative.implications}</Prose>
-            </Section>
-          )}
-
-          {/* 概念索引 */}
-          {relatedWiki.length > 0 && (
-            <Section title="概念索引" number={nextNum()}>
-              <div className="space-y-2">
-                {relatedWiki.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => onSelectWiki?.(c.id)}
-                    className="flex items-baseline gap-3 w-full text-left group"
-                    style={{ cursor: onSelectWiki ? 'pointer' : 'default' }}
-                  >
-                    <span
-                      className="font-medium shrink-0"
-                      style={{
-                        fontSize: 'var(--text-sm)',
-                        color: 'var(--accent-text)',
-                        transition: 'color var(--duration-fast) var(--ease-out)',
-                      }}
-                    >
-                      {c.name}
-                    </span>
-                    <span
-                      className="truncate"
-                      style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}
-                    >
-                      {c.summary}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </Section>
-          )}
+          {narrative.mechanism && <Section title="方案机制"><Prose>{narrative.mechanism}</Prose></Section>}
+          {narrative.evidence && <Section title="效果与边界"><Prose>{narrative.evidence}</Prose></Section>}
+          {narrative.implications && <Section title="启发"><Prose>{narrative.implications}</Prose></Section>}
         </>
       ) : hasConcepts ? (
         <>
-          {/* ── 旧概念格式（兼容已有条目） ── */}
           {analysis.tldr && (
-            <blockquote
-              className="relative pl-5 py-1"
-              style={{ borderLeft: '2px solid var(--accent)' }}
-            >
-              <p
-                className="font-medium leading-relaxed"
-                style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
-              >
-                {analysis.tldr}
-              </p>
+            <blockquote className="relative pl-5 py-1" style={{ borderLeft: '2px solid var(--accent)' }}>
+              <p className="font-medium leading-relaxed" style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>{analysis.tldr}</p>
             </blockquote>
           )}
-
-          {/* 结构分解图 */}
-          {(() => {
-            const compositions = analysis.concepts!.filter(c => c.relations?.some(r => r.type === 'composed-of'));
-            if (compositions.length > 0) {
-              return (
-                <Section title="结构分解" number={nextNum()}>
-                  <div className="space-y-4">
-                    {compositions.map(comp => (
-                      <div key={comp.id} className="px-4 py-3 rounded-md" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                        <div className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-                          {comp.name}
-                          {comp.isNew && <span className="ml-2 px-1.5 py-0.5 rounded text-[0.625rem] font-medium" style={{ color: 'var(--accent)', background: 'var(--accent-subtle)' }}>新</span>}
-                        </div>
-                        <div className="mt-2 space-y-1">
-                          {comp.relations!.filter(r => r.type === 'composed-of').map((r, i) => {
-                            const atom = analysis.concepts!.find(c => c.id === r.conceptId);
-                            return (
-                              <div key={i} className="flex items-baseline gap-2 pl-3" style={{ fontSize: 'var(--text-xs)' }}>
-                                <span style={{ color: 'var(--text-quaternary)' }}>├──</span>
-                                <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{r.conceptName}</span>
-                                {atom?.isNew === false && <span style={{ color: 'var(--text-quaternary)' }}>✓已知</span>}
-                                {atom?.isNew === true && <span className="px-1 rounded" style={{ color: 'var(--accent)', background: 'var(--accent-subtle)', fontWeight: 500 }}>新</span>}
-                                {atom?.origin && <span style={{ color: 'var(--text-quaternary)' }}>{atom.origin}</span>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Section>
-              );
-            }
-            return null;
-          })()}
-
-          {/* 概念卡片 */}
           {analysis.concepts!.map(concept => (
-            <Section title={concept.name} number={nextNum()} key={concept.id}>
+            <Section title={concept.name} key={concept.id}>
               <div className="flex items-center gap-2 mb-4">
-                {concept.isNew === false && (
-                  <span className="px-2 py-0.5 rounded" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', background: 'var(--bg-subtle)', fontWeight: 500 }}>✓已知</span>
-                )}
-                {concept.isNew === true && (
-                  <span className="px-2 py-0.5 rounded" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', background: 'var(--accent-subtle)', fontWeight: 500 }}>新发现</span>
-                )}
-                {concept.domain && (
-                  <span className="px-2 py-0.5 rounded" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)', background: 'var(--accent-subtle)', fontWeight: 500 }}>
-                    {concept.domain}
-                  </span>
-                )}
-                {concept.origin && (
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>{concept.origin}</span>
-                )}
+                {concept.isNew === false && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>已知</span>}
+                {concept.isNew === true && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', fontWeight: 500 }}>新发现</span>}
+                {concept.domain && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{concept.domain}</span>}
+                {concept.origin && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>{concept.origin}</span>}
               </div>
               {concept.summary && (
-                <blockquote className="relative pl-4 py-0.5 mb-6" style={{ borderLeft: '2px solid var(--border)' }}>
-                  <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: '1.65' }}>
-                    {concept.summary}
-                  </p>
+                <blockquote className="relative pl-4 py-0.5 mb-6" style={{ borderLeft: '1px solid var(--border)' }}>
+                  <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: '1.65' }}>{concept.summary}</p>
                 </blockquote>
               )}
               {concept.what && <SubSection title="是什么"><Prose>{concept.what}</Prose></SubSection>}
@@ -301,108 +119,46 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
               {concept.limitations && <SubSection title="现状与局限"><Prose>{concept.limitations}</Prose></SubSection>}
             </Section>
           ))}
-
-          {analysis.comparison && (
-            <Section title="横向对比" number={nextNum()}>
-              <Prose>{analysis.comparison}</Prose>
-            </Section>
-          )}
-
-          {/* 关联 Wiki（旧格式用） */}
-          {relatedWiki.length > 0 && (
-            <Section title="关联 Wiki" number={nextNum()}>
-              <div className="flex flex-wrap gap-2">
-                {relatedWiki.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => onSelectWiki?.(c.id)}
-                    className="px-3 py-1.5 rounded-md"
-                    style={{
-                      fontSize: 'var(--text-xs)',
-                      color: 'var(--accent-text)',
-                      background: 'var(--accent-subtle)',
-                      border: '1px solid transparent',
-                      fontWeight: 500,
-                      cursor: onSelectWiki ? 'pointer' : 'default',
-                      transition: 'border-color var(--duration-fast) var(--ease-out)',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}
-                  >
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-            </Section>
-          )}
+          {analysis.comparison && <Section title="横向对比"><Prose>{analysis.comparison}</Prose></Section>}
         </>
       ) : (
         <>
-          {/* ── 最旧格式兼容 ── */}
           {analysis.tldr && (
-            <blockquote
-              className="relative pl-5 py-1"
-              style={{ borderLeft: '2px solid var(--accent)' }}
-            >
-              <p
-                className="font-medium leading-relaxed"
-                style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}
-              >
-                {analysis.tldr}
-              </p>
+            <blockquote className="relative pl-5 py-1" style={{ borderLeft: '2px solid var(--accent)' }}>
+              <p className="font-medium leading-relaxed" style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>{analysis.tldr}</p>
             </blockquote>
           )}
           {analysis.keyPoints && analysis.keyPoints.length > 0 && (
-            <Section title="核心要点" number={nextNum()}>
-              <div className="space-y-3">
+            <Section title="核心要点">
+              <div className="space-y-2">
                 {analysis.keyPoints.map((point, i) => (
-                  <div key={i} className="flex gap-4">
-                    <span
-                      className="tabular-nums shrink-0 pt-0.5"
-                      style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', minWidth: '20px' }}
-                    >
+                  <div key={i} className="flex gap-3">
+                    <span className="tabular-nums shrink-0" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
                       {String(i + 1).padStart(2, '0')}
                     </span>
-                    <p style={{ color: 'var(--text-primary)', lineHeight: '1.65' }}>{point}</p>
+                    <p style={{ lineHeight: '1.65' }}>{point}</p>
                   </div>
                 ))}
               </div>
             </Section>
           )}
-          {analysis.technical && (
-            <Section title="技术分析" number={nextNum()}><Prose>{analysis.technical}</Prose></Section>
-          )}
-          {analysis.significance && (
-            <Section title="行业意义" number={nextNum()}><Prose>{analysis.significance}</Prose></Section>
-          )}
-          {analysis.limitations && (
-            <Section title="局限与争议" number={nextNum()}><Prose>{analysis.limitations}</Prose></Section>
-          )}
-          {analysis.comparison && (
-            <Section title="横向对比" number={nextNum()}><Prose>{analysis.comparison}</Prose></Section>
-          )}
+          {analysis.technical && <Section title="技术分析"><Prose>{analysis.technical}</Prose></Section>}
+          {analysis.significance && <Section title="行业意义"><Prose>{analysis.significance}</Prose></Section>}
+          {analysis.limitations && <Section title="局限与争议"><Prose>{analysis.limitations}</Prose></Section>}
+          {analysis.comparison && <Section title="横向对比"><Prose>{analysis.comparison}</Prose></Section>}
         </>
       )}
 
       {/* 来源 */}
       {entry.sources.length > 0 && (
-        <Section title="来源" number={nextNum()}>
-          <div className="space-y-2">
+        <Section title="来源">
+          <div className="space-y-1.5">
             {entry.sources.map((src, i) => (
               <div key={i} className="flex items-baseline gap-3">
-                <span
-                  className="shrink-0 uppercase tracking-widest"
-                  style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', minWidth: '3rem' }}
-                >
+                <span className="shrink-0 uppercase tracking-widest" style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', minWidth: '3rem' }}>
                   {src.type}
                 </span>
-                <a
-                  href={src.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="prose-link truncate"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                >
+                <a href={src.url} target="_blank" rel="noopener noreferrer" className="prose-link truncate" style={{ fontSize: 'var(--text-sm)' }}>
                   {src.title || src.url}
                 </a>
               </div>
@@ -411,29 +167,15 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
         </Section>
       )}
 
-      {/* 标签 + 元信息 */}
+      {/* 底部元信息 */}
       {(entry.tags.length > 0 || entry.date) && (
-        <footer
-          className="flex items-start justify-between gap-4 pt-8"
-          style={{ borderTop: '1px solid var(--border-subtle)' }}
-        >
-          {entry.tags.length > 0 ? (
-            <div className="flex flex-wrap gap-2 min-w-0">
-              {entry.tags.map((tag, i) => (
-                <span
-                  key={i}
-                  className="px-2.5 py-1 rounded shrink-0"
-                  style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', background: 'var(--bg-subtle)' }}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ) : <div />}
-          <time
-            className="shrink-0"
-            style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}
-          >
+        <footer className="flex items-start justify-between gap-4 pt-8" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <div className="flex flex-wrap gap-2 min-w-0">
+            {entry.tags.map((tag, i) => (
+              <span key={i} style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{tag}</span>
+            ))}
+          </div>
+          <time className="shrink-0" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>
             {entry.date.slice(0, 10)}
           </time>
         </footer>
@@ -442,23 +184,12 @@ export function AnalysisView({ entry, onSelectWiki }: { entry: DigestEntry; onSe
   );
 }
 
-function Section({ title, number, children }: { title: string; number: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <div className="flex items-baseline gap-3 mb-4">
-        <span
-          className="tabular-nums"
-          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--accent)', letterSpacing: '0.05em' }}
-        >
-          {number}
-        </span>
-        <h3
-          className="font-semibold tracking-tight"
-          style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)' }}
-        >
-          {title}
-        </h3>
-      </div>
+      <h3 className="font-semibold tracking-tight mb-4" style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)' }}>
+        {title}
+      </h3>
       {children}
     </section>
   );
@@ -467,12 +198,7 @@ function Section({ title, number, children }: { title: string; number: string; c
 function SubSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
-      <h4
-        className="font-medium mb-2"
-        style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}
-      >
-        {title}
-      </h4>
+      <h4 className="font-medium mb-2" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>{title}</h4>
       {children}
     </div>
   );

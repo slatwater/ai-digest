@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { DigestEntry, WikiIndexEntry } from '@/lib/types';
+import { DigestEntry } from '@/lib/types';
 import { format } from 'date-fns';
 
 type Tab = 'entries' | 'wiki';
@@ -34,7 +34,7 @@ export function Sidebar({
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   // Wiki 状态
-  const [wikiEntries, setWikiEntries] = useState<WikiIndexEntry[]>([]);
+  const [wikiEntries, setWikiEntries] = useState<{ id: string; name: string; domain: string; summary: string; aliases?: string[]; sourceCount?: number; updatedAt?: string }[]>([]);
   const [wikiLoading, setWikiLoading] = useState(false);
 
   // 选中 wiki 时自动切 tab

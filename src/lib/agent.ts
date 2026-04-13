@@ -4,8 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { execFile } from 'child_process';
 import path from 'path';
 import { DigestPhase, QuestionEvent, DigestEntry, AnalysisResult, AnalysisConcept, NarrativeReport, SourceInfo } from './types';
-import { saveEntry, getEntries, getWikiEntries } from './storage';
-import { saveConceptsToWiki } from './compiler';
+import { saveEntry, getEntries } from './storage';
 import { reportFromSDKMessage } from './token-report';
 
 // 封装 execFile：立即关闭 stdin 防止子进程阻塞等待输入
@@ -68,10 +67,7 @@ export async function safeScrape(url: string): Promise<string> {
 type EventSender = (type: string, data: unknown) => void;
 
 // 构建 Agent 的系统提示词
-export function buildSystemPrompt(scrapedContent: string, wikiContext?: string): string {
-  const wikiSection = wikiContext
-    ? `\n## 已有 Wiki 概念（用于判断新旧）\n${wikiContext}\n`
-    : '';
+export function buildSystemPrompt(scrapedContent: string): string {
 
   return `你是一个 AI 前沿技术深度研究助手。你的任务是：深入理解文章的技术贡献，产出让读者能真正理解和判断该技术的研究报告。
 
@@ -98,18 +94,7 @@ export function buildSystemPrompt(scrapedContent: string, wikiContext?: string):
 
 对每个技术：
 - 用 WebSearch 查证其来源（论文/作者/年份/项目）
-- 对比 Wiki 列表判断是否已有：名称或别名匹配 → 已知，否则 → 新技术
-- 已知技术：在 contribution 字段用一句话写明本文对该技术的具体新贡献（新数据、新场景、新机制、新发现），what/enables/limitations 只写增量部分
-- 新技术：完整描述 what/enables/limitations，contribution 留空
-- **如果 Wiki 中已有含义相同的技术，必须复用其 id，禁止新建**
-${wikiSection}
-### 阶段 3.5: 知识回顾
-对于阶段 3 中识别到的**已知技术**，使用 Read 工具读取对应的 Wiki 词条文件 \`data/wiki/{概念id}.md\`，了解已积累的知识。然后：
-- 在 contribution 字段写明：相比 Wiki 已有内容，本文具体贡献了什么（一句话）
-- what/enables/limitations 只写增量，不重复 Wiki 已有的内容
-- 如果本文与 Wiki 已有知识矛盾，在 contribution 中用"修正："前缀标注，并在 evidence 中详细分析
-- 如果本文对该已知技术无任何新信息，不要将其列入 concepts
-- 利用已有知识做更深层的对比和关联分析
+- 完整描述 what/enables/limitations
 
 ### 阶段 4: 组合分析 (Compose)
 分析文章如何组合上述技术，理解其技术贡献的完整脉络。
@@ -146,22 +131,22 @@ ${wikiSection}
 
 **B) 概念拆解**（用 ===ANALYSIS_START=== 和 ===ANALYSIS_END=== 包裹）:
 
-这是给 Wiki 积累的结构化数据。
+技术概念的结构化拆解。
 
 ===ANALYSIS_START===
 {
   "tldr": "一句话概括",
   "concepts": [
     {
-      "id": "kebab-case-slug（已知技术必须复用 Wiki 中的 id）",
+      "id": "kebab-case-slug",
       "name": "技术的公认名称",
       "aliases": ["别名1", "别名2"],
       "domain": "领域",
       "origin": "来源（论文/作者/年份 或 项目/组织）",
       "isNew": true,
       "summary": "2-3句概要",
-      "contribution": "本文对该概念的具体贡献（一句话，已知技术必填，新技术留空）",
-      "what": "核心原理（Markdown，已知技术只写本文新贡献）",
+      "contribution": "本文对该概念的具体贡献（一句话）",
+      "what": "核心原理（Markdown）",
       "enables": "能解决什么问题、应用场景（Markdown）",
       "limitations": "局限与争议（Markdown）",
       "relations": [
@@ -176,9 +161,7 @@ ${wikiSection}
 
 概念拆解规则：
 - concepts 中的 name 必须是公认名称，不是自创概念名
-- 已知技术必须复用 Wiki 中的 id 和名称，禁止重复创建
 - 组合技术通过 composed-of 关系指向其组成部分
-- isNew 严格基于 Wiki 列表判断
 
 ### 阶段 5: 归档 (Archive)
 - 生成完整的 Markdown 研究报告（留档用，将叙事报告展开为完整文章）
@@ -408,18 +391,6 @@ export async function runDigest(
     ? '\n\n## 抓取状态\n直接抓取失败。请使用 WebFetch 获取内容，如果失败则用 WebSearch 搜索。'
     : `\n\n## 预抓取内容\n${scraped}`;
 
-  // 构建 Wiki 上下文：索引（判断新旧），全文由 Agent 按需 Read
-  let wikiContext: string | undefined;
-  try {
-    const wikiIndex = await getWikiEntries();
-    if (wikiIndex.length > 0) {
-      wikiContext = wikiIndex.map(w => {
-        const names = [w.name, ...(w.aliases || [])].join(' / ');
-        return `- [${w.id}] ${names} (${w.domain}): ${w.summary}`;
-      }).join('\n');
-    }
-  } catch { /* ignore */ }
-
   let fullText = '';
   let currentPhase: DigestPhase = 'capture';
   const sentMarkers = new Set<string>(); // 防止增量事件重复发送
@@ -432,7 +403,7 @@ export async function runDigest(
     const q = query({
       prompt: `请对以下链接进行完整的研究分析：${url}${scrapeNote}`,
       options: {
-        systemPrompt: buildSystemPrompt(scraped, wikiContext),
+        systemPrompt: buildSystemPrompt(scraped),
         cwd: process.cwd(),
         allowedTools: ['WebFetch', 'WebSearch', 'Read', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions' as const,
@@ -454,7 +425,7 @@ export async function runDigest(
       }
 
       // 上报 token 用量到 token monitor
-      reportFromSDKMessage('ai-digest', message, session.claudeSessionId || sessionId);
+      reportFromSDKMessage('aidigest', message, session.claudeSessionId || sessionId);
 
       // 从 assistant 消息的 tool_use block 中检测工具调用，推送状态
       if (message.type === 'assistant') {
@@ -588,13 +559,6 @@ export async function runDigest(
 
     // 保存到知识库
     await saveEntry(entry);
-
-    // 概念直接存入 Wiki（异步，不阻塞主流程）
-    if (parsed.analysis?.concepts?.length) {
-      saveConceptsToWiki(parsed.analysis.concepts, entry).catch(err => {
-        console.warn('[wiki] 概念存入 Wiki 失败:', err);
-      });
-    }
 
     send('analysis', entry.analysis);
     send('complete', { entryId: entry.id, title: entry.title });

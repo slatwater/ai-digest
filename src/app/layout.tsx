@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Digest",
+  title: "AIDigest",
   description: "前沿技术研究助手",
 };
 

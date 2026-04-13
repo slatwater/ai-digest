@@ -1,43 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
-import { TriageEntry, TriageVerdict, TriageDelta, TriageConcept, WikiEntry } from '@/lib/types';
+import { TriageEntry, TriageDelta, TriageConcept } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Props {
   entry: TriageEntry;
-  verdict: TriageVerdict | undefined;
-  onVerdictChange: (verdict: TriageVerdict) => void;
-}
-
-// ── 三档选择器 ──
-function VerdictSelector({ value, onChange }: { value: TriageVerdict | undefined; onChange: (v: TriageVerdict) => void }) {
-  const options: { key: TriageVerdict; label: string }[] = [
-    { key: 'skip', label: '跳过' },
-    { key: 'save', label: '留底' },
-    { key: 'deep-dive', label: '深入' },
-  ];
-  return (
-    <div className="flex rounded-md overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-      {options.map(({ key, label }) => {
-        const isActive = value === key;
-        let bg = 'transparent';
-        let color = 'var(--text-tertiary)';
-        if (isActive) {
-          if (key === 'skip') { bg = 'var(--bg-subtle)'; color = 'var(--text-secondary)'; }
-          else if (key === 'save') { bg = 'var(--accent-subtle)'; color = 'var(--accent-text)'; }
-          else { bg = 'var(--accent)'; color = '#fff'; }
-        }
-        return (
-          <button key={key} onClick={() => onChange(key)}
-            className="px-3 py-1.5 font-medium transition-colors"
-            style={{ fontSize: 'var(--text-xs)', background: bg, color, borderRight: key !== 'deep-dive' ? '1px solid var(--border)' : 'none' }}>
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 // ── 增量统计 ──
@@ -70,104 +39,6 @@ function DeltaBar({ delta }: { delta: TriageDelta }) {
   );
 }
 
-// ── 概念弹窗 ──
-function ConceptPopup({ concept, onClose }: { concept: TriageConcept; onClose: () => void }) {
-  const [wikiData, setWikiData] = useState<WikiEntry | null>(null);
-  const [loading, setLoading] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // 已知概念：加载 Wiki 词条
-  useEffect(() => {
-    if (concept.isKnown && concept.wikiId) {
-      setLoading(true);
-      fetch(`/api/wiki?id=${concept.wikiId}`)
-        .then(r => r.json())
-        .then(data => { if (data && !data.error) setWikiData(data); })
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    }
-  }, [concept.isKnown, concept.wikiId]);
-
-  // 点击外部关闭
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  return (
-    <div
-      ref={ref}
-      className="absolute z-20 inset-x-0 top-0 mx-4 mt-12 px-5 py-4 rounded-lg shadow-lg space-y-3"
-      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', maxHeight: '50vh', overflowY: 'auto', boxShadow: '0 8px 32px oklch(0% 0 0 / 0.15)' }}
-    >
-      {/* 标题行 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-            {concept.name}
-          </span>
-          {concept.isKnown
-            ? <span style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)' }}>✓已知</span>
-            : <span className="px-1 rounded" style={{ fontSize: '0.625rem', color: 'var(--accent)', background: 'var(--accent-subtle)', fontWeight: 500 }}>新</span>
-          }
-        </div>
-        <button onClick={onClose} style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>✕</button>
-      </div>
-
-      {/* 来源 */}
-      {concept.root && (
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-          {concept.root}
-        </p>
-      )}
-
-      {/* 能做什么 */}
-      {concept.whatItEnables && (
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', lineHeight: '1.6' }}>
-          {concept.whatItEnables}
-        </p>
-      )}
-
-      {/* 一手来源链接 */}
-      {concept.sourceUrl && (
-        <a href={concept.sourceUrl} target="_blank" rel="noopener noreferrer"
-          className="prose-link truncate block" style={{ fontSize: 'var(--text-xs)' }}>
-          {concept.sourceUrl}
-        </a>
-      )}
-
-      {/* 已知概念：Wiki 积累信息 */}
-      {concept.isKnown && loading && (
-        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>加载 Wiki...</p>
-      )}
-      {wikiData && (
-        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
-          {wikiData.summary && (
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', lineHeight: '1.6', fontWeight: 500 }}>
-              {wikiData.summary}
-            </p>
-          )}
-          {wikiData.sources.length > 0 && (
-            <div className="mt-2">
-              <p style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontWeight: 500, letterSpacing: '0.06em', marginBottom: '4px' }}>
-                你见过 {wikiData.sources.length} 次
-              </p>
-              {wikiData.sources.map((s, i) => (
-                <p key={i} style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}>
-                  · {s.entryTitle}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── 叙述文本渲染（解析 [[name|new/known:id]] 标记） ──
 function NarrativeText({ text, concepts, onConceptClick }: {
   text: string;
@@ -188,7 +59,8 @@ function NarrativeText({ text, concepts, onConceptClick }: {
     const tag = match[2]; // "new" or "known:id"
     const isKnown = tag.startsWith('known:');
     // 匹配 concepts 数组中的对应项
-    const concept = concepts.find(c => c.name === name) || {
+    const norm = (s: string) => s.trim().toLowerCase();
+    const concept = concepts.find(c => norm(c.name) === norm(name)) || {
       name, isKnown, wikiId: isKnown ? tag.replace('known:', '') : undefined,
       root: '', whatItEnables: '',
     };
@@ -293,17 +165,10 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
     setToolStatus(null);
 
     try {
-      const res = await fetch('/api/triage-chat', {
+      const res = await fetch('/api/expand', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: q,
-          context: {
-            title: entry.title,
-            narrative: entry.narrative || entry.explanation || '',
-            concepts: entry.concepts,
-          },
-        }),
+        body: JSON.stringify({ entry, question: q }),
       });
 
       const reader = res.body?.getReader();
@@ -322,9 +187,13 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
             const event = JSON.parse(line.slice(6));
             if (event.type === 'tool_status') {
               setToolStatus(event.data.label);
-            } else if (event.type === 'text') {
+            } else if (event.type === 'replace' || event.type === 'text') {
               setToolStatus(null);
-              answer += event.data.content;
+              if (event.type === 'replace') {
+                answer = event.data.content;
+              } else {
+                answer += event.data.content;
+              }
               setMessages(prev => {
                 const copy = [...prev];
                 const last = copy[copy.length - 1];
@@ -406,7 +275,7 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
                   className="pl-5 py-2 prose prose-sm max-w-none"
                   style={{ borderLeft: '2px solid var(--accent-subtle)', color: 'var(--text-primary)', lineHeight: '1.85', fontSize: '0.9375rem' }}
                 >
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                 </div>
               )}
             </div>
@@ -464,9 +333,10 @@ function ProcessingState({ url, status }: { url: string; status: 'pending' | 'pr
 }
 
 // ── 主卡片 ──
-export function TriageCard({ entry, verdict, onVerdictChange }: Props) {
-  const [expanded, setExpanded] = useState<boolean>(verdict !== 'skip');
-  const [popupConcept, setPopupConcept] = useState<TriageConcept | null>(null);
+export function TriageCard({ entry }: Props) {
+  const [expanded, setExpanded] = useState(true);
+  const [highlightedConcept, setHighlightedConcept] = useState<string | null>(null);
+  const conceptRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   if (entry.status === 'pending' || entry.status === 'processing') {
     return <ProcessingState url={entry.url} status={entry.status} />;
@@ -499,15 +369,18 @@ export function TriageCard({ entry, verdict, onVerdictChange }: Props) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <VerdictSelector value={verdict} onChange={(v) => { onVerdictChange(v); if (v !== 'skip') setExpanded(true); }} />
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>▸</span>
-        </div>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>▸</span>
       </div>
     );
   }
 
   // 展开状态
+  const concepts = entry.concepts || [];
+  const subjectConcepts = concepts.filter(c => c.role === 'subject');
+  const componentConcepts = concepts.filter(c => c.role === 'component' || (!c.role && subjectConcepts.length > 0));
+  // 兼容旧数据：无 role 标记时全部作为概念展示
+  const allConcepts = subjectConcepts.length > 0 ? concepts : concepts;
+
   return (
     <div className="rounded-xl overflow-hidden relative" style={{ border: '1px solid var(--border)', background: 'var(--bg)' }}>
       {/* ── 标题区 ── */}
@@ -517,24 +390,61 @@ export function TriageCard({ entry, verdict, onVerdictChange }: Props) {
           style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
           {entry.title}
         </a>
-        {/* 增量统计 + verdict 理由 */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-          {entry.delta && <DeltaBar delta={entry.delta} />}
-          {entry.verdictReason && (
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-              {entry.verdictReason}
-            </span>
-          )}
-        </div>
       </div>
 
-      {/* ── 叙述区 ── */}
-      <div className="px-6 py-5 relative">
+      {/* ── 一、概念拆解 ── */}
+      {allConcepts.length > 0 && (
+        <div className="px-6 pt-4 pb-3 relative" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          <p style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontWeight: 500, letterSpacing: '0.06em', marginBottom: '8px' }}>
+            涉及概念
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {allConcepts.map((c, i) => {
+              const isSubject = c.role === 'subject';
+              const isHighlighted = highlightedConcept === c.name;
+              return (
+                <span
+                  key={i}
+                  ref={el => { if (el) conceptRefs.current.set(c.name, el); }}
+                  className={`px-2.5 py-1 rounded-md transition-colors${isHighlighted ? ' concept-highlight' : ''}`}
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    fontWeight: isSubject ? 600 : 500,
+                    color: isHighlighted ? 'var(--accent)' : (c.isKnown ? 'var(--text-secondary)' : 'var(--text-primary)'),
+                    background: isHighlighted ? 'var(--accent-subtle)' : (isSubject ? 'var(--bg-subtle)' : 'transparent'),
+                    border: `1px solid ${isHighlighted ? 'var(--accent)' : (isSubject ? 'var(--border)' : 'var(--border-subtle)')}`,
+                  }}
+                >
+                  {c.name}
+                  {!c.isKnown && (
+                    <span className="ml-1.5 inline-block w-1 h-1 rounded-full" style={{ background: 'var(--accent)', verticalAlign: 'middle' }} />
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── 二、本文内容 ── */}
+      <div className="px-6 py-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <p style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontWeight: 500, letterSpacing: '0.06em', marginBottom: '10px' }}>
+          这篇文章在讲什么
+        </p>
         {entry.narrative ? (
           <NarrativeText
             text={entry.narrative}
-            concepts={entry.concepts || []}
-            onConceptClick={c => setPopupConcept(popupConcept?.name === c.name ? null : c)}
+            concepts={allConcepts}
+            onConceptClick={c => {
+              // 滚动到上方标签并高亮
+              const norm = (s: string) => s.trim().toLowerCase();
+              const matched = allConcepts.find(ac => norm(ac.name) === norm(c.name));
+              const key = matched?.name ?? c.name;
+              const el = conceptRefs.current.get(key);
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              setHighlightedConcept(key);
+              setTimeout(() => setHighlightedConcept(null), 1500);
+            }}
           />
         ) : (
           <>
@@ -550,22 +460,48 @@ export function TriageCard({ entry, verdict, onVerdictChange }: Props) {
             )}
           </>
         )}
-
-        {/* 概念弹窗 */}
-        {popupConcept && (
-          <ConceptPopup concept={popupConcept} onClose={() => setPopupConcept(null)} />
-        )}
       </div>
+
+      {/* ── 三、知识关联 ── */}
+      {(entry.delta || (entry.relatedEntries && entry.relatedEntries.length > 0) || entry.verdictReason) && (
+        <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          <p style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontWeight: 500, letterSpacing: '0.06em', marginBottom: '8px' }}>
+            知识关联
+          </p>
+          {/* 增量统计 */}
+          {entry.delta && <DeltaBar delta={entry.delta} />}
+          {/* verdict 理由 */}
+          {entry.verdictReason && (
+            <p className="mt-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.6' }}>
+              {entry.verdictReason}
+            </p>
+          )}
+          {/* 关联条目 */}
+          {entry.relatedEntries && entry.relatedEntries.length > 0 && (
+            <div className="mt-3 flex flex-col gap-1.5">
+              {entry.relatedEntries.map((rel, i) => (
+                <div key={i} className="flex items-baseline gap-2" style={{ fontSize: 'var(--text-xs)' }}>
+                  <span className="shrink-0" style={{ color: 'var(--text-quaternary)' }}>·</span>
+                  <span>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{rel.title}</span>
+                    <span style={{ color: 'var(--text-quaternary)', marginLeft: '6px' }}>{rel.overlap}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── 来源链接 ── */}
       {(() => {
         const sources = entry.sources?.length
           ? entry.sources
-          : (entry.concepts || []).filter(c => c.sourceUrl).map(c => ({ url: c.sourceUrl!, title: c.name, type: 'related' as const }));
+          : allConcepts.filter(c => c.sourceUrl).map(c => ({ url: c.sourceUrl!, title: c.name, type: 'related' as const }));
         if (sources.length === 0) return null;
         const typeLabels: Record<string, string> = { paper: '论文', github: 'GitHub', docs: '文档', original: '原文', related: '相关' };
         return (
-          <div className="px-6 pb-4">
+          <div className="px-6 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
             <p style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontWeight: 500, letterSpacing: '0.06em', marginBottom: '6px' }}>
               来源 · {sources.length}
             </p>
@@ -593,21 +529,18 @@ export function TriageCard({ entry, verdict, onVerdictChange }: Props) {
       })()}
 
       {/* ── 聊天区 ── */}
-      <div className="px-6 pb-5">
+      <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <InlineChat entry={entry} />
       </div>
 
       {/* ── 底栏 ── */}
       <div
-        className="px-6 py-3 flex items-center justify-between"
+        className="px-6 py-3 flex items-center justify-end"
         style={{ background: 'var(--bg-elevated)', borderTop: '1px solid var(--border-subtle)' }}
       >
-        <VerdictSelector value={verdict} onChange={onVerdictChange} />
-        {verdict === 'skip' && (
-          <button onClick={() => setExpanded(false)} style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-            收起
-          </button>
-        )}
+        <button onClick={() => setExpanded(false)} style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
+          收起
+        </button>
       </div>
     </div>
   );

@@ -1,57 +1,44 @@
-import { getWikiEntries, getWikiEntry, getWikiEntriesByIds } from '@/lib/storage';
-import { recompileWikiEntry } from '@/lib/compiler';
-import { WikiEntry } from '@/lib/types';
 import { NextRequest } from 'next/server';
+import { getWikiIndex, getWikiItem, getWikiItemsByCategory, getWikiCategories, saveWikiItem, deleteWikiItem } from '@/lib/storage';
+import type { WikiItem } from '@/lib/types';
 
 export async function GET(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get('id');
-  const neighborhood = req.nextUrl.searchParams.get('neighborhood');
-  const entryId = req.nextUrl.searchParams.get('entryId');
+  const { searchParams } = new URL(req.url);
+  const itemId = searchParams.get('itemId');
+  const categoryId = searchParams.get('categoryId');
 
-  // 按来源条目 ID 查询关联 Wiki 词条
-  if (entryId) {
-    const index = await getWikiEntries();
-    const all = await getWikiEntriesByIds(index.map(c => c.id));
-    const related = all.filter((c: WikiEntry) =>
-      c.sources.some(s => s.entryId === entryId)
-    );
-    return Response.json(related.map(c => ({
-      id: c.id, name: c.name, domain: c.domain, summary: c.summary,
-      relationCount: c.relations.length, sourceCount: c.sources.length,
-      updatedAt: c.updatedAt,
-    })));
+  // 单个条目
+  if (itemId) {
+    const item = await getWikiItem(itemId);
+    if (!item) return Response.json({ error: '条目不存在' }, { status: 404 });
+    return Response.json(item);
   }
 
-  if (id) {
-    const wiki = await getWikiEntry(id);
-    if (!wiki) {
-      return Response.json({ error: '词条不存在' }, { status: 404 });
-    }
-
-    if (neighborhood) {
-      const neighborIds = wiki.relations.map(r => r.conceptId);
-      const neighbors = await getWikiEntriesByIds(neighborIds);
-      return Response.json({ concept: wiki, neighbors });
-    }
-
-    return Response.json(wiki);
+  // 分类下条目
+  if (categoryId) {
+    const items = await getWikiItemsByCategory(categoryId);
+    return Response.json(items);
   }
 
-  const entries = await getWikiEntries();
-  return Response.json(entries);
+  // 全量：分类 + 索引
+  const [categories, items] = await Promise.all([getWikiCategories(), getWikiIndex()]);
+  return Response.json({ categories, items });
 }
 
-// POST /api/wiki?recompile=<id> — 手动触发词条重编译
-export async function POST(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get('recompile');
-  if (!id) {
-    return Response.json({ error: '需要 recompile 参数' }, { status: 400 });
+export async function PUT(req: NextRequest) {
+  const item = await req.json() as WikiItem;
+  if (!item.id || !item.name) {
+    return Response.json({ error: '缺少 id 或 name' }, { status: 400 });
   }
+  item.updatedAt = new Date().toISOString();
+  await saveWikiItem(item);
+  return Response.json({ ok: true });
+}
 
-  const success = await recompileWikiEntry(id);
-  if (success) {
-    const updated = await getWikiEntry(id);
-    return Response.json({ ok: true, entry: updated });
-  }
-  return Response.json({ ok: false, error: '重编译失败或来源不足' }, { status: 400 });
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const itemId = searchParams.get('itemId');
+  if (!itemId) return Response.json({ error: '缺少 itemId' }, { status: 400 });
+  const ok = await deleteWikiItem(itemId);
+  return Response.json({ ok });
 }

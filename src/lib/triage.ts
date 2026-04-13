@@ -3,7 +3,7 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept, SourceInfo } from './types';
 import { safeScrape, safeParseJSON, stripCodeFence } from './agent';
-import { getEntries, saveTriageBatch, getWikiEntries } from './storage';
+import { getEntries, saveTriageBatch } from './storage';
 import { reportFromSDKMessage } from './token-report';
 
 // 从文本中提取有价值的 URL（GitHub、arXiv、官方文档等），去重后返回
@@ -30,78 +30,69 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
-// 构建知识库 + Wiki 上下文
-async function buildKnowledgeContext(): Promise<{ entriesCtx: string; wikiCtx: string }> {
+// 构建知识库上下文
+async function buildKnowledgeContext(): Promise<{ entriesCtx: string }> {
   const entries = await getEntries();
   const recent = entries.slice(0, 30);
   const entriesCtx = recent.length === 0
     ? '（知识库为空）'
     : recent.map(e => `- [${e.id}] ${e.title}: ${e.tldr || '无摘要'} (tags: ${e.tags.join(', ') || '无'})`).join('\n');
 
-  let wikiCtx = '（Wiki 为空）';
-  try {
-    const wikiEntries = await getWikiEntries();
-    if (wikiEntries.length > 0) {
-      wikiCtx = wikiEntries.map(w => {
-        const names = [w.name, ...(w.aliases || [])].join(' / ');
-        return `- [${w.id}] ${names} (${w.domain}): ${w.summary}`;
-      }).join('\n');
-    }
-  } catch { /* ignore */ }
-
-  return { entriesCtx, wikiCtx };
+  return { entriesCtx };
 }
 
-// 系统提示词：具名技术识别 + Wiki 匹配 + 组合分析
-function buildTriagePrompt(wikiCtx: string): string {
+// 系统提示词：具名技术识别 + 组合分析
+function buildTriagePrompt(): string {
   return `你是用户的技术侦察员。用户给你的大多是 AI 相关的链接（可能是二手推文）。
 
-你的核心任务是**识别文章涉及了哪些具名技术，判断哪些是知识库已有的、哪些是新的，以及它们如何组合**。
+你的核心任务是**找到一手来源，基于一手来源识别具名技术并判断增量价值**。
+
+用户给你的链接很可能是二手转载（推文、博客搬运等），你必须先确认来源层级再做分析。
 
 ## 什么是"具名技术"
-有明确名称、可查证来源的技术/方法/算法/框架。例如：
+有明确名称、可查证来源的技术/方法/算法/框架/项目。例如：
 - KV Cache（Vaswani et al., 2017）
 - LoRA（Hu et al., 2021）
-- Speculative Decoding（Leviathan et al., 2023）
-- vLLM（开源项目）
+- Hermes Agent（Nous Research 开源项目）
 
 不是具名技术的：文章观点、公司动态、模糊描述（如"一种优化方法"）。
 
 ## 工作流程
 
-### 第一步：采集 + 溯源
-读取文章内容。如果是二手转载，用 WebSearch/WebFetch 找到一手来源。
-把溯源过程中找到的所有有价值链接记下来（论文、GitHub、官方文档、博客原文等），填入 sources 数组。
+### 第一步：判断来源层级（最重要）
 
-### 第二步：识别具名技术
-找出文章涉及的具名技术，每个必须：
-- 有公认名称（不是你起的名字）
-- 有可查证的来源（论文/项目/作者）
-- 用 WebSearch 确认其存在和来源
+读取文章内容，立刻判断：**这是一手来源还是二手转载？**
 
-每篇文章识别 1-3 个核心技术，宁少勿滥。
+判断标准：
+- **一手来源**：作者本人发布的（论文作者、项目维护者、公司官方公告）
+- **二手转载**：转述/推广/评论他人成果的（推文介绍、博客搬运、新闻报道）
 
-### 第三步：匹配 Wiki + 增量评估
-对比下方的已有 Wiki 列表。**如果 Wiki 中已有含义相同的技术（即使名称写法不同），必须标记为 isKnown=true 并填写 wikiId，禁止创建重复词条。**
+**如果是二手转载：**
+1. 从文中提取关键词（项目名、作者名、论文标题等）
+2. 用 WebSearch 找到一手来源（GitHub 仓库、论文页、官方博客）
+3. 用 WebFetch 读取一手来源的内容
+4. **后续所有分析基于一手来源**，二手原文不再参考
+5. sources 中标记一手来源为 type="original"
 
-对于已知技术（isKnown=true），还需要判断本文提供了什么新信息：
-- 新实验数据/benchmark → delta 写具体数据
-- 新应用场景/用法 → delta 写新场景
-- 新机制/新发现 → delta 写新发现
-- 无任何新信息（纯复述）→ delta 留空字符串
+**如果是一手来源：**
+直接基于文章内容分析，无需额外溯源。
 
-${wikiCtx ? `## 已有 Wiki\n${wikiCtx}` : '## 已有 Wiki\n（Wiki 为空，所有技术都是新的）'}
+### 第二步：基于一手来源识别主角 + 组件
 
-### 第四步：组合分析
-这篇文章如何组合上述技术？组合方式是否新颖？能解决什么实际问题？
+**分析对象是一手来源的内容，不是用户提交的二手推文。**
 
-### 第五步：增量统计 + verdict
-客观统计 delta，然后给 verdict：
+**先找主角**：一手来源重点介绍/提出的是什么？它就是主角（role="subject"）。
+**再找组件**：主角依赖或组合了哪些具名技术？它们是组件（role="component"）。
+
+每个具名技术必须有公认名称和可查证来源。
+每篇文章 1 个主角 + 0-3 个组件。
+
+### 第三步：增量统计 + verdict
+客观统计 delta，然后给 verdict。**verdict 基于主角判断**，不要因为组件已知就跳过：
 
 verdict 规则：
-- **deep-dive**: 有 Wiki 中不存在的新技术，或已知技术有重要新发现（新数据/新场景/新机制，即 knownWithDelta > 0 且增量重要），或组合方式有实际创新
-- **save**: 技术已知且增量较小（补充验证、次要应用场景），或组合有参考价值
-- **skip**: 全部已知 + 无增量（knownWithDelta=0）+ 组合也已知 / 纯营销 / 内容空洞
+- **save**: 文章有具名主角，有信息增量（新技术、新数据、新场景、新机制）
+- **skip**: 无具名主角（纯观点/营销）/ 主角和所有组件全部已知且无任何增量 / 内容空洞
 
 ## 输出格式
 
@@ -114,12 +105,12 @@ verdict 规则：
   "concepts": [
     {
       "name": "技术的公认名称",
+      "role": "subject 或 component",
       "isKnown": false,
-      "wikiId": "匹配到的 Wiki 词条 id（已知时必填，新技术留空）",
       "root": "来源（论文/作者/年份）→ 一句话核心原理",
       "whatItEnables": "一句话：能做什么",
       "sourceUrl": "一手来源 URL",
-      "delta": "本文对该已知技术的新增量（已知技术必填，新技术留空）"
+      "delta": "本文对该技术的增量信息（如有）"
     }
   ],
   "narrative": "连贯的技术叙述（见下方规则）",
@@ -130,38 +121,41 @@ verdict 规则：
     "compositionNew": true,
     "gap": "填补知识库什么空白（一句话）"
   },
-  "verdict": "skip|save|deep-dive",
+  "verdict": "skip|save",
   "verdictReason": "一句话理由",
   "relatedEntries": [{"id": "条目ID", "title": "条目标题", "overlap": "关系"}]
 }
 ===TRIAGE_END===
 
 ## narrative 规则
-narrative 必须基于溯源到的一手来源（论文/官方文档）来写，不是复述用户粘贴的链接文章。
+narrative 讲的是**一手来源的事情**，不是二手推文的事情。
 
-narrative 分三段，每段用 \n\n 分隔：
+**硬约束（违反任何一条即为错误输出）：**
+- narrative 的第二段必须以一手来源的作者/项目为主语
+- 禁止提及推文博主的观点、推文的传播数据（点赞/转发）、评论区内容
+- 禁止解释概念是什么、概念的原理、概念怎么工作
+- 如果未能找到一手来源，第二段写"未能溯源到一手来源"并基于可获取的最佳信息简述
 
-第一段「是什么」：一句话说清楚核心技术是什么、谁提出的。技术名用 [[]] 标记。
-第二段「怎么做」：2-3 句话讲方法原理，用简短句子，每句不超过 25 字。
-第三段「效果」：1-2 句话讲实际效果或意义。
+narrative 分两段，每段用 \n\n 分隔：
+
+第一段「溯源」：一句话交代来源链路。例如"从 @xxx 推文发现，一手来源是 GitHub microsoft/markitdown。"如果用户提交的就是一手来源，写"一手来源，作者/组织是 XXX。"
+第二段「一手来源说了什么」：基于你用 WebFetch 实际读取到的一手来源内容，写作者做了什么、解决什么问题、有什么数据/效果。概念名用 [[]] 标记。
 
 写作规则：
-- 每句话只讲一件事，不要在一句话里塞多个信息
-- 技术名标记放在句子自然的名词位置，不要打断句子结构
+- 主语是一手来源的作者/项目，不是二手推文的博主
+- 每句话只讲一件事，每句不超过 25 字
 - 用大白话，假设读者不是技术专家
-- 基于论文/文档的事实写，不要复述二手推文的表达
 
-技术名标记格式：
-- 新技术：[[技术名|new]]
-- 已知技术：[[技术名|known:wiki-id]]
+技术名标记格式：[[技术名|new]]
 
-示例：
-"[[SSD|new]]（Simple Self-Distillation）是 Apple Research 提出的模型自我改进方法。\n\n它的做法很简单：让模型自己生成一批代码，然后直接拿这些输出当训练数据做 SFT，不需要外部教师模型。这个方法建立在 [[Knowledge Distillation|new]] 的基础上，但去掉了教师-学生的两阶段流程。\n\n实测在 Qwen3-30B 上，代码生成准确率从 42.4% 提升到 55.3%，且在多种模型规模上普遍有效。"
+正确示例（用户提交了 poetengineer 的推文，溯源到 Karpathy 的 gist）：
+"从 @poetengineer 推文发现，一手来源是 Karpathy 于 4 月发布的 GitHub Gist。\n\nKarpathy 提出用 LLM 当编译器维护个人知识库，取代传统 RAG 管道。架构基于 [[LLM Wiki|new]] 的三层目录结构，原始知识库约 100 篇文章、40 万字。社区已衍生出 SwarmVault、WikiMind 等多个变体。"
+
+错误示例（❌ 在分析二手推文内容）：
+"poetengineer 在推文中介绍了 Karpathy 的架构，并分享了自己改造成哲学学习库的经验。推文获得了大量转发..."
 
 ## 重要
 - concepts 中的 name 必须是公认名称，不是你自创的概念名
-- isKnown 严格基于 Wiki 列表判断：名称或别名匹配 → true，否则 → false
-- 同一技术在 Wiki 中已有时，必须复用其 id，禁止重复创建
 - narrative 必须用 \n\n 分段，不要写成一整段
 - narrative 中每个技术名必须用 [[]] 标记，且和 concepts 数组一一对应
 - 不要输出标记以外的内容`;
@@ -200,49 +194,137 @@ interface TriageOutput {
   relatedEntries: TriageRelation[];
 }
 
+// 归一化 verdict：agent 有时输出 "SKIP — 理由" 而不是 "skip"
+function normalizeVerdict(v: unknown): TriageVerdict | null {
+  if (typeof v !== 'string') return null;
+  const lower = v.toLowerCase();
+  if (lower === 'skip' || lower.startsWith('skip')) return 'skip';
+  if (lower === 'save' || lower.startsWith('save') || lower === 'deep-dive') return 'save';
+  return null;
+}
+
+// 尝试从自创 schema 映射回标准 schema
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeTriageOutput(raw: any): TriageOutput | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  // verdict 缺失时默认 skip，不作废整条
+  const verdict = normalizeVerdict(raw.verdict) || 'skip';
+
+  // 标准 schema 直接返回
+  if (raw.title && raw.concepts) {
+    raw.verdict = verdict;
+    return raw as TriageOutput;
+  }
+
+  // 自创 schema 映射：agent 有时用 named_technologies 代替 concepts
+  const title = raw.title || raw.topic || '';
+  const concepts: TriageConcept[] = [];
+  if (Array.isArray(raw.named_technologies)) {
+    for (const t of raw.named_technologies) {
+      concepts.push({
+        name: t.name || '',
+        role: 'subject',
+        isKnown: false,
+        wikiId: '',
+        root: t.owner ? `${t.owner} — ${t.status || ''}` : '',
+        whatItEnables: '',
+        delta: '',
+      });
+    }
+  }
+
+  return {
+    title: title || '(无标题)',
+    concepts,
+    sources: raw.sources || [],
+    narrative: raw.narrative || raw.primary_source_reasoning || '',
+    verdict,
+    verdictReason: raw.verdictReason || raw.incremental_value_reasoning || raw.verdict || '',
+    relatedEntries: raw.relatedEntries || [],
+    delta: raw.delta,
+  };
+}
+
 function parseTriageOutput(fullText: string): TriageOutput | null {
   // 方式 1：标记匹配
   const match = fullText.match(/===TRIAGE_START===([\s\S]*?)===TRIAGE_END===/);
   if (match) {
-    const result = safeParseJSON<TriageOutput>(match[1], 'triage');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = safeParseJSON<any>(match[1], 'triage');
+    const result = normalizeTriageOutput(raw);
     if (result) return result;
   }
 
-  // 方式 2：尝试从全文中找包含 verdict 的 JSON 对象（宽松匹配字段顺序）
+  // 方式 2：尝试从全文中找包含 verdict 的 JSON 对象
   const jsonMatch = fullText.match(/\{[\s\S]*"verdict"[\s\S]*\}/);
   if (jsonMatch) {
-    const result = safeParseJSON<TriageOutput>(jsonMatch[0], 'triage-fallback');
-    if (result?.verdict) return result;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = safeParseJSON<any>(jsonMatch[0], 'triage-fallback');
+    const result = normalizeTriageOutput(raw);
+    if (result) return result;
   }
 
   // 方式 3：去掉 markdown 围栏再试
   const stripped = stripCodeFence(fullText);
   if (stripped.startsWith('{')) {
-    const result = safeParseJSON<TriageOutput>(stripped, 'triage-stripped');
-    if (result?.verdict) return result;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = safeParseJSON<any>(stripped, 'triage-stripped');
+    const result = normalizeTriageOutput(raw);
+    if (result) return result;
   }
 
-  // 方式 4：提取最后一个完整 JSON 块（Agent 可能在 JSON 前后输出了其他文本）
+  // 方式 4：提取最后一个完整 JSON 块
   const allJsonBlocks = [...fullText.matchAll(/```(?:json)?\s*\n(\{[\s\S]*?\})\s*\n```/g)];
   if (allJsonBlocks.length > 0) {
     const lastBlock = allJsonBlocks[allJsonBlocks.length - 1][1];
-    const result = safeParseJSON<TriageOutput>(lastBlock, 'triage-codeblock');
-    if (result?.verdict) return result;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = safeParseJSON<any>(lastBlock, 'triage-codeblock');
+    const result = normalizeTriageOutput(raw);
+    if (result) return result;
   }
 
-  console.warn('[triage] 解析失败，输出全文长度:', fullText.length, '| 前 1000 字:', fullText.slice(0, 1000));
+  // 方式 5：兜底——找任何含 title 或 narrative 的 JSON 对象
+  const anyJsonMatch = fullText.match(/\{[\s\S]*"(?:title|narrative)"[\s\S]*\}/);
+  if (anyJsonMatch) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = safeParseJSON<any>(anyJsonMatch[0], 'triage-any');
+    const result = normalizeTriageOutput(raw);
+    if (result) return result;
+  }
+
+  console.warn(`[triage] 解析失败，输出全文长度: ${fullText.length} | 含TRIAGE_START: ${fullText.includes('TRIAGE_START')} | 含verdict: ${fullText.includes('"verdict"')} | 前 1500 字:`, fullText.slice(0, 1500));
   return null;
 }
 
+// 阶段推进：当前阶段标记完成，切到下一阶段
+function setPhase(entry: TriageEntry, label: string) {
+  if (entry.liveStatus === label) return;
+  if (!entry.livePhases) entry.livePhases = [];
+  if (entry.liveStatus && !entry.livePhases.includes(entry.liveStatus)) {
+    entry.livePhases.push(entry.liveStatus);
+  }
+  entry.liveStatus = label;
+}
+
 // 处理单条 URL
-async function processOne(entry: TriageEntry, knowledgeContext: { entriesCtx: string; wikiCtx: string }): Promise<void> {
+async function processOne(entry: TriageEntry, knowledgeContext: { entriesCtx: string }): Promise<void> {
   entry.status = 'processing';
+  entry.livePhases = [];
+  setPhase(entry, '采集页面');
 
   try {
-    // 统一用 safeScrape 抓取（scrape.py 内部对 X/Twitter 自动走 StealthyFetcher）
+    // 统一用 safeScrape 抓取（scrape.py 内部对 X/Twitter 自动用 Camoufox 滚动加载 thread）
     const scraped = await safeScrape(entry.url);
-    const scrapeResult = safeParseJSON<{ status?: string; content?: string; title?: string }>(scraped, 'scrape') || {};
+    const scrapeResult = safeParseJSON<{ status?: string; content?: string; title?: string; truncated?: boolean; hint?: string; threadSize?: number }>(scraped, 'scrape') || {};
     const scrapeFailed = !scrapeResult.content || scrapeResult.status === 'error' || (scrapeResult.content.length < 200);
+    const isTruncated = !!(scrapeResult as Record<string, unknown>).truncated;
+    const isThread = (scrapeResult.threadSize ?? 0) > 1;
+
+    // 保存抓取原文，供后续定向扩展复用
+    if (!scrapeFailed && scrapeResult.content) {
+      entry.scrapedContent = scrapeResult.content;
+    }
 
     // 从抓取内容中预提取 URL，给 Agent 捷径
     const extractedUrls = scrapeFailed ? [] : extractUrls(scrapeResult.content || '');
@@ -250,42 +332,63 @@ async function processOne(entry: TriageEntry, knowledgeContext: { entriesCtx: st
       ? `\n## 文中提及的链接（可直接 WebFetch）\n${extractedUrls.map(u => `- ${u}`).join('\n')}\n`
       : '';
 
+    const truncatedWarning = isTruncated
+      ? `\n## ⚠️ 内容截断\n这是一个 thread（分段推文），只抓到了第一条。你必须用 WebFetch 获取该 URL 的完整 thread 内容，再进行分析。不要基于截断内容下结论。\n`
+      : '';
+
     // 工具始终开启，Agent 需要主动去查一手资料
     const allowedTools = ['WebFetch', 'WebSearch'];
     const maxTurns = 18;
 
+    // 判断是否来自二手平台（推文、社交媒体）
+    const isSecondaryPlatform = /^https?:\/\/(x\.com|twitter\.com|threads\.net|weibo\.com)/i.test(entry.url);
+
     const userPrompt = scrapeFailed
-      ? `请研究这个链接讨论的技术：
+      ? `请分析这个链接：
 
 ## URL
 ${entry.url}
 
 ## 抓取状态
-直接抓取失败。请先用 WebFetch 获取该 URL，失败则用 WebSearch 搜索。获取到内容后，按工作流程拆解底层技术。
+直接抓取失败。请先用 WebFetch 获取该 URL，失败则用 WebSearch 搜索相关内容。
 
 ## 用户知识库条目（参考）
 ${knowledgeContext.entriesCtx}
 
-研究完成后，按系统提示要求输出 JSON。每个 concept 必须附带你通过工具查到的 sourceUrl。`
-      : `请研究这个链接讨论的技术：
+**最重要：先判断这是一手来源还是二手转载。如果是二手，立刻去找一手来源，基于一手来源做分析。**`
+      : isSecondaryPlatform
+        ? `请分析这个链接：
 
 ## URL
 ${entry.url}
 
-## 抓取内容（仅供参考，你需要穿透到底层技术）
-${scraped.slice(0, 6000)}
+## 二手推文内容（仅供提取关键词以溯源，不要分析推文本身）
+${(scrapeResult.content || '').slice(0, 1500)}
 ${urlsSection}
 ## 用户知识库条目（参考）
 ${knowledgeContext.entriesCtx}
 
-这是二手推文的抓取内容，不要只看这篇文章就下结论。请用 WebSearch/WebFetch 找到每个概念的一手来��。`;
+**这是二手推文。用上面的内容提取关键词（项目名、作者名、论文标题），然后用 WebSearch 找到一手来源，用 WebFetch 读取一手来源。你的所有分析（concepts、narrative、directions）必须基于一手来源的内容，不是推文。**`
+        : `请分析这个链接：
+
+## URL
+${entry.url}
+${truncatedWarning}
+## 抓取内容${isTruncated ? '（截断，仅第一条推文）' : isThread ? `（完整 thread，${scrapeResult.threadSize} 条）` : ''}
+${scraped.slice(0, isThread ? 12000 : 6000)}
+${urlsSection}
+## 用户知识库条目（参考）
+${knowledgeContext.entriesCtx}
+
+**先判断这是一手来源还是二手转载。如果是二手，立刻去找一手来源，基于一手来源做分析。**`;
 
     let fullText = '';
+    setPhase(entry, '分析内容');
 
     const q = query({
       prompt: userPrompt,
       options: {
-        systemPrompt: buildTriagePrompt(knowledgeContext.wikiCtx),
+        systemPrompt: buildTriagePrompt(),
         cwd: process.cwd(),
         allowedTools,
         permissionMode: 'bypassPermissions' as const,
@@ -297,16 +400,42 @@ ${knowledgeContext.entriesCtx}
     });
 
     for await (const message of q) {
-      reportFromSDKMessage('ai-digest', message);
+      reportFromSDKMessage('aidigest', message);
+
+      // 实时状态：检测工具调用
+      if (message.type === 'assistant') {
+        const blocks = message.message?.content;
+        if (Array.isArray(blocks)) {
+          for (const block of blocks) {
+            if (block.type === 'tool_use' && typeof block.name === 'string') {
+              const labels: Record<string, string> = {
+                WebSearch: '溯源搜索',
+                WebFetch: '读取来源',
+              };
+              if (labels[block.name]) {
+                setPhase(entry, labels[block.name]);
+              }
+            }
+            if (block.type === 'text' && typeof block.text === 'string' && block.text.includes('TRIAGE_START')) {
+              setPhase(entry, '整理结果');
+            }
+          }
+        }
+      }
+
       const text = extractText(message);
-      if (text) fullText += text;
+      // result 消息可能重复 assistant 的内容，去重后再追加
+      if (text && (message.type !== 'result' || !fullText.includes(text.slice(0, 200)))) {
+        fullText += text;
+      }
     }
 
     // 解析输出
     const result = parseTriageOutput(fullText);
     if (result) {
       entry.title = result.title || entry.url;
-      entry.verdict = result.verdict;
+      // 兼容 LLM 仍输出 deep-dive 的情况，映射为 save
+      entry.verdict = ((result.verdict as string) === 'deep-dive' ? 'save' : result.verdict) as TriageVerdict;
       entry.concepts = result.concepts || [];
       entry.sources = (result.sources || []).map(s => ({
         url: s.url, title: s.title,
@@ -326,16 +455,18 @@ ${knowledgeContext.entriesCtx}
       } : undefined;
       entry.verdictReason = result.verdictReason;
       entry.relatedEntries = result.relatedEntries || [];
+
       entry.status = 'done';
     } else {
       // 解析失败：自动重试一次（简化 prompt，只要求 JSON）
+      setPhase(entry, '重试解析');
       console.warn(`[triage] ${entry.url} 首次解析失败，重试中...`);
       try {
         let retryText = '';
         const retryQ = query({
           prompt: `你的上次输出未能被解析。请只输出 ===TRIAGE_START=== 和 ===TRIAGE_END=== 包裹的 JSON，不要输出其他内容。\n\n原始内容摘要（前2000字）：\n${fullText.slice(0, 2000)}`,
           options: {
-            systemPrompt: buildTriagePrompt(knowledgeContext.wikiCtx),
+            systemPrompt: buildTriagePrompt(),
             cwd: process.cwd(),
             allowedTools: [],
             permissionMode: 'bypassPermissions' as const,
@@ -352,7 +483,7 @@ ${knowledgeContext.entriesCtx}
         const retryResult = parseTriageOutput(retryText);
         if (retryResult) {
           entry.title = retryResult.title || entry.url;
-          entry.verdict = retryResult.verdict;
+          entry.verdict = ((retryResult.verdict as string) === 'deep-dive' ? 'save' : retryResult.verdict) as TriageVerdict;
           entry.concepts = retryResult.concepts || [];
           entry.sources = (retryResult.sources || []).map(s => ({
             url: s.url, title: s.title,
@@ -362,6 +493,7 @@ ${knowledgeContext.entriesCtx}
           entry.delta = retryResult.delta;
           entry.verdictReason = retryResult.verdictReason;
           entry.relatedEntries = retryResult.relatedEntries || [];
+
           entry.status = 'done';
           console.log(`[triage] ${entry.url} 重试成功`);
         } else {

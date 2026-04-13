@@ -1,49 +1,61 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { ChatMessage } from './types';
-import { getWikiEntries } from './storage';
+import { getWikiCategories, getWikiIndex } from './storage';
 import { reportFromSDKMessage } from './token-report';
 import path from 'path';
 
 type EventSender = (type: string, data: unknown) => void;
 
-// 只加载 Wiki 索引（摘要），不加载全文
 async function loadWikiIndex(): Promise<string> {
-  const index = await getWikiEntries();
+  const [categories, index] = await Promise.all([getWikiCategories(), getWikiIndex()]);
   if (index.length === 0) return '（Wiki 为空，尚无知识积累）';
 
-  return index.map(e => {
-    const aliases = e.aliases.length > 0 ? ` (${e.aliases.join(', ')})` : '';
-    return `- **${e.name}**${aliases} [${e.domain}] — ${e.summary} (${e.sourceCount} 篇来源, 文件: data/wiki/${e.id}.md)`;
-  }).join('\n');
+  const parts: string[] = [];
+  for (const cat of categories) {
+    const items = index.filter(i => i.categoryId === cat.id);
+    if (items.length === 0) continue;
+    parts.push(`\n### ${cat.name}`);
+    for (const item of items) {
+      parts.push(`- **${item.name}** (id: ${item.id}) — 段落: ${item.sectionHeadings.join(', ')} — ${item.sourceCount} 来源 (文件: data/wiki/items/${item.id}.md)`);
+    }
+  }
+  // 未分类条目
+  const uncategorized = index.filter(i => !categories.some(c => c.id === i.categoryId));
+  if (uncategorized.length > 0) {
+    parts.push('\n### 未分类');
+    for (const item of uncategorized) {
+      parts.push(`- **${item.name}** (id: ${item.id}) — 段落: ${item.sectionHeadings.join(', ')} (文件: data/wiki/items/${item.id}.md)`);
+    }
+  }
+
+  return parts.join('\n');
 }
 
 function buildWikiChatPrompt(wikiIndex: string): string {
   return `你是一个知识库问答助手。你的知识来源是用户积累的 AI 前沿技术 Wiki。
 
-## Wiki 索引（摘要）
-
-以下是所有词条的摘要。根据问题判断需要深入哪些词条，用 Read 工具读取对应的 .md 文件获取全文。
+## Wiki 索引
 
 ${wikiIndex}
 
 ## 工作方式
 
 1. 先看索引，判断哪些词条与问题相关
-2. 用 Read 工具读取相关词条的 .md 文件（路径: data/wiki/<id>.md）
+2. 用 Read 工具读取相关词条的 .md 文件获取全文
 3. 基于读到的全文内容回答
 4. 如果需要知识库之外的信息，用 WebSearch 补充
 
 ## 你的能力
 
 1. **检索回答**：基于知识库中的内容回答用户问题，引用具体概念和来源
-2. **跨概念推理**：发现不同概念之间的联系、对比、组合可能性——即使这些联系在任何单篇来源中都没有被明确提出
-3. **识别空白**：当问题涉及知识库未覆盖的领域时，明确指出这是知识空白
+2. **跨概念推理**：发现不同概念之间的联系、对比、组合可能性
+3. **识别空白**：当问题涉及知识库未覆盖的领域时，明确指出
 
 ## 回答规则
 
 - 回答必须基于知识库内容，明确区分"知识库记载的事实"和"你的推理"
-- 引用概念时用 **加粗** 标记概念名
+- 引用概念时用 **加粗** 标记
 - 如果发现了跨概念的新关联或矛盾，主动指出
 - 用中文回答
 - 回答要有深度，不要复述词条内容，而是针对问题进行分析和综合
@@ -101,7 +113,7 @@ export async function runWikiChat(
     });
 
     for await (const message of q) {
-      reportFromSDKMessage('ai-digest', message);
+      reportFromSDKMessage('aidigest', message);
 
       // 从 assistant 消息的 tool_use block 中检测工具调用，推送状态
       if (message.type === 'assistant') {

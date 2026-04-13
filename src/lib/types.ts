@@ -70,7 +70,7 @@ export interface AnalysisConcept {
   what: string;        // 是什么（Markdown）
   enables: string;     // 能做什么（Markdown）
   limitations: string; // 现状与局限（Markdown）
-  relations: { conceptId: string; conceptName: string; type: WikiRelation['type']; description: string }[];
+  relations: { conceptId: string; conceptName: string; type: 'composed-of' | 'part-of' | 'related'; description: string }[];
 }
 
 // 叙事报告：问题驱动的渐进式深度研究
@@ -342,7 +342,7 @@ export interface ChatMessage {
 
 // === 快速研判 (Triage) ===
 
-export type TriageVerdict = 'skip' | 'save' | 'deep-dive';
+export type TriageVerdict = 'skip' | 'save';
 
 export interface TriageRelation {
   id: string;
@@ -353,8 +353,10 @@ export interface TriageRelation {
 // 从文章中抽象出的原子概念
 export interface TriageConcept {
   name: string;           // 概念/技术点名称
+  role?: 'subject' | 'component'; // 主角 or 组件
   isKnown?: boolean;      // 是否在 Wiki 中已存在
   wikiId?: string;        // 匹配到的 Wiki 词条 id
+  basedOn?: string;       // 新技术基于哪个已知 Wiki 概念延伸（wiki-id）
   root: string;           // 溯源：起源 → 核心机制 → 突破点
   whatItEnables: string;   // 拿到它能做什么、造什么
   sourceUrl?: string;      // 一手来源 URL
@@ -378,16 +380,20 @@ export interface TriageDelta {
   gap: string;              // 填补知识库什么空白
 }
 
+
 export interface TriageEntry {
   id: string;
   url: string;
   title: string;
   status: 'pending' | 'processing' | 'done' | 'error';
   error?: string;
+  livePhases?: string[];             // 已完成阶段（按时间顺序）
+  liveStatus?: string;               // 当前进行中的阶段
   // 以下字段在 status=done 时填充
   verdict?: TriageVerdict;
   concepts?: TriageConcept[];    // 识别到的具名技术
   sources?: SourceInfo[];        // 溯源找到的来源列表
+  scrapedContent?: string;       // 抓取的原文（供定向扩展复用）
   narrative?: string;            // 连贯叙述（技术名用 [[name|new/known:id]] 标记）
   composition?: string;          // 组合方式（结构化备份）
   solves?: string;               // 能解决什么（结构化备份）
@@ -405,48 +411,42 @@ export interface TriageBatch {
   entries: TriageEntry[];
 }
 
-// === Wiki 编译 ===
+// === Wiki 系统 ===
 
-/** Wiki 词条与来源条目的关系 */
-export interface WikiSourceRef {
-  entryId: string;
-  entryTitle: string;
-  date: string;
-  contribution: string; // 该条目对此词条贡献了什么
+export interface WikiCategory {
+  id: string;        // kebab-case slug
+  name: string;      // 显示名
+  order: number;
+  createdAt: string;
 }
 
-/** Wiki 词条间关系 */
-export interface WikiRelation {
-  conceptId: string;     // slug
-  conceptName: string;
-  type: 'composed-of' | 'part-of' | 'related';
-  description: string;
+export interface WikiSection {
+  heading: string;   // 段落标题（agent 决定）
+  content: string;   // Markdown
 }
 
-/** Wiki 词条 */
-export interface WikiEntry {
-  id: string;            // slug, e.g. "activation-steering"
+export interface WikiSourceLink {
+  url: string;
+  title: string;
+  type?: 'original' | 'paper' | 'github' | 'docs' | 'related';
+}
+
+export interface WikiItem {
+  id: string;
   name: string;
-  aliases: string[];
-  domain: string;        // e.g. "AI Safety", "LLM Inference"
-  origin?: string;       // 来源：论文/作者/年份
-  summary: string;       // 2-3 句概要
-  content: string;       // 完整 markdown 正文
-  relations: WikiRelation[];
-  sources: WikiSourceRef[];
-  tags: string[];
+  categoryId: string;
+  sections: WikiSection[];
+  sourceLinks: WikiSourceLink[];
   createdAt: string;
   updatedAt: string;
 }
 
-/** Wiki 索引条目（轻量，列表展示用） */
-export interface WikiIndexEntry {
+export interface WikiItemSummary {
   id: string;
   name: string;
-  aliases: string[];
-  domain: string;
-  summary: string;
-  relationCount: number;
+  categoryId: string;
+  sectionHeadings: string[];
   sourceCount: number;
   updatedAt: string;
 }
+
