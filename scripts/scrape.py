@@ -183,25 +183,28 @@ def scrape_general(url: str) -> dict:
     fetcher = Fetcher(auto_match=False)
     page = fetcher.get(url, timeout=30)
 
-    # 提取关键内容
+    # Scrapling >=0.2: .text 只返回直接文本节点，get_all_text() 递归获取子元素文本
+    # <title> 是直接文本节点，用 .text；内容元素用 get_all_text()
     title = ""
     title_el = page.css_first("title")
     if title_el:
-        title = title_el.text()
+        title = str(title_el.text) if str(title_el.text) != 'None' else str(title_el.get_all_text())
 
     # 尝试多种内容选择器
     content = ""
     for selector in ["article", "main", "[role='main']", ".post-content", ".article-content", ".entry-content", "#content"]:
         el = page.css_first(selector)
-        if el and el.text().strip():
-            content = el.text().strip()
-            break
+        if el:
+            t = str(el.get_all_text()).strip()
+            if t:
+                content = t
+                break
 
     # 兜底：取 body 文本
     if not content:
         body = page.css_first("body")
         if body:
-            content = body.text().strip()
+            content = str(body.get_all_text()).strip()
 
     # 提取 meta 信息
     description = ""
@@ -213,7 +216,7 @@ def scrape_general(url: str) -> dict:
     links = []
     for a in page.css("a[href]")[:50]:
         href = a.attrib.get("href", "")
-        text = a.text().strip()
+        text = str(a.get_all_text()).strip()
         if href and text and href.startswith("http"):
             links.append({"url": href, "text": text[:100]})
 

@@ -14,22 +14,6 @@ function getDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
 
-// ── B. Delta 信号条 ──
-function DeltaSignal({ entry }: { entry: TriageEntry }) {
-  const delta = entry.delta;
-  if (!delta || (delta.knownCount === 0 && !delta.compositionNew)) return null;
-
-  return (
-    <div className="flex flex-wrap items-center gap-5" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
-      {delta.knownCount > 0 && (
-        <span style={{ color: 'var(--text-tertiary)' }}>{delta.knownCount} 已知</span>
-      )}
-      {delta.compositionNew && (
-        <span style={{ color: 'var(--text-new)', fontWeight: 500 }}>组合新</span>
-      )}
-    </div>
-  );
-}
 
 // ── D. 概念登记簿 ──
 function ConceptRegister({ concepts }: {
@@ -39,39 +23,27 @@ function ConceptRegister({ concepts }: {
 
   return (
     <div className="space-y-1">
-      {concepts.map((c, i) => {
-        const isNew = !c.isKnown;
-        return (
-          <div
-            key={i}
-            className="w-full text-left py-1.5 pl-3 block"
-            style={{
-              borderLeft: isNew ? '2px solid var(--border-new)' : '2px solid transparent',
-            }}
-          >
-            <div className="flex items-center justify-between gap-4">
-              <span style={{
-                fontSize: 'var(--text-sm)',
-                fontWeight: 600,
-                color: isNew ? 'var(--text-new)' : 'var(--text-primary)',
-              }}>
-                <span style={{ marginRight: 6, fontSize: 'var(--text-xs)' }}>{isNew ? '◆' : '◇'}</span>
-                {c.name}
-              </span>
-              <span style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-quaternary)', whiteSpace: 'nowrap' }}>
-                {c.role === 'subject' ? 'subject' : 'component'}
-                <span style={{ margin: '0 4px', opacity: 0.3 }}>·</span>
-                <span style={{ color: isNew ? 'var(--text-new)' : undefined }}>{isNew ? '新' : '已知'}</span>
-              </span>
-            </div>
-            {c.root && (
-              <div className="mt-0.5 pl-5" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}>
-                {c.root}
-              </div>
-            )}
+      {concepts.map((c, i) => (
+        <div
+          key={i}
+          className="w-full text-left py-1.5 pl-3 block"
+          style={{ borderLeft: '2px solid var(--border-subtle)' }}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {c.name}
+            </span>
+            <span style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-quaternary)', whiteSpace: 'nowrap' }}>
+              {c.role === 'subject' ? 'subject' : 'component'}
+            </span>
           </div>
-        );
-      })}
+          {c.root && (
+            <div className="mt-0.5 pl-0" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}>
+              {c.root}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -82,18 +54,15 @@ function NarrativeText({ text, concepts }: {
   concepts: TriageConcept[];
 }) {
   const parts: { type: 'text' | 'concept'; content: string; concept?: TriageConcept }[] = [];
-  const regex = /\[\[([^|]+)\|([^\]]+)\]\]/g;
+  // 兼容 [[name]] 和旧格式 [[name|tag]]
+  const regex = /\[\[([^|\]]+)(?:\|[^\]]+)?\]\]/g;
   let lastIndex = 0;
   let match;
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
     const name = match[1];
-    const tag = match[2];
-    const isKnown = tag.startsWith('known:');
-    const concept = concepts.find(c => c.name === name) || {
-      name, isKnown, wikiId: isKnown ? tag.replace('known:', '') : undefined, root: '', whatItEnables: '',
-    };
+    const concept = concepts.find(c => c.name === name) || { name, root: '', whatItEnables: '' };
     parts.push({ type: 'concept', content: name, concept });
     lastIndex = regex.lastIndex;
   }
@@ -102,21 +71,14 @@ function NarrativeText({ text, concepts }: {
   const seen = new Set<string>();
   const rendered = parts.map((part, i) => {
     if (part.type === 'text') return <Fragment key={i}>{part.content}</Fragment>;
-    const c = part.concept!;
     if (seen.has(part.content)) return <span key={i} style={{ fontWeight: 600 }}>{part.content}</span>;
     seen.add(part.content);
-    const isNew = !c.isKnown;
     return (
       <span
         key={i}
         style={{
           fontWeight: 600,
           color: 'var(--text-primary)',
-          background: isNew ? 'var(--bg-new)' : 'none',
-          padding: isNew ? '1px 4px' : 0,
-          borderRadius: isNew ? 2 : 0,
-          borderBottom: isNew ? 'none' : '1px dashed var(--text-quaternary)',
-          paddingBottom: isNew ? undefined : '1px',
           lineHeight: 'inherit',
           fontSize: 'inherit',
         }}
@@ -280,11 +242,6 @@ export function TriageSection({ entry, index, onExpand }: Props) {
           style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)', textUnderlineOffset: '3px', textDecorationColor: 'var(--border)' }}>
           {entry.title}
         </a>
-      </div>
-
-      {/* ── B. Delta 信号条 ── */}
-      <div className="mb-2">
-        <DeltaSignal entry={entry} />
       </div>
 
       {/* ── D. 判定理由 ── */}

@@ -354,13 +354,9 @@ export interface TriageRelation {
 export interface TriageConcept {
   name: string;           // 概念/技术点名称
   role?: 'subject' | 'component'; // 主角 or 组件
-  isKnown?: boolean;      // 是否在 Wiki 中已存在
-  wikiId?: string;        // 匹配到的 Wiki 词条 id
-  basedOn?: string;       // 新技术基于哪个已知 Wiki 概念延伸（wiki-id）
   root: string;           // 溯源：起源 → 核心机制 → 突破点
   whatItEnables: string;   // 拿到它能做什么、造什么
   sourceUrl?: string;      // 一手来源 URL
-  delta?: string;          // 已知概念的增量描述（本文带来了什么新信息）
 }
 
 // 旧版打分（兼容历史数据）
@@ -371,13 +367,9 @@ export interface TriageScores {
   timing: number;
 }
 
-// 新版增量分析（基于 Wiki 客观统计）
+// 增量分析
 export interface TriageDelta {
-  newCount: number;         // 新原子概念数量
-  knownCount: number;       // 已知概念数量
-  knownWithDelta?: number;  // 有实质增量的已知概念数
-  compositionNew: boolean;  // 组合方式是否新
-  gap: string;              // 填补知识库什么空白
+  gap: string;              // 这篇文章带来什么新信息（一句话）
 }
 
 
@@ -394,7 +386,7 @@ export interface TriageEntry {
   concepts?: TriageConcept[];    // 识别到的具名技术
   sources?: SourceInfo[];        // 溯源找到的来源列表
   scrapedContent?: string;       // 抓取的原文（供定向扩展复用）
-  narrative?: string;            // 连贯叙述（技术名用 [[name|new/known:id]] 标记）
+  narrative?: string;            // 连贯叙述（技术名用 [[name]] 标记）
   composition?: string;          // 组合方式（结构化备份）
   solves?: string;               // 能解决什么（结构化备份）
   explanation?: string;          // 整体理解

@@ -98,11 +98,13 @@ ${question}`;
         allowedTools: ['WebFetch', 'WebSearch'],
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
-        maxTurns: 4,
+        maxTurns: 8,
         abortController,
         persistSession: false,
       },
     });
+
+    let lastText = '';
 
     for await (const message of q) {
       reportFromSDKMessage('aidigest', message);
@@ -110,10 +112,15 @@ ${question}`;
       if (message.type === 'assistant') {
         const blocks = message.message?.content;
         if (Array.isArray(blocks)) {
+          // 提取文本（无论是否有 tool_use）
+          const text = blocks
+            .filter((b: { type: string }) => b.type === 'text')
+            .map((b: { type: string; text?: string }) => b.text ?? '')
+            .join('');
+
           const hasToolUse = blocks.some((b: { type: string }) => b.type === 'tool_use');
 
           if (hasToolUse) {
-            // 含工具调用的轮次：只推送工具状态
             for (const block of blocks) {
               if (block.type === 'tool_use' && typeof block.name === 'string') {
                 const labels: Record<string, string> = {
@@ -125,19 +132,33 @@ ${question}`;
                 }
               }
             }
-          } else {
-            // 纯文本轮次：覆盖式发送（前端直接替换，不累加）
-            const text = blocks
-              .filter((b: { type: string }) => b.type === 'text')
-              .map((b: { type: string; text?: string }) => b.text ?? '')
-              .join('');
-            if (text) {
+          }
+
+          // 纯文本轮次覆盖式发送，含工具轮次也暂存文本
+          if (text) {
+            lastText = text;
+            if (!hasToolUse) {
               send('replace', { content: text });
             }
           }
         }
       }
-      // result 消息跳过（与最后 assistant 重复）
+
+      // result 消息：最终回答可能只在这里
+      if (message.type === 'result') {
+        if (message.subtype === 'success' && message.result) {
+          lastText = message.result;
+          send('replace', { content: message.result });
+        } else if (message.subtype === 'error_max_turns' && lastText) {
+          // agent 用完轮次但有暂存文本，补发
+          send('replace', { content: lastText });
+        }
+      }
+    }
+
+    // 兜底：如果从未发过 replace 但有文本，补发
+    if (lastText) {
+      send('replace', { content: lastText });
     }
 
     send('done', {});

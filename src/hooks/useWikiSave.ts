@@ -47,41 +47,53 @@ export function useWikiSave() {
       if (!reader) return;
 
       let accumulated = '';
+      let buffer = '';
       const decoder = new TextDecoder();
+
+      const handleEvent = (event: { type: string; data: Record<string, unknown> }) => {
+        if (event.type === 'tool_status') {
+          setToolStatus(event.data.label as string);
+        } else if (event.type === 'text') {
+          setToolStatus(null);
+          accumulated += event.data.content as string;
+          setMessages(prev => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role === 'assistant') {
+              copy[copy.length - 1] = { ...last, content: accumulated };
+            } else {
+              copy.push({ role: 'assistant', content: accumulated });
+            }
+            return copy;
+          });
+        } else if (event.type === 'proposal') {
+          setProposal(event.data as unknown as WikiSaveProposal);
+        } else if (event.type === 'done') {
+          historyRef.current = [
+            ...historyRef.current,
+            { role: 'assistant' as const, content: accumulated, timestamp: Date.now() },
+          ];
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === 'tool_status') {
-              setToolStatus(event.data.label);
-            } else if (event.type === 'text') {
-              setToolStatus(null);
-              accumulated += event.data.content;
-              setMessages(prev => {
-                const copy = [...prev];
-                const last = copy[copy.length - 1];
-                if (last?.role === 'assistant') {
-                  copy[copy.length - 1] = { ...last, content: accumulated };
-                } else {
-                  copy.push({ role: 'assistant', content: accumulated });
-                }
-                return copy;
-              });
-            } else if (event.type === 'proposal') {
-              setProposal(event.data as WikiSaveProposal);
-            } else if (event.type === 'done') {
-              // 更新 history
-              historyRef.current = [
-                ...historyRef.current,
-                { role: 'assistant' as const, content: accumulated, timestamp: Date.now() },
-              ];
+        if (done) {
+          if (buffer.trim()) {
+            const line = buffer.trim();
+            if (line.startsWith('data: ')) {
+              try { handleEvent(JSON.parse(line.slice(6))); } catch { /* skip */ }
             }
-          } catch { /* skip */ }
+          }
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data: ')) continue;
+          try { handleEvent(JSON.parse(line.slice(6))); } catch { /* skip */ }
         }
       }
     } catch {

@@ -3,7 +3,7 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept, SourceInfo } from './types';
 import { safeScrape, safeParseJSON, stripCodeFence } from './agent';
-import { getEntries, saveTriageBatch } from './storage';
+import { saveTriageBatch } from './storage';
 import { reportFromSDKMessage } from './token-report';
 
 // 从文本中提取有价值的 URL（GitHub、arXiv、官方文档等），去重后返回
@@ -30,16 +30,6 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
-// 构建知识库上下文
-async function buildKnowledgeContext(): Promise<{ entriesCtx: string }> {
-  const entries = await getEntries();
-  const recent = entries.slice(0, 30);
-  const entriesCtx = recent.length === 0
-    ? '（知识库为空）'
-    : recent.map(e => `- [${e.id}] ${e.title}: ${e.tldr || '无摘要'} (tags: ${e.tags.join(', ') || '无'})`).join('\n');
-
-  return { entriesCtx };
-}
 
 // 系统提示词：具名技术识别 + 组合分析
 function buildTriagePrompt(): string {
@@ -87,12 +77,11 @@ function buildTriagePrompt(): string {
 每个具名技术必须有公认名称和可查证来源。
 每篇文章 1 个主角 + 0-3 个组件。
 
-### 第三步：增量统计 + verdict
-客观统计 delta，然后给 verdict。**verdict 基于主角判断**，不要因为组件已知就跳过：
+### 第三步：verdict
 
 verdict 规则：
-- **save**: 文章有具名主角，有信息增量（新技术、新数据、新场景、新机制）
-- **skip**: 无具名主角（纯观点/营销）/ 主角和所有组件全部已知且无任何增量 / 内容空洞
+- **save**: 文章有具名主角，有实质技术内容（新技术、新数据、新场景、新机制）
+- **skip**: 无具名主角（纯观点/营销）/ 内容空洞
 
 ## 输出格式
 
@@ -106,20 +95,14 @@ verdict 规则：
     {
       "name": "技术的公认名称",
       "role": "subject 或 component",
-      "isKnown": false,
       "root": "来源（论文/作者/年份）→ 一句话核心原理",
       "whatItEnables": "一句话：能做什么",
-      "sourceUrl": "一手来源 URL",
-      "delta": "本文对该技术的增量信息（如有）"
+      "sourceUrl": "一手来源 URL"
     }
   ],
   "narrative": "连贯的技术叙述（见下方规则）",
   "delta": {
-    "newCount": 0,
-    "knownCount": 0,
-    "knownWithDelta": 0,
-    "compositionNew": true,
-    "gap": "填补知识库什么空白（一句话）"
+    "gap": "这篇文章带来什么新信息（一句话）"
   },
   "verdict": "skip|save",
   "verdictReason": "一句话理由",
@@ -146,10 +129,10 @@ narrative 分两段，每段用 \n\n 分隔：
 - 每句话只讲一件事，每句不超过 25 字
 - 用大白话，假设读者不是技术专家
 
-技术名标记格式：[[技术名|new]]
+技术名标记格式：[[技术名]]
 
 正确示例（用户提交了 poetengineer 的推文，溯源到 Karpathy 的 gist）：
-"从 @poetengineer 推文发现，一手来源是 Karpathy 于 4 月发布的 GitHub Gist。\n\nKarpathy 提出用 LLM 当编译器维护个人知识库，取代传统 RAG 管道。架构基于 [[LLM Wiki|new]] 的三层目录结构，原始知识库约 100 篇文章、40 万字。社区已衍生出 SwarmVault、WikiMind 等多个变体。"
+"从 @poetengineer 推文发现，一手来源是 Karpathy 于 4 月发布的 GitHub Gist。\n\nKarpathy 提出用 LLM 当编译器维护个人知识库，取代传统 RAG 管道。架构基于 [[LLM Wiki]] 的三层目录结构，原始知识库约 100 篇文章、40 万字。社区已衍生出 SwarmVault、WikiMind 等多个变体。"
 
 错误示例（❌ 在分析二手推文内容）：
 "poetengineer 在推文中介绍了 Karpathy 的架构，并分享了自己改造成哲学学习库的经验。推文获得了大量转发..."
@@ -157,7 +140,7 @@ narrative 分两段，每段用 \n\n 分隔：
 ## 重要
 - concepts 中的 name 必须是公认名称，不是你自创的概念名
 - narrative 必须用 \n\n 分段，不要写成一整段
-- narrative 中每个技术名必须用 [[]] 标记，且和 concepts 数组一一对应
+- narrative 中每个技术名必须用 [[技术名]] 标记（不带竖线），且和 concepts 数组一一对应
 - 不要输出标记以外的内容`;
 }
 
@@ -186,7 +169,7 @@ interface TriageOutput {
   narrative?: string;
   composition?: string;
   solves?: string;
-  delta?: { newCount: number; knownCount: number; compositionNew: boolean; gap: string };
+  delta?: { gap: string };
   explanation?: string;
   scores?: { novelty: number; usability: number; leverage: number; timing: number };
   verdict: TriageVerdict;
@@ -225,11 +208,8 @@ function normalizeTriageOutput(raw: any): TriageOutput | null {
       concepts.push({
         name: t.name || '',
         role: 'subject',
-        isKnown: false,
-        wikiId: '',
         root: t.owner ? `${t.owner} — ${t.status || ''}` : '',
         whatItEnables: '',
-        delta: '',
       });
     }
   }
@@ -308,7 +288,7 @@ function setPhase(entry: TriageEntry, label: string) {
 }
 
 // 处理单条 URL
-async function processOne(entry: TriageEntry, knowledgeContext: { entriesCtx: string }): Promise<void> {
+async function processOne(entry: TriageEntry): Promise<void> {
   entry.status = 'processing';
   entry.livePhases = [];
   setPhase(entry, '采集页面');
@@ -352,9 +332,6 @@ ${entry.url}
 ## 抓取状态
 直接抓取失败。请先用 WebFetch 获取该 URL，失败则用 WebSearch 搜索相关内容。
 
-## 用户知识库条目（参考）
-${knowledgeContext.entriesCtx}
-
 **最重要：先判断这是一手来源还是二手转载。如果是二手，立刻去找一手来源，基于一手来源做分析。**`
       : isSecondaryPlatform
         ? `请分析这个链接：
@@ -365,9 +342,6 @@ ${entry.url}
 ## 二手推文内容（仅供提取关键词以溯源，不要分析推文本身）
 ${(scrapeResult.content || '').slice(0, 1500)}
 ${urlsSection}
-## 用户知识库条目（参考）
-${knowledgeContext.entriesCtx}
-
 **这是二手推文。用上面的内容提取关键词（项目名、作者名、论文标题），然后用 WebSearch 找到一手来源，用 WebFetch 读取一手来源。你的所有分析（concepts、narrative、directions）必须基于一手来源的内容，不是推文。**`
         : `请分析这个链接：
 
@@ -377,9 +351,6 @@ ${truncatedWarning}
 ## 抓取内容${isTruncated ? '（截断，仅第一条推文）' : isThread ? `（完整 thread，${scrapeResult.threadSize} 条）` : ''}
 ${scraped.slice(0, isThread ? 12000 : 6000)}
 ${urlsSection}
-## 用户知识库条目（参考）
-${knowledgeContext.entriesCtx}
-
 **先判断这是一手来源还是二手转载。如果是二手，立刻去找一手来源，基于一手来源做分析。**`;
 
     let fullText = '';
@@ -513,10 +484,8 @@ ${knowledgeContext.entriesCtx}
 
 // 后台串行处理 batch
 async function processBatch(batch: TriageBatch): Promise<void> {
-  const knowledgeContext = await buildKnowledgeContext();
-
   for (const entry of batch.entries) {
-    await processOne(entry, knowledgeContext);
+    await processOne(entry);
     // 每完成一条，持久化
     await saveTriageBatch(batch);
   }

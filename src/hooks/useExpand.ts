@@ -34,13 +34,33 @@ export function useExpand() {
         if (!reader) return;
 
         let accumulated = '';
+        let buffer = '';
         const decoder = new TextDecoder();
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          for (const line of chunk.split('\n')) {
+          if (done) {
+            if (buffer.trim()) {
+              const line = buffer.trim();
+              if (line.startsWith('data: ')) {
+                try {
+                  const event = JSON.parse(line.slice(6));
+                  if (event.type === 'done') {
+                    setState(s => s ? { ...s, stages: s.stages.map((st, i) => i === idx ? { ...st, finished: true, loading: false } : st) } : s);
+                  } else if (event.type === 'replace') {
+                    accumulated = event.data.content;
+                    setState(s => s ? { ...s, stages: s.stages.map((st, i) => i === idx ? { ...st, answer: accumulated, toolStatus: undefined } : st) } : s);
+                  }
+                } catch { /* skip */ }
+              }
+            }
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() || '';
+          for (const part of parts) {
+            const line = part.trim();
             if (!line.startsWith('data: ')) continue;
             try {
               const event = JSON.parse(line.slice(6));

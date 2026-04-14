@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
-import { TriageEntry, TriageDelta, TriageConcept } from '@/lib/types';
+import { TriageEntry, TriageConcept } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -9,45 +9,16 @@ interface Props {
   entry: TriageEntry;
 }
 
-// ── 增量统计 ──
-function DeltaBar({ delta }: { delta: TriageDelta }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2" style={{ fontSize: 'var(--text-xs)' }}>
-      {delta.newCount > 0 && (
-        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full"
-          style={{ background: 'var(--accent-subtle)', color: 'var(--accent)', fontWeight: 600 }}>
-          <span className="w-1 h-1 rounded-full" style={{ background: 'var(--accent)' }} />
-          新技术 {delta.newCount}
-        </span>
-      )}
-      {delta.knownCount > 0 && (
-        <span className="px-2 py-0.5 rounded-full"
-          style={{ background: 'var(--bg-subtle)', color: 'var(--text-tertiary)' }}>
-          已知 {delta.knownCount}
-        </span>
-      )}
-      {delta.compositionNew && (
-        <span className="px-2 py-0.5 rounded-full"
-          style={{ background: 'var(--accent-subtle)', color: 'var(--accent)', fontWeight: 500 }}>
-          组合新
-        </span>
-      )}
-      {delta.gap && (
-        <span style={{ color: 'var(--text-quaternary)', marginLeft: '2px' }}>{delta.gap}</span>
-      )}
-    </div>
-  );
-}
 
-// ── 叙述文本渲染（解析 [[name|new/known:id]] 标记） ──
+// ── 叙述文本渲染（解析 [[name]] 标记） ──
 function NarrativeText({ text, concepts, onConceptClick }: {
   text: string;
   concepts: TriageConcept[];
   onConceptClick: (concept: TriageConcept) => void;
 }) {
-  // 解析 [[name|type]] 标记
   const parts: { type: 'text' | 'concept'; content: string; concept?: TriageConcept }[] = [];
-  const regex = /\[\[([^|]+)\|([^\]]+)\]\]/g;
+  // 兼容 [[name]] 和旧格式 [[name|tag]]
+  const regex = /\[\[([^|\]]+)(?:\|[^\]]+)?\]\]/g;
   let lastIndex = 0;
   let match;
 
@@ -56,13 +27,9 @@ function NarrativeText({ text, concepts, onConceptClick }: {
       parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
     }
     const name = match[1];
-    const tag = match[2]; // "new" or "known:id"
-    const isKnown = tag.startsWith('known:');
-    // 匹配 concepts 数组中的对应项
     const norm = (s: string) => s.trim().toLowerCase();
     const concept = concepts.find(c => norm(c.name) === norm(name)) || {
-      name, isKnown, wikiId: isKnown ? tag.replace('known:', '') : undefined,
-      root: '', whatItEnables: '',
+      name, root: '', whatItEnables: '',
     };
     parts.push({ type: 'concept', content: name, concept });
     lastIndex = regex.lastIndex;
@@ -75,7 +42,6 @@ function NarrativeText({ text, concepts, onConceptClick }: {
   const rendered = parts.map((part, i) => {
     if (part.type === 'text') return <Fragment key={i}>{part.content}</Fragment>;
     const c = part.concept!;
-    const isKnown = c.isKnown;
     return (
       <button
         key={i}
@@ -88,7 +54,7 @@ function NarrativeText({ text, concepts, onConceptClick }: {
           background: 'none',
           border: 'none',
           padding: 0,
-          borderBottom: `1.5px dashed ${isKnown ? 'var(--text-quaternary)' : 'oklch(50% 0.08 160)'}`,
+          borderBottom: '1.5px dashed oklch(50% 0.08 160)',
           paddingBottom: '1px',
           transition: 'border-color var(--duration-fast) var(--ease-out)',
           lineHeight: 'inherit',
@@ -99,7 +65,7 @@ function NarrativeText({ text, concepts, onConceptClick }: {
         }}
         onMouseLeave={e => {
           e.currentTarget.style.borderBottomStyle = 'dashed';
-          e.currentTarget.style.borderBottomColor = isKnown ? 'var(--text-quaternary)' : 'oklch(50% 0.08 160)';
+          e.currentTarget.style.borderBottomColor = 'oklch(50% 0.08 160)';
         }}
       >
         {part.content}
@@ -175,37 +141,50 @@ function InlineChat({ entry }: { entry: TriageEntry }) {
       if (!reader) return;
 
       let answer = '';
+      let buffer = '';
       const decoder = new TextDecoder();
+
+      const handleEvent = (event: { type: string; data: { content?: string; label?: string } }) => {
+        if (event.type === 'tool_status') {
+          setToolStatus(event.data.label ?? null);
+        } else if (event.type === 'replace' || event.type === 'text') {
+          setToolStatus(null);
+          if (event.type === 'replace') {
+            answer = event.data.content ?? '';
+          } else {
+            answer += event.data.content ?? '';
+          }
+          setMessages(prev => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role === 'assistant') {
+              copy[copy.length - 1] = { ...last, content: answer };
+            } else {
+              copy.push({ role: 'assistant', content: answer });
+            }
+            return copy;
+          });
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === 'tool_status') {
-              setToolStatus(event.data.label);
-            } else if (event.type === 'replace' || event.type === 'text') {
-              setToolStatus(null);
-              if (event.type === 'replace') {
-                answer = event.data.content;
-              } else {
-                answer += event.data.content;
-              }
-              setMessages(prev => {
-                const copy = [...prev];
-                const last = copy[copy.length - 1];
-                if (last?.role === 'assistant') {
-                  copy[copy.length - 1] = { ...last, content: answer };
-                } else {
-                  copy.push({ role: 'assistant', content: answer });
-                }
-                return copy;
-              });
+        if (done) {
+          if (buffer.trim()) {
+            const line = buffer.trim();
+            if (line.startsWith('data: ')) {
+              try { handleEvent(JSON.parse(line.slice(6))); } catch { /* skip */ }
             }
-          } catch { /* skip */ }
+          }
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data: ')) continue;
+          try { handleEvent(JSON.parse(line.slice(6))); } catch { /* skip */ }
         }
       }
     } catch {
@@ -362,12 +341,6 @@ export function TriageCard({ entry }: Props) {
           <span className="truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
             {entry.title}
           </span>
-          {entry.delta && entry.delta.newCount > 0 && (
-            <span className="shrink-0 px-1.5 py-0.5 rounded"
-              style={{ fontSize: '0.625rem', color: 'var(--accent)', background: 'var(--accent-subtle)', fontWeight: 500 }}>
-              {entry.delta.newCount} 新
-            </span>
-          )}
         </div>
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>▸</span>
       </div>
@@ -410,15 +383,12 @@ export function TriageCard({ entry }: Props) {
                   style={{
                     fontSize: 'var(--text-xs)',
                     fontWeight: isSubject ? 600 : 500,
-                    color: isHighlighted ? 'var(--accent)' : (c.isKnown ? 'var(--text-secondary)' : 'var(--text-primary)'),
+                    color: isHighlighted ? 'var(--accent)' : 'var(--text-primary)',
                     background: isHighlighted ? 'var(--accent-subtle)' : (isSubject ? 'var(--bg-subtle)' : 'transparent'),
                     border: `1px solid ${isHighlighted ? 'var(--accent)' : (isSubject ? 'var(--border)' : 'var(--border-subtle)')}`,
                   }}
                 >
                   {c.name}
-                  {!c.isKnown && (
-                    <span className="ml-1.5 inline-block w-1 h-1 rounded-full" style={{ background: 'var(--accent)', verticalAlign: 'middle' }} />
-                  )}
                 </span>
               );
             })}
@@ -468,8 +438,6 @@ export function TriageCard({ entry }: Props) {
           <p style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', fontWeight: 500, letterSpacing: '0.06em', marginBottom: '8px' }}>
             知识关联
           </p>
-          {/* 增量统计 */}
-          {entry.delta && <DeltaBar delta={entry.delta} />}
           {/* verdict 理由 */}
           {entry.verdictReason && (
             <p className="mt-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.6' }}>
