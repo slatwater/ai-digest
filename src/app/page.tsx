@@ -9,14 +9,16 @@ import { WikiChatView } from '@/components/WikiChatView';
 import { WikiBrowseView } from '@/components/WikiBrowseView';
 import { BlueprintView } from '@/components/BlueprintView';
 import { PipelineView } from '@/components/PipelineView';
+import { SandboxView } from '@/components/SandboxView';
 import { ChatPanel } from '@/components/ChatPanel';
 import { useWikiChat } from '@/hooks/useWikiChat';
 import { useWikiSave } from '@/hooks/useWikiSave';
 import { useTriage } from '@/hooks/useTriage';
 import { useExpand } from '@/hooks/useExpand';
+import { useSandbox } from '@/hooks/useSandbox';
 import { DigestEntry } from '@/lib/types';
 
-type View = 'triage' | 'library' | 'entry' | 'wiki' | 'wiki-chat' | 'blueprint';
+type View = 'triage' | 'library' | 'entry' | 'wiki' | 'wiki-chat' | 'sandbox' | 'blueprint';
 
 export default function Home() {
   const [view, setView] = useState<View>('triage');
@@ -27,6 +29,7 @@ export default function Home() {
   const wikiSave = useWikiSave();
   const triage = useTriage();
   const expand = useExpand();
+  const sandbox = useSandbox();
 
   const handleSelectEntry = useCallback((entry: DigestEntry) => {
     setView('entry');
@@ -136,6 +139,13 @@ export default function Home() {
           {view === 'wiki-chat' && (
             <div className="max-w-[860px] mx-auto px-8 py-10">
               <WikiChatView chat={wikiChat} />
+            </div>
+          )}
+
+          {/* Skill 沙盒 */}
+          {view === 'sandbox' && (
+            <div className="max-w-[860px] mx-auto px-8 py-10">
+              <SandboxView sandbox={sandbox} />
             </div>
           )}
 

@@ -1,6 +1,6 @@
 'use client';
 
-type View = 'triage' | 'library' | 'wiki' | 'wiki-chat' | 'blueprint';
+type View = 'triage' | 'library' | 'wiki' | 'wiki-chat' | 'sandbox' | 'blueprint';
 
 interface TopNavProps {
   active: string;
@@ -14,6 +14,7 @@ const NAV: { key: View; label: string }[] = [
   { key: 'library', label: '知识库' },
   { key: 'wiki', label: 'Wiki' },
   { key: 'wiki-chat', label: 'Wiki 对话' },
+  { key: 'sandbox', label: '沙盒' },
 ];
 
 export function TopNav({ active, onNavigate, triageProcessing, triageCounts }: TopNavProps) {

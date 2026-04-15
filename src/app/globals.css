@@ -108,6 +108,9 @@ input:focus, input:focus-visible {
 
 .prose pre {
   background: oklch(14% 0.005 260);
+  color: oklch(80% 0.003 260);
+  padding: 12px 16px;
+  overflow-x: auto;
   border-radius: 4px;
   border: 1px solid oklch(20% 0.005 260);
 }

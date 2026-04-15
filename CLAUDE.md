@@ -6,7 +6,7 @@ AI 前沿技术研究助手 —— 批量解析 + 深度研究，让知识复利
 - Next.js 16 (App Router) + TypeScript + Tailwind CSS 4
 - Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) — Agent 引擎，复用本地 Max 订阅
 - Scrapling (Python) — 网页抓取
-- SSE（深入提问/Wiki对话/Wiki存入）+ 轮询（批量解析）— 前后端通信
+- SSE（深入提问/Wiki对话/Wiki存入/沙盒）+ 轮询（批量解析）— 前后端通信
 
 ## 开发命令
 ```bash
@@ -19,7 +19,7 @@ npm run lint           # ESLint 检查
 ```
 src/
 ├── app/
-│   ├── page.tsx              # 主页面（triage/library/wiki/wiki-chat/blueprint）
+│   ├── page.tsx              # 主页面（triage/library/wiki/wiki-chat/sandbox/blueprint）
 │   ├── globals.css           # OKLCH 色彩系统 + 设计 tokens
 │   ├── api/triage/route.ts   # 解析 API（POST 创建 / GET 轮询 / DELETE）
 │   ├── api/triage-chat/route.ts # 解析卡片内置聊天 API（轻量 SSE）
@@ -30,15 +30,16 @@ src/
 │   ├── api/wiki-save/confirm/route.ts # Wiki 存入确认（POST）
 │   ├── api/chat/route.ts     # 条目追问 SSE 流
 │   ├── api/wiki-chat/route.ts # Wiki 对话 SSE 流
+│   ├── api/sandbox/route.ts  # Skill 沙盒 SSE 流
 │   ├── api/entries/route.ts  # 知识库条目 API（GET + PUT + PATCH + DELETE）
 │   └── api/export/route.ts   # 导出 Markdown（→ ~/Desktop/研究/）
 ├── lib/
 │   ├── triage.ts             # 解析 Agent（溯源 + 具名技术识别 + 方向提炼 + 保留原文）
 │   ├── expand.ts             # 定向扩展 Agent（接收解析原料 + 方向，聚焦输出 markdown）
-│   ├── agent.ts              # 深研 Agent（遗留，UI 入口已移除）
 │   ├── chat.ts               # 条目追问 Agent（研究报告全文为上下文）
 │   ├── wiki-chat.ts          # Wiki 对话 Agent（索引路由+按需读取词条全文+WebSearch）
 │   ├── wiki-save.ts          # Wiki 存入 Agent（多轮对话提议→确认→保存）
+│   ├── sandbox.ts            # Skill 沙盒运行时（解析 frontmatter + /command 路由 + 临时目录隔离）
 │   ├── storage.ts            # 数据读写（JSON + MD 持久化 + triage batch + wiki）
 │   └── types.ts              # 类型定义（DigestEntry + WikiItem + TriageEntry + AnalysisConcept）
 ├── components/
@@ -47,18 +48,16 @@ src/
 │   ├── WikiBrowseView.tsx    # Wiki 浏览（三级钻取：分类→条目列表→详情+编辑）
 │   ├── WikiSaveInline.tsx    # Wiki 存入内联对话（PipelineView 内）
 │   ├── WikiChatView.tsx      # Wiki 对话视图（知识库级问答 + 预设问题引导）
-│   ├── Sidebar.tsx           # 侧边栏（遗留，未使用）
+│   ├── SandboxView.tsx       # Skill 沙盒（选择 skill → 对话执行）
 │   ├── AnalysisView.tsx      # 叙事研究报告（渐进式深度展示）
 │   ├── ChatPanel.tsx         # 条目追问（右侧抽屉面板）
-│   ├── BlueprintView.tsx     # 运行原理页
-│   ├── PhaseIndicator.tsx    # 5 阶段进度指示器（采集→溯源→识别→叙事→归档）
-│   └── StreamView.tsx        # 流式输出展示
+│   └── BlueprintView.tsx     # 运行原理页
 ├── hooks/
 │   ├── useTriage.ts          # 前端研判状态管理（提交 + 轮询 + 改判 + 确认）
-│   ├── useDigest.ts          # 前端 digest 状态管理
 │   ├── useChat.ts            # 前端条目追问状态管理
 │   ├── useWikiChat.ts        # 前端 Wiki 对话状态管理（顶层持久化）
-│   └── useWikiSave.ts        # 前端 Wiki 存入状态管理
+│   ├── useWikiSave.ts        # 前端 Wiki 存入状态管理
+│   └── useSandbox.ts         # 前端 Skill 沙盒状态管理
 data/                         # 知识库存储（index.json + 按日期目录 + triage.json + wiki/items/）
 scripts/scrape.py             # Scrapling 抓取脚本
 ```
@@ -73,6 +72,7 @@ scripts/scrape.py             # Scrapling 抓取脚本
 
 Wiki 浏览：分类 → 条目列表 → 详情（可编辑）
 Wiki 对话：索引路由 → 按需读取词条全文 → 跨概念推理回答
+Skill 沙盒：选择 wiki 条目 → 解析 SKILL.md → /command 路由 → 临时目录隔离执行
 ```
 ## 代码规范
 - 中文注释，英文变量名
