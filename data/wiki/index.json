@@ -1,0 +1,18 @@
+[
+  {
+    "id": "0cebd980-d76b-4317-9d21-bdcb3dc7b08d",
+    "name": "dbskill：Claude Code 商业诊断技能包",
+    "categoryId": "ai-工具与技能包",
+    "sectionHeadings": [
+      "概述",
+      "技能清单与用途",
+      "核心设计：知识蒸馏 + 公式匹配",
+      "小红书内容优化工作流",
+      "安装与部署",
+      "依赖技术"
+    ],
+    "sourceCount": 3,
+    "skillFileCount": 12,
+    "updatedAt": "2026-04-15T06:27:34.421Z"
+  }
+]

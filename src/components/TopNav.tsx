@@ -1,6 +1,6 @@
 'use client';
 
-type View = 'triage' | 'library' | 'wiki' | 'wiki-chat' | 'sandbox' | 'blueprint';
+type View = 'triage' | 'wiki' | 'sandbox' | 'blueprint';
 
 interface TopNavProps {
   active: string;
@@ -11,16 +11,11 @@ interface TopNavProps {
 
 const NAV: { key: View; label: string }[] = [
   { key: 'triage', label: '解析' },
-  { key: 'library', label: '知识库' },
   { key: 'wiki', label: 'Wiki' },
-  { key: 'wiki-chat', label: 'Wiki 对话' },
   { key: 'sandbox', label: '沙盒' },
 ];
 
-export function TopNav({ active, onNavigate, triageProcessing, triageCounts }: TopNavProps) {
-  // 高亮逻辑：entry 详情归属 library
-  const activeGroup = active === 'entry' ? 'library' : active;
-
+export function TopNav({ active, onNavigate, triageProcessing }: TopNavProps) {
   return (
     <nav
       className="shrink-0 flex items-center justify-between px-6 h-12"
@@ -37,7 +32,7 @@ export function TopNav({ active, onNavigate, triageProcessing, triageCounts }: T
 
         <div className="flex items-center gap-1">
           {NAV.map(({ key, label }) => {
-            const isActive = activeGroup === key;
+            const isActive = active === key;
             return (
               <button
                 key={key}
@@ -54,7 +49,7 @@ export function TopNav({ active, onNavigate, triageProcessing, triageCounts }: T
               >
                 {label}
                 {/* triage 进行中指示 */}
-                {key === 'triage' && triageProcessing && activeGroup !== 'triage' && (
+                {key === 'triage' && triageProcessing && active !== 'triage' && (
                   <span
                     className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
                     style={{ background: 'var(--accent)', animation: 'pulseDot 2s ease-in-out infinite' }}
