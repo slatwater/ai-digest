@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { WikiItemSummary, WikiCategory } from '@/lib/types';
@@ -9,15 +9,18 @@ interface SandboxProps {
   sandbox: {
     sessionId: string | null;
     loadedSkills: { name: string; command: string; description: string }[];
+    subCommands: { command: string; description: string }[];
     activeSkill: string | null;
     messages: { role: string; content: string; timestamp: number }[];
     isStreaming: boolean;
     currentReply: string;
     toolStatus: string | null;
+    toolTraces: { tool: string; detail: string; timestamp: number }[];
     error: string | null;
     selectedItemIds: string[];
     started: boolean;
     send: (message: string) => void;
+    start: () => void;
     toggleItem: (id: string) => void;
     reset: () => void;
   };
@@ -25,17 +28,51 @@ interface SandboxProps {
 
 export function SandboxView({ sandbox }: SandboxProps) {
   const {
-    loadedSkills, activeSkill, messages, isStreaming,
-    currentReply, toolStatus, error, selectedItemIds,
-    started, send, toggleItem, reset,
+    loadedSkills, subCommands, activeSkill, messages, isStreaming,
+    currentReply, toolStatus, toolTraces, error, selectedItemIds,
+    started, send, start, toggleItem, reset,
   } = sandbox;
 
   const [input, setInput] = useState('');
   const [categories, setCategories] = useState<WikiCategory[]>([]);
   const [items, setItems] = useState<WikiItemSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [cmdIndex, setCmdIndex] = useState(0);
+  const [traceOpen, setTraceOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // /command 自动补全：输入以 / 开头时显示匹配的子指令
+  const cmdSuggestions = useMemo(() => {
+    if (!started || !input.startsWith('/')) return [];
+    const query = input.slice(1).toLowerCase();
+    return subCommands.filter(s =>
+      s.command.toLowerCase().includes(query) || s.description.toLowerCase().includes(query)
+    );
+  }, [input, started, subCommands]);
+
+  // 重置选中索引
+  useEffect(() => { setCmdIndex(0); }, [cmdSuggestions.length]);
+
+  const selectCommand = useCallback((command: string) => {
+    setInput(`/${command} `);
+    inputRef.current?.focus();
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (cmdSuggestions.length === 0) return;
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setCmdIndex(i => (i - 1 + cmdSuggestions.length) % cmdSuggestions.length);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setCmdIndex(i => (i + 1) % cmdSuggestions.length);
+    } else if (e.key === 'Tab' || (e.key === 'Enter' && cmdSuggestions.length > 0 && !input.includes(' '))) {
+      // Tab 补全，或者 Enter 且还没输入空格（纯 /command 阶段）
+      e.preventDefault();
+      selectCommand(cmdSuggestions[cmdIndex].command);
+    }
+  }, [cmdSuggestions, cmdIndex, input, selectCommand]);
 
   // 加载 wiki 条目列表
   useEffect(() => {
@@ -125,7 +162,7 @@ export function SandboxView({ sandbox }: SandboxProps) {
                   已选择 {selectedItemIds.length} 个条目
                 </span>
                 <button
-                  onClick={() => { if (selectedItemIds.length > 0) send('你好，请介绍已加载的 skill 和可用指令。'); }}
+                  onClick={start}
                   disabled={selectedItemIds.length === 0}
                   className="px-5 py-2 rounded font-medium"
                   style={{
@@ -228,35 +265,109 @@ export function SandboxView({ sandbox }: SandboxProps) {
         <div className="mb-3 py-2" style={{ fontSize: 'var(--text-sm)', color: 'var(--error)' }}>{error}</div>
       )}
 
-      {/* 输入 */}
-      <form onSubmit={handleSubmit} className="flex items-center gap-3 pt-6"
-        style={{ borderTop: '1px solid var(--border-subtle)' }}>
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder={loadedSkills.length > 1 ? '输入消息或 /command 切换 skill...' : '输入消息...'}
-          className="input-field flex-1 px-0 py-2"
-          style={{
-            fontSize: 'var(--text-sm)',
-            background: 'transparent',
-            border: 'none',
-            borderBottom: '1px solid var(--border)',
-            color: 'var(--text-primary)',
-            borderRadius: 0,
-          }}
-          disabled={isStreaming}
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || isStreaming}
-          className="btn btn-primary px-4 py-2 rounded font-medium"
-          style={{ fontSize: 'var(--text-sm)' }}
-        >
-          {isStreaming ? '...' : '发送'}
-        </button>
-      </form>
+      {/* 执行轨迹面板 */}
+      {toolTraces.length > 0 && (
+        <div className="mb-3" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.5rem' }}>
+          <button
+            onClick={() => setTraceOpen(v => !v)}
+            className="flex items-center gap-1.5"
+            style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-quaternary)')}
+          >
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+              style={{ transform: traceOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            执行轨迹 ({toolTraces.length})
+          </button>
+          {traceOpen && (
+            <div className="mt-2 space-y-0.5 max-h-48 overflow-y-auto">
+              {toolTraces.map((t, i) => {
+                // 去掉临时目录公共前缀，只显示相对路径
+                const detail = t.detail.replace(/^\/.*?\/aidigest-sandbox-[^/]+\//, '');
+                return (
+                  <div key={i} className="flex items-baseline gap-2 px-2 py-1 rounded"
+                    style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', lineHeight: '1.4' }}>
+                    <span style={{ color: 'var(--accent-text)', fontWeight: 500, flexShrink: 0 }}>{t.tool}</span>
+                    <span style={{ color: 'var(--text-tertiary)', wordBreak: 'break-all' }}>
+                      {detail}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 输入区（含指令补全） */}
+      <div className="relative pt-6" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        {/* /command 自动补全下拉 */}
+        {cmdSuggestions.length > 0 && (
+          <div
+            className="absolute bottom-full left-0 right-0 mb-1 rounded overflow-hidden"
+            style={{
+              background: 'var(--bg)',
+              border: '1px solid var(--border)',
+              boxShadow: '0 -4px 16px oklch(0% 0 0 / 0.08)',
+              maxHeight: '240px',
+              overflowY: 'auto',
+            }}
+          >
+            {cmdSuggestions.map((s, i) => (
+              <button
+                key={s.command}
+                onClick={() => selectCommand(s.command)}
+                className="flex items-center gap-3 w-full text-left px-3 py-2"
+                style={{
+                  background: i === cmdIndex ? 'var(--bg-subtle)' : 'transparent',
+                  transition: 'background var(--duration-fast) var(--ease-out)',
+                }}
+                onMouseEnter={() => setCmdIndex(i)}
+              >
+                <span style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)', fontWeight: 500, color: 'var(--accent-text)' }}>
+                  /{s.command}
+                </span>
+                {s.description && (
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
+                    {s.description}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="flex items-center gap-3">
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={loadedSkills.length > 1 ? '输入 / 查看可用指令...' : '输入消息...'}
+            className="input-field flex-1 px-0 py-2"
+            style={{
+              fontSize: 'var(--text-sm)',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '1px solid var(--border)',
+              color: 'var(--text-primary)',
+              borderRadius: 0,
+            }}
+            disabled={isStreaming}
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || isStreaming}
+            className="btn btn-primary px-4 py-2 rounded font-medium"
+            style={{ fontSize: 'var(--text-sm)' }}
+          >
+            {isStreaming ? '...' : '发送'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -296,7 +407,12 @@ function ItemRow({ item, selected, onToggle }: {
         <span className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
           {item.name}
         </span>
-        {item.sectionHeadings.length > 0 && (
+        {(item.skillFileCount || 0) > 0 && (
+          <span className="ml-2 px-1.5 py-0.5 rounded" style={{ fontSize: '0.625rem', fontWeight: 500, background: 'var(--accent-subtle)', color: 'var(--accent-text)' }}>
+            {item.skillFileCount} skill
+          </span>
+        )}
+        {item.sectionHeadings.length > 0 && !(item.skillFileCount) && (
           <span className="ml-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
             {item.sectionHeadings.slice(0, 3).join(' · ')}
           </span>

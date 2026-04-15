@@ -9,16 +9,28 @@ interface SkillInfo {
   description: string;
 }
 
+interface SubCommandInfo {
+  command: string;
+  description: string;
+}
+
+export interface ToolTrace {
+  tool: string;
+  detail: string;
+  timestamp: number;
+}
+
 interface SandboxState {
   sessionId: string | null;
   loadedSkills: SkillInfo[];
+  subCommands: SubCommandInfo[];
   activeSkill: string | null;
   messages: ChatMessage[];
   isStreaming: boolean;
   currentReply: string;
   toolStatus: string | null;
+  toolTraces: ToolTrace[];    // 执行轨迹
   error: string | null;
-  // 选择的 wiki item ids（启动前设置）
   selectedItemIds: string[];
   started: boolean;
 }
@@ -27,11 +39,13 @@ export function useSandbox() {
   const [state, setState] = useState<SandboxState>({
     sessionId: null,
     loadedSkills: [],
+    subCommands: [],
     activeSkill: null,
     messages: [],
     isStreaming: false,
     currentReply: '',
     toolStatus: null,
+    toolTraces: [],
     error: null,
     selectedItemIds: [],
     started: false,
@@ -60,17 +74,23 @@ export function useSandbox() {
           fullReply += event.data.content;
           setState(prev => ({ ...prev, currentReply: fullReply, toolStatus: null }));
         } else if (event.type === 'session') {
-          // 会话初始化信息
+          // 会话初始化信息（含子指令列表）
           setState(prev => ({
             ...prev,
             sessionId: event.data.sessionId,
             loadedSkills: event.data.skills,
+            subCommands: event.data.subCommands || [],
             activeSkill: event.data.activeSkill,
           }));
         } else if (event.type === 'skill_switch') {
           setState(prev => ({ ...prev, activeSkill: event.data.command }));
         } else if (event.type === 'tool_status') {
           setState(prev => ({ ...prev, toolStatus: event.data.label }));
+        } else if (event.type === 'tool_trace') {
+          setState(prev => ({
+            ...prev,
+            toolTraces: [...prev.toolTraces, { tool: event.data.tool, detail: event.data.detail, timestamp: event.data.timestamp }],
+          }));
         } else if (event.type === 'error') {
           throw new Error(event.data.message);
         }
@@ -186,22 +206,75 @@ export function useSandbox() {
     });
   }, []);
 
+  // 启动沙盒：进入对话界面 + 初始化会话获取指令列表
+  const start = useCallback(async () => {
+    if (state.selectedItemIds.length === 0) return;
+    setState(prev => ({ ...prev, started: true }));
+
+    // 发一个 init 请求创建会话、获取 skill 元数据（不触发 agent）
+    try {
+      const res = await fetch('/api/sandbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemIds: state.selectedItemIds,
+          message: '__init__',
+          history: [],
+          sessionId: null,
+        }),
+      });
+      if (!res.ok) return;
+
+      // 只读 session 事件，拿到 subCommands 后立即断开
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === 'session') {
+              setState(prev => ({
+                ...prev,
+                sessionId: event.data.sessionId,
+                loadedSkills: event.data.skills,
+                subCommands: event.data.subCommands || [],
+                activeSkill: event.data.activeSkill,
+              }));
+              reader.cancel();
+              return;
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+    } catch { /* ignore */ }
+  }, [state.selectedItemIds]);
+
   // 重置沙盒
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setState({
       sessionId: null,
       loadedSkills: [],
+      subCommands: [],
       activeSkill: null,
       messages: [],
       isStreaming: false,
       currentReply: '',
       toolStatus: null,
+      toolTraces: [],
       error: null,
       selectedItemIds: [],
       started: false,
     });
   }, []);
 
-  return { ...state, send, setSelectedItems, toggleItem, reset };
+  return { ...state, send, start, setSelectedItems, toggleItem, reset };
 }

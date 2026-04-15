@@ -9,13 +9,19 @@ import os from 'os';
 
 type EventSender = (type: string, data: unknown) => void;
 
-// Skill 元数据（从 wiki 条目解析）
+// 子指令（从 skill 内容中提取）
+interface SubCommand {
+  command: string;
+  description: string;
+}
+
+// Skill 元数据（轻量，不存完整内容）
 interface SkillMeta {
   name: string;
   command: string;        // /command 名称
   description: string;
-  content: string;        // SKILL.md body（去掉 frontmatter）
-  references: { heading: string; content: string }[];
+  filePath: string;       // 临时目录中的 SKILL.md 路径（agent 用 Read 按需读取）
+  subCommands: SubCommand[];
 }
 
 // 沙盒会话
@@ -24,6 +30,7 @@ interface SandboxSession {
   skills: SkillMeta[];
   activeSkill: string | null;
   workDir: string;
+  sdkSessionId: string | null;  // SDK 持久化会话 ID（用于 resume）
 }
 
 // 活跃会话缓存（30 分钟过期）
@@ -53,8 +60,47 @@ function parseFrontmatter(raw: string): { meta: Record<string, string>; body: st
   return { meta, body: match[2] };
 }
 
-// 从 wiki 条目解析 skill 元数据
-function parseSkillFromWikiItem(item: { name: string; sections: { heading: string; content: string }[] }): SkillMeta | null {
+// 从 skill 全文中提取 /command 子指令
+function extractSubCommands(allText: string): SubCommand[] {
+  const found = new Map<string, string>();
+
+  // 匹配模式：`/command` 或 /command 后跟描述（表格行、列表项、行内）
+  // 表格行：| `/dbs-content` | 内容质量诊断 | ...
+  // 列表项：- `/dbs-content` — 内容质量诊断
+  // 行内：/dbs-content（内容质量诊断）
+  const patterns = [
+    // markdown 表格：| `/cmd` | 描述 | 或 | /cmd | 描述 |
+    /\|\s*`?\/([\w-]+)`?\s*\|\s*([^|]+)/g,
+    // 列表项：- `/cmd` — 描述 或 - /cmd — 描述
+    /[-*]\s*`?\/([\w-]+)`?\s*[—\-–:：]\s*(.+)/g,
+    // **`/cmd`**（描述）或 `/cmd`（描述）
+    /`\/([\w-]+)`[）)]*\s*[—\-–:：（(]\s*([^）)\n]+)/g,
+  ];
+
+  for (const pattern of patterns) {
+    let m;
+    while ((m = pattern.exec(allText)) !== null) {
+      const cmd = m[1].toLowerCase();
+      const desc = m[2].trim().replace(/\s*\|.*$/, '').replace(/[`*]/g, '').trim();
+      if (cmd.length >= 2 && desc.length >= 2 && !found.has(cmd)) {
+        found.set(cmd, desc);
+      }
+    }
+  }
+
+  return [...found.entries()].map(([command, description]) => ({ command, description }));
+}
+
+// 从 wiki 条目解析 skill 的原始内容（用于写入磁盘）
+interface SkillRaw {
+  name: string;
+  command: string;
+  description: string;
+  content: string;        // 完整 SKILL.md 原文
+  subCommands: SubCommand[];
+}
+
+function parseSkillFromWikiItem(item: { name: string; sections: { heading: string; content: string }[] }): SkillRaw | null {
   // 找 SKILL.md section（约定：第一个 section 的 heading 包含 SKILL）
   const skillSection = item.sections.find(s =>
     s.heading.toLowerCase().includes('skill') || s.heading.toLowerCase().endsWith('.md')
@@ -62,22 +108,17 @@ function parseSkillFromWikiItem(item: { name: string; sections: { heading: strin
 
   if (!skillSection?.content) return null;
 
-  const { meta, body } = parseFrontmatter(skillSection.content);
+  const { meta } = parseFrontmatter(skillSection.content);
   const name = meta.name || item.name;
-  // command 从 name 推导：小写 + 连字符
   const command = name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '');
-
-  // 其余 sections 作为参考文档
-  const references = item.sections
-    .filter(s => s !== skillSection)
-    .map(s => ({ heading: s.heading, content: s.content }));
+  const allText = item.sections.map(s => s.content).join('\n');
 
   return {
     name,
     command,
     description: meta.description || '',
-    content: body,
-    references,
+    content: skillSection.content,
+    subCommands: extractSubCommands(allText),
   };
 }
 
@@ -97,39 +138,30 @@ ${lines.join('\n')}
 `;
 }
 
-// 构建完整 systemPrompt
+// 构建 systemPrompt（索引 + 按需读取）
 function buildSandboxPrompt(session: SandboxSession): string {
-  const active = session.skills.find(s => s.command === session.activeSkill) || session.skills[0];
-  if (!active) return '没有加载任何 skill。';
+  if (session.skills.length === 0) return '没有加载任何 skill。';
 
   const parts: string[] = [];
 
-  parts.push(`你是一个 Skill 沙盒运行时。用户正在试用 skill，请完整执行 skill 定义的工作流程。`);
-  parts.push(`\n工作目录：${session.workDir}（你可以在这里自由读写文件和执行命令）`);
+  parts.push(`你是一个 Skill 沙盒运行时。你不需要安装任何东西——所有 skill 文件已在工作目录的 skills/ 下。
 
-  // 多 skill 路由
-  if (session.skills.length > 1) {
-    parts.push('\n' + buildRouterPrompt(session.skills));
-    parts.push(`\n当前激活：\`/${active.command}\`（${active.name}）`);
+**工作方式**：用户输入 /command 或描述需求时，用 Read 工具读取对应的 SKILL.md 文件，然后严格按照文件中的指令执行。
+**禁止**：不要说"需要安装"、"尚未安装"。如果 skill 文档中提到安装步骤，那是给终端用户看的，不是给你的。`);
+
+  parts.push(`\n工作目录：${session.workDir}`);
+
+  parts.push('\n## 可用 Skill 文件');
+  for (const s of session.skills) {
+    parts.push(`- \`/${s.command}\` — ${s.description || s.name} → 文件: \`${s.filePath}\``);
   }
 
-  // 当前 skill 内容
-  parts.push(`\n## 当前 Skill 内容\n\n${active.content}`);
-
-  // 参考文档
-  if (active.references.length > 0) {
-    parts.push('\n## 参考文档');
-    for (const ref of active.references) {
-      parts.push(`\n### ${ref.heading}\n\n${ref.content}`);
-    }
-  }
-
-  // 工作目录中的文件提示
-  parts.push(`\n## 注意
-- 你在沙盒临时目录中运行，可以自由创建文件、执行代码
-- 所有工具（Read、Write、Edit、Bash、Glob、Grep、WebFetch、WebSearch）均可使用
-- 按照 skill 文档的指示完整执行工作流程，不要省略步骤
-- 用中文与用户交流`);
+  parts.push(`\n## 工作流程
+1. 用户输入 /command 时，用 Read 读取对应的 SKILL.md 文件
+2. 按照文件中的指令完整执行，不要省略步骤
+3. 用户无 /command 前缀时，根据需求描述选择最合适的 skill 读取并执行
+4. 可以自由在工作目录中创建文件、执行代码
+5. 用中文与用户交流`);
 
   return parts.join('\n');
 }
@@ -182,36 +214,62 @@ async function getOrCreateSession(
   // 创建新会话
   const id = `sandbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // 读取 wiki 条目，解析 skill
-  const skills: SkillMeta[] = [];
+  // 创建临时工作目录
+  const workDir = path.join(os.tmpdir(), `aidigest-sandbox-${id}`);
+  const skillsDir = path.join(workDir, 'skills');
+  await fs.mkdir(skillsDir, { recursive: true });
+
+  // 读取 wiki 条目，解析 skill，写入磁盘
+  // 优先使用 skillFiles（真正的 SKILL.md 原文），回退到 sections 解析
+  const rawSkills: SkillRaw[] = [];
   for (const itemId of itemIds) {
     const item = await getWikiItem(itemId);
     if (!item) continue;
-    const skill = parseSkillFromWikiItem(item);
-    if (skill) skills.push(skill);
-  }
 
-  // 创建临时工作目录
-  const workDir = path.join(os.tmpdir(), `aidigest-sandbox-${id}`);
-  await fs.mkdir(workDir, { recursive: true });
-
-  // 将参考文档写入临时目录供 agent 读取
-  for (const skill of skills) {
-    if (skill.references.length > 0) {
-      const refDir = path.join(workDir, `_refs_${skill.command}`);
-      await fs.mkdir(refDir, { recursive: true });
-      for (const ref of skill.references) {
-        const filename = ref.heading.replace(/[^a-zA-Z0-9\u4e00-\u9fff.-]+/g, '_') + '.md';
-        await fs.writeFile(path.join(refDir, filename), ref.content, 'utf-8');
+    if (item.skillFiles && item.skillFiles.length > 0) {
+      for (const sf of item.skillFiles) {
+        const { meta } = parseFrontmatter(sf.content);
+        rawSkills.push({
+          name: meta.name || sf.name,
+          command: sf.command,
+          description: meta.description || '',
+          content: sf.content,
+          subCommands: extractSubCommands(sf.content),
+        });
       }
+    } else {
+      const skill = parseSkillFromWikiItem(item);
+      if (skill) rawSkills.push(skill);
     }
   }
+
+  // 将每个 skill 写入 skills/{command}/SKILL.md，生成轻量 SkillMeta
+  const skills: SkillMeta[] = [];
+  for (const raw of rawSkills) {
+    const dir = path.join(skillsDir, raw.command);
+    await fs.mkdir(dir, { recursive: true });
+    const filePath = path.join(dir, 'SKILL.md');
+    await fs.writeFile(filePath, raw.content, 'utf-8');
+    skills.push({
+      name: raw.name,
+      command: raw.command,
+      description: raw.description,
+      filePath,
+      subCommands: raw.subCommands,
+    });
+  }
+
+  // 默认激活：优先找名称最短的 command（通常是路由入口如 /dbs），否则第一个
+  const defaultSkill = skills.length > 1
+    ? skills.reduce((a, b) => a.command.length <= b.command.length ? a : b).command
+    : skills[0]?.command || null;
 
   const session: SandboxSession = {
     id,
     skills,
-    activeSkill: skills[0]?.command || null,
+    activeSkill: defaultSkill,
     workDir,
+    sdkSessionId: null,
   };
 
   sessions.set(id, { session, lastAccess: Date.now() });
@@ -228,15 +286,40 @@ export async function runSandbox(
 ): Promise<void> {
   const session = await getOrCreateSession(sessionId, itemIds);
 
-  // 发送会话信息
+  // 汇总所有指令（skill 自身 command + 文本中提取的子指令，去重）
+  const allSubCommands: SubCommand[] = [];
+  const seenCmds = new Set<string>();
+  for (const skill of session.skills) {
+    // skill 自身作为一条指令
+    if (!seenCmds.has(skill.command)) {
+      seenCmds.add(skill.command);
+      allSubCommands.push({ command: skill.command, description: skill.description || skill.name });
+    }
+    // 文本中提取的子指令
+    for (const sub of skill.subCommands) {
+      if (!seenCmds.has(sub.command)) {
+        seenCmds.add(sub.command);
+        allSubCommands.push(sub);
+      }
+    }
+  }
+
+  // 发送会话信息（含子指令列表）
   send('session', {
     sessionId: session.id,
     skills: session.skills.map(s => ({ name: s.name, command: s.command, description: s.description })),
+    subCommands: allSubCommands,
     activeSkill: session.activeSkill,
   });
 
   if (session.skills.length === 0) {
     send('error', { message: '未能从选中的 wiki 条目中解析出任何 skill' });
+    return;
+  }
+
+  // 初始化请求：只创建会话返回元数据，不运行 agent
+  if (message === '__init__') {
+    send('complete', { content: '' });
     return;
   }
 
@@ -248,29 +331,44 @@ export async function runSandbox(
     send('skill_switch', { command, name: skill?.name });
   }
 
-  const historyText = formatHistory(history);
-  const prompt = `${historyText}\n${userMessage}`;
+  // 持久会话：首次用 prompt + systemPrompt，后续用 resume 继续
+  const isResume = !!session.sdkSessionId;
+  const prompt = isResume ? userMessage : `${formatHistory(history)}\n${userMessage}`;
 
   const abortController = new AbortController();
   let fullReply = '';
+  const seenToolIds = new Set<string>();
 
   try {
+    const queryOptions: Record<string, unknown> = {
+      systemPrompt: buildSandboxPrompt(session),
+      cwd: session.workDir,
+      allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
+      permissionMode: 'bypassPermissions' as const,
+      allowDangerouslySkipPermissions: true,
+      maxTurns: 20,
+      abortController,
+      persistSession: true,
+    };
+    // 有已有会话则 resume，否则新建
+    if (session.sdkSessionId) {
+      queryOptions.resume = session.sdkSessionId;
+    }
+
     const q = query({
       prompt,
-      options: {
-        systemPrompt: buildSandboxPrompt(session),
-        cwd: session.workDir,
-        allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-        maxTurns: 20,
-        abortController,
-        persistSession: false,
-      },
+      options: queryOptions as Parameters<typeof query>[0]['options'],
     });
 
     for await (const msg of q) {
       reportFromSDKMessage('aidigest', msg);
+
+      // 捕获 SDK session ID（用于后续 resume）
+      // session_id 在 msg 顶层，不在 msg.message 上
+      if (!session.sdkSessionId) {
+        const sid = (msg as { session_id?: string }).session_id;
+        if (sid) session.sdkSessionId = sid;
+      }
 
       // 工具调用状态推送
       if (msg.type === 'assistant') {
@@ -287,8 +385,29 @@ export async function runSandbox(
             Grep: '搜索内容...',
           };
           for (const block of blocks) {
-            if (block.type === 'tool_use' && typeof block.name === 'string' && toolLabels[block.name]) {
-              send('tool_status', { tool: block.name, label: toolLabels[block.name] });
+            if (block.type === 'tool_use' && typeof block.name === 'string') {
+              const input = block.input as Record<string, unknown> | undefined;
+              let detail = '';
+              if (block.name === 'Read' && input?.file_path) detail = String(input.file_path);
+              else if (block.name === 'Write' && input?.file_path) detail = String(input.file_path);
+              else if (block.name === 'Edit' && input?.file_path) detail = String(input.file_path);
+              else if (block.name === 'Bash' && input?.command) detail = String(input.command).slice(0, 200);
+              else if (block.name === 'WebSearch' && input?.query) detail = String(input.query);
+              else if (block.name === 'WebFetch' && input?.url) detail = String(input.url);
+              else if (block.name === 'Glob' && input?.pattern) detail = String(input.pattern);
+              else if (block.name === 'Grep' && input?.pattern) detail = String(input.pattern);
+              // 用 tool+detail 去重（SDK 会重复 emit 同一个 tool_use block）
+              const traceKey = `${block.name}::${detail}`;
+              if (detail && !seenToolIds.has(traceKey)) {
+                seenToolIds.add(traceKey);
+                if (toolLabels[block.name]) {
+                  send('tool_status', { tool: block.name, label: toolLabels[block.name] });
+                }
+                send('tool_trace', { tool: block.name, detail, timestamp: Date.now() });
+              } else if (!detail && toolLabels[block.name]) {
+                // input 还没填充，只推 status 不记 trace
+                send('tool_status', { tool: block.name, label: toolLabels[block.name] });
+              }
             }
           }
         }

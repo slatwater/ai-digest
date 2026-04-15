@@ -30,7 +30,8 @@ src/
 │   ├── api/wiki-save/confirm/route.ts # Wiki 存入确认（POST）
 │   ├── api/chat/route.ts     # 条目追问 SSE 流
 │   ├── api/wiki-chat/route.ts # Wiki 对话 SSE 流
-│   ├── api/sandbox/route.ts  # Skill 沙盒 SSE 流
+│   ├── api/sandbox/route.ts  # Skill 沙盒 SSE 流（persistSession + resume）
+│   ├── api/skill-import/route.ts # GitHub 仓库 SKILL.md 批量导入
 │   ├── api/entries/route.ts  # 知识库条目 API（GET + PUT + PATCH + DELETE）
 │   └── api/export/route.ts   # 导出 Markdown（→ ~/Desktop/研究/）
 ├── lib/
@@ -39,9 +40,9 @@ src/
 │   ├── chat.ts               # 条目追问 Agent（研究报告全文为上下文）
 │   ├── wiki-chat.ts          # Wiki 对话 Agent（索引路由+按需读取词条全文+WebSearch）
 │   ├── wiki-save.ts          # Wiki 存入 Agent（多轮对话提议→确认→保存）
-│   ├── sandbox.ts            # Skill 沙盒运行时（解析 frontmatter + /command 路由 + 临时目录隔离）
+│   ├── sandbox.ts            # Skill 沙盒运行时（按需读取 + 会话持久化 + /command 路由 + 执行轨迹）
 │   ├── storage.ts            # 数据读写（JSON + MD 持久化 + triage batch + wiki）
-│   └── types.ts              # 类型定义（DigestEntry + WikiItem + TriageEntry + AnalysisConcept）
+│   └── types.ts              # 类型定义（DigestEntry + WikiItem + SkillFile + TriageEntry）
 ├── components/
 │   ├── TriageView.tsx        # 解析视图（批量解析 + 卡片列表 + 确认栏）
 │   ├── TriageCard.tsx        # 解析卡片（叙述 + 方向扩展 + 聊天）
@@ -72,7 +73,7 @@ scripts/scrape.py             # Scrapling 抓取脚本
 
 Wiki 浏览：分类 → 条目列表 → 详情（可编辑）
 Wiki 对话：索引路由 → 按需读取词条全文 → 跨概念推理回答
-Skill 沙盒：选择 wiki 条目 → 解析 SKILL.md → /command 路由 → 临时目录隔离执行
+Skill 沙盒：选择条目 → 导入 SKILL.md → 按需读取 + 会话持久化 → /command 路由执行
 ```
 ## 代码规范
 - 中文注释，英文变量名

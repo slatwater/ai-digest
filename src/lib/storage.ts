@@ -189,6 +189,7 @@ function toWikiSummary(item: WikiItem): WikiItemSummary {
     categoryId: item.categoryId,
     sectionHeadings: item.sections.map(s => s.heading),
     sourceCount: item.sourceLinks.length,
+    skillFileCount: item.skillFiles?.length || 0,
     updatedAt: item.updatedAt,
   };
 }

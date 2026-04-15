@@ -423,12 +423,20 @@ export interface WikiSourceLink {
   type?: 'original' | 'paper' | 'github' | 'docs' | 'related';
 }
 
+export interface SkillFile {
+  name: string;       // skill 名称（如 "dbs-content"）
+  command: string;    // /command 名称
+  content: string;    // SKILL.md 原文全文
+  sourceUrl: string;  // GitHub 文件链接
+}
+
 export interface WikiItem {
   id: string;
   name: string;
   categoryId: string;
   sections: WikiSection[];
   sourceLinks: WikiSourceLink[];
+  skillFiles?: SkillFile[];  // 附属 skill 源文件
   createdAt: string;
   updatedAt: string;
 }
@@ -439,6 +447,7 @@ export interface WikiItemSummary {
   categoryId: string;
   sectionHeadings: string[];
   sourceCount: number;
+  skillFileCount?: number;
   updatedAt: string;
 }
 
