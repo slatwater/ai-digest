@@ -343,9 +343,12 @@ function WikiItemView({ item, categoryName, onEdit, onDelete, onImportSkill }: {
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
 
   // 检测是否有 GitHub skill 仓库链接
-  const githubLink = item.sourceLinks.find(l => /github\.com\/[^/]+\/[^/]+/.test(l.url));
+  // 只对链接 URL 或标题包含 skill 关键词的仓库显示导入按钮
+  const githubLink = item.sourceLinks.find(l =>
+    /github\.com\/[^/]+\/[^/]+/.test(l.url) &&
+    (/skill/i.test(l.url) || /skill/i.test(l.title || ''))
+  );
   const hasSkillFiles = (item.skillFiles?.length || 0) > 0;
-  // 只在没有 skillFiles 且有 GitHub 链接时显示导入按钮
   const showImportBtn = !hasSkillFiles && !!githubLink && !!onImportSkill;
 
   return (

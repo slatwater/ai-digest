@@ -30,7 +30,9 @@ interface SandboxSession {
   skills: SkillMeta[];
   activeSkill: string | null;
   workDir: string;
-  sdkSessionId: string | null;  // SDK 持久化会话 ID（用于 resume）
+  sdkSessionId: string | null;
+  model: string;               // 'sonnet' | 'opus'
+  wikiContext: string;          // wiki 条目内容（工具试用模式用）
 }
 
 // 活跃会话缓存（30 分钟过期）
@@ -40,12 +42,45 @@ setInterval(() => {
   const now = Date.now();
   for (const [id, entry] of sessions) {
     if (now - entry.lastAccess > SESSION_TTL) {
-      // 清理临时目录
-      fs.rm(entry.session.workDir, { recursive: true, force: true }).catch(() => {});
+      cleanupSession(entry.session);
       sessions.delete(id);
     }
   }
 }, 60 * 1000);
+
+// 清理会话：kill 子进程 + 删除临时目录 + 删除 SDK 会话文件
+async function cleanupSession(session: SandboxSession): Promise<void> {
+  // 1. kill 临时目录下的所有子进程（通过 lsof 找到使用该目录的进程）
+  try {
+    const { execSync } = await import('child_process');
+    // 找到 cwd 在临时目录下的所有进程并 kill
+    execSync(`lsof +D "${session.workDir}" 2>/dev/null | awk 'NR>1{print $2}' | sort -u | xargs -r kill -9 2>/dev/null`, { timeout: 5000 });
+  } catch { /* 没有进程或 lsof 失败，忽略 */ }
+
+  // 2. 删除临时目录
+  await fs.rm(session.workDir, { recursive: true, force: true }).catch(() => {});
+
+  // 3. 删除 SDK 会话文件（~/.claude/projects/ 下对应的目录）
+  if (session.sdkSessionId) {
+    try {
+      const homeDir = os.homedir();
+      const projectsDir = path.join(homeDir, '.claude', 'projects');
+      // SDK 用 workDir 路径生成目录名（把 / 替换为 -）
+      const dirName = session.workDir.replace(/\//g, '-').replace(/^-/, '');
+      const sdkDir = path.join(projectsDir, dirName);
+      await fs.rm(sdkDir, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  }
+}
+
+// 主动销毁会话（退出沙盒时调用）
+export async function destroySession(sessionId: string): Promise<boolean> {
+  const entry = sessions.get(sessionId);
+  if (!entry) return false;
+  await cleanupSession(entry.session);
+  sessions.delete(sessionId);
+  return true;
+}
 
 // 解析 YAML frontmatter（简易实现，不引入依赖）
 function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
@@ -138,30 +173,49 @@ ${lines.join('\n')}
 `;
 }
 
-// 构建 systemPrompt（索引 + 按需读取）
+// 构建 systemPrompt：根据有无 skill 文件分两种模式
 function buildSandboxPrompt(session: SandboxSession): string {
-  if (session.skills.length === 0) return '没有加载任何 skill。';
-
   const parts: string[] = [];
+  const hasSkills = session.skills.length > 0;
 
-  parts.push(`你是一个 Skill 沙盒运行时。你不需要安装任何东西——所有 skill 文件已在工作目录的 skills/ 下。
+  if (hasSkills) {
+    // ── Skill 运行模式 ──
+    parts.push(`你是一个 Skill 沙盒运行时。所有 skill 文件已在工作目录的 skills/ 下。
 
 **工作方式**：用户输入 /command 或描述需求时，用 Read 工具读取对应的 SKILL.md 文件，然后严格按照文件中的指令执行。
 **禁止**：不要说"需要安装"、"尚未安装"。如果 skill 文档中提到安装步骤，那是给终端用户看的，不是给你的。`);
 
-  parts.push(`\n工作目录：${session.workDir}`);
+    parts.push(`\n工作目录：${session.workDir}`);
 
-  parts.push('\n## 可用 Skill 文件');
-  for (const s of session.skills) {
-    parts.push(`- \`/${s.command}\` — ${s.description || s.name} → 文件: \`${s.filePath}\``);
-  }
+    parts.push('\n## 可用 Skill 文件');
+    for (const s of session.skills) {
+      parts.push(`- \`/${s.command}\` — ${s.description || s.name} → 文件: \`${s.filePath}\``);
+    }
 
-  parts.push(`\n## 工作流程
+    parts.push(`\n## 工作流程
 1. 用户输入 /command 时，用 Read 读取对应的 SKILL.md 文件
 2. 按照文件中的指令完整执行，不要省略步骤
 3. 用户无 /command 前缀时，根据需求描述选择最合适的 skill 读取并执行
 4. 可以自由在工作目录中创建文件、执行代码
 5. 用中文与用户交流`);
+  } else {
+    // ── 工具试用模式 ──
+    parts.push(`你是一个工具试用沙盒。用户想在隔离环境中试用一个技术工具/库。
+
+以下是关于这个工具的背景知识：
+
+${session.wikiContext}
+
+**工作方式**：
+1. 根据上面的背景知识和用户的需求，在工作目录中实际安装、编写代码、运行 demo
+2. 遇到问题自己调试解决
+3. 把运行结果和关键发现告诉用户
+
+**工作目录**：${session.workDir}（临时目录，用完即弃，可以随意操作）
+
+**工具**：Read、Write、Edit、Bash、Glob、Grep、WebFetch、WebSearch 全部可用
+**语言**：用中文与用户交流`);
+  }
 
   return parts.join('\n');
 }
@@ -199,10 +253,26 @@ function formatHistory(history: ChatMessage[]): string {
   return `\n之前的对话:\n${lines.join('\n')}\n`;
 }
 
+// 从 wiki 条目构建上下文文本（工具试用模式）
+function buildWikiContext(item: { name: string; sections: { heading: string; content: string }[]; sourceLinks: { url: string; title: string; type?: string }[] }): string {
+  const parts = [`# ${item.name}`];
+  for (const s of item.sections) {
+    parts.push(`\n## ${s.heading}\n${s.content}`);
+  }
+  if (item.sourceLinks.length > 0) {
+    parts.push('\n## 相关链接');
+    for (const l of item.sourceLinks) {
+      parts.push(`- [${l.title || l.url}](${l.url})`);
+    }
+  }
+  return parts.join('\n');
+}
+
 // 获取或创建沙盒会话
 async function getOrCreateSession(
   sessionId: string | null,
   itemIds: string[],
+  model: string,
 ): Promise<SandboxSession> {
   // 复用现有会话
   if (sessionId && sessions.has(sessionId)) {
@@ -220,11 +290,15 @@ async function getOrCreateSession(
   await fs.mkdir(skillsDir, { recursive: true });
 
   // 读取 wiki 条目，解析 skill，写入磁盘
-  // 优先使用 skillFiles（真正的 SKILL.md 原文），回退到 sections 解析
   const rawSkills: SkillRaw[] = [];
+  const wikiContextParts: string[] = [];
+
   for (const itemId of itemIds) {
     const item = await getWikiItem(itemId);
     if (!item) continue;
+
+    // 收集 wiki 上下文（工具试用模式用）
+    wikiContextParts.push(buildWikiContext(item));
 
     if (item.skillFiles && item.skillFiles.length > 0) {
       for (const sf of item.skillFiles) {
@@ -244,6 +318,7 @@ async function getOrCreateSession(
   }
 
   // 将每个 skill 写入 skills/{command}/SKILL.md，生成轻量 SkillMeta
+  // 如果没有 skillFiles 且 sections 也解析不出 skill，skills 为空 → 走工具试用模式
   const skills: SkillMeta[] = [];
   for (const raw of rawSkills) {
     const dir = path.join(skillsDir, raw.command);
@@ -259,7 +334,6 @@ async function getOrCreateSession(
     });
   }
 
-  // 默认激活：优先找名称最短的 command（通常是路由入口如 /dbs），否则第一个
   const defaultSkill = skills.length > 1
     ? skills.reduce((a, b) => a.command.length <= b.command.length ? a : b).command
     : skills[0]?.command || null;
@@ -270,6 +344,8 @@ async function getOrCreateSession(
     activeSkill: defaultSkill,
     workDir,
     sdkSessionId: null,
+    model,
+    wikiContext: wikiContextParts.join('\n\n---\n\n'),
   };
 
   sessions.set(id, { session, lastAccess: Date.now() });
@@ -282,9 +358,10 @@ export async function runSandbox(
   message: string,
   history: ChatMessage[],
   sessionId: string | null,
+  model: string,
   send: EventSender,
 ): Promise<void> {
-  const session = await getOrCreateSession(sessionId, itemIds);
+  const session = await getOrCreateSession(sessionId, itemIds, model);
 
   // 汇总所有指令（skill 自身 command + 文本中提取的子指令，去重）
   const allSubCommands: SubCommand[] = [];
@@ -304,12 +381,14 @@ export async function runSandbox(
     }
   }
 
-  // 发送会话信息（含子指令列表）
+  // 发送会话信息（含子指令列表 + 模式标识）
   send('session', {
     sessionId: session.id,
     skills: session.skills.map(s => ({ name: s.name, command: s.command, description: s.description })),
     subCommands: allSubCommands,
     activeSkill: session.activeSkill,
+    model: session.model,
+    mode: session.skills.length > 0 ? 'skill' : 'tryout',
   });
 
   if (session.skills.length === 0) {
@@ -342,6 +421,7 @@ export async function runSandbox(
   try {
     const queryOptions: Record<string, unknown> = {
       systemPrompt: buildSandboxPrompt(session),
+      model: session.model,
       cwd: session.workDir,
       allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
       permissionMode: 'bypassPermissions' as const,

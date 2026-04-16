@@ -53,10 +53,26 @@ function buildContext(entry: TriageEntry): string {
   return parts.join('\n');
 }
 
+// 活跃的 expand 会话：expandSessionId → sdkSessionId
+const expandSessions = new Map<string, { sdkSessionId: string; lastAccess: number }>();
+const EXPAND_TTL = 60 * 60 * 1000; // 1 小时
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of expandSessions) {
+    if (now - entry.lastAccess > EXPAND_TTL) expandSessions.delete(id);
+  }
+}, 5 * 60 * 1000);
+
+// 外部调用：新会话时重置
+export function resetExpandSession(expandSessionId: string): void {
+  expandSessions.delete(expandSessionId);
+}
+
 // 运行自由提问深入
 export async function runExpand(
   entry: TriageEntry,
   question: string,
+  expandSessionId: string,
   send: EventSender,
 ): Promise<void> {
   if (!question.trim()) {
@@ -64,50 +80,70 @@ export async function runExpand(
     return;
   }
 
-  const context = buildContext(entry);
+  const existing = expandSessions.get(expandSessionId);
+  const isResume = !!existing;
 
-  const systemPrompt = `你是一个技术深度研究助手。用户对一篇文章做了初步解析，现在想就某个具体问题深入了解。
+  const systemPrompt = `你是一个技术深度研究助手。用户对一篇文章做了初步解析，正在就具体问题深入了解。
 
 ## 工作方式
-1. 上下文中提供了一手来源 URL，用 WebFetch 读取 1-2 个最相关的来源获取详细信息
+1. 上下文中提供了一手来源 URL，必要时用 WebFetch 读取最相关的 1-2 个来源获取详细信息
 2. 如果来源不够，用 WebSearch 补充搜索（最多 1 次）
-3. 结合获取到的信息写出精炼的回答：具体数据、机制、对比
+3. 结合已有对话记忆和获取到的信息写出精炼的回答
 
 ## 输出要求
-- 中文 markdown，篇幅控制在 300-500 字以内
-- 只回答用户问的问题，不要发散到其他话题
+- 中文 markdown，篇幅 300-500 字
+- 只回答当前问题，不要发散
 - 不要在结尾列后续方向或延伸阅读
-- 工具调用控制在 2-3 次以内`;
+- 工具调用控制在 2-3 次以内
+- 如果当前问题和之前问题相关，请基于之前的回答继续深化，不要重复来源读取`;
 
-  const userPrompt = `## 初步解析
-${context}
-
-## 要深入的问题
-${question}`;
+  // 首次：带完整上下文；续问：只传新问题，SDK resume 会保留上下文
+  const userPrompt = isResume
+    ? question
+    : `## 初步解析\n${buildContext(entry)}\n\n## 要深入的问题\n${question}`;
 
   const abortController = new AbortController();
 
   try {
     send('question', { question });
 
+    const queryOptions: Record<string, unknown> = {
+      systemPrompt,
+      cwd: process.cwd(),
+      allowedTools: ['WebFetch', 'WebSearch'],
+      permissionMode: 'bypassPermissions' as const,
+      allowDangerouslySkipPermissions: true,
+      maxTurns: 8,
+      abortController,
+      persistSession: true,
+    };
+    if (existing) {
+      queryOptions.resume = existing.sdkSessionId;
+    }
+
     const q = query({
       prompt: userPrompt,
-      options: {
-        systemPrompt,
-        cwd: process.cwd(),
-        allowedTools: ['WebFetch', 'WebSearch'],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-        maxTurns: 8,
-        abortController,
-        persistSession: false,
-      },
+      options: queryOptions as Parameters<typeof query>[0]['options'],
     });
 
     let lastText = '';
+    let capturedSdkId: string | null = existing?.sdkSessionId || null;
 
     for await (const message of q) {
       reportFromSDKMessage('aidigest', message);
+
+      // 捕获 SDK session ID（首次会话）
+      if (!capturedSdkId) {
+        const sid = (message as { session_id?: string }).session_id;
+        if (sid) {
+          capturedSdkId = sid;
+          expandSessions.set(expandSessionId, { sdkSessionId: sid, lastAccess: Date.now() });
+        }
+      } else {
+        // 续问：更新 lastAccess
+        const entry = expandSessions.get(expandSessionId);
+        if (entry) entry.lastAccess = Date.now();
+      }
 
       if (message.type === 'assistant') {
         const blocks = message.message?.content;

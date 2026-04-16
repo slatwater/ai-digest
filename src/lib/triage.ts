@@ -15,8 +15,9 @@ function extractUrls(content: string): string[] {
   return [...new Set(matches.map(u => u.replace(/[.,;:!?)}\]]+$/, '')))].slice(0, 5);
 }
 
-// 活跃的 batch
+// 活跃的 batch + AbortController
 const activeBatches = new Map<string, TriageBatch>();
+const batchAborts = new Map<string, AbortController>();
 
 // 30 分钟后自动清除
 const BATCH_TTL = 30 * 60 * 1000;
@@ -292,7 +293,7 @@ function setPhase(entry: TriageEntry, label: string) {
 }
 
 // 处理单条 URL
-async function processOne(entry: TriageEntry): Promise<void> {
+async function processOne(entry: TriageEntry, batchAbort: AbortController): Promise<void> {
   entry.status = 'processing';
   entry.livePhases = [];
   setPhase(entry, '采集页面');
@@ -380,7 +381,7 @@ ${urlsSection}
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
         maxTurns,
-        abortController: new AbortController(),
+        abortController: batchAbort,
         persistSession: false,
       },
     });
@@ -410,9 +411,19 @@ ${urlsSection}
       }
 
       const text = extractText(message);
-      // result 消息可能重复 assistant 的内容，去重后再追加
-      if (text && (message.type !== 'result' || !fullText.includes(text.slice(0, 200)))) {
+      // result 消息：优先用 result 的文本（通常是完整的最终输出）
+      if (message.type === 'result' && message.subtype === 'success' && text) {
+        // result 可能包含完整输出，用它替换（如果更长）
+        if (text.length > fullText.length) fullText = text;
+        else if (!fullText.includes(text.slice(0, 200))) fullText += text;
+      } else if (text && message.type !== 'result') {
         fullText += text;
+      }
+
+      // 兜底：error_max_turns 时从 result 中提取
+      if (message.type === 'result' && message.subtype === 'error_max_turns') {
+        const resultText = (message as { result?: string }).result;
+        if (resultText && resultText.length > fullText.length) fullText = resultText;
       }
     }
 
@@ -444,20 +455,35 @@ ${urlsSection}
 
       entry.status = 'done';
     } else {
-      // 解析失败：自动重试一次（简化 prompt，只要求 JSON）
+      // 已中止则跳过重试
+      if (batchAbort.signal.aborted) {
+        entry.status = 'error';
+        entry.error = '已中止';
+        return;
+      }
+      // 解析失败：自动重试
       setPhase(entry, '重试解析');
-      console.warn(`[triage] ${entry.url} 首次解析失败，重试中...`);
+      console.warn(`[triage] ${entry.url} 首次解析失败（fullText 长度: ${fullText.length}），重试中...`);
       try {
+        // 判断是否有有效内容（不只是 agent 的中间思考笔记）
+        // 需要至少 500 字，且包含中文或结构标记才算有效
+        const hasChinese = /[\u4e00-\u9fff]/.test(fullText);
+        const hasStructure = fullText.includes('TRIAGE_START') || fullText.includes('"verdict"') || fullText.includes('"narrative"');
+        const hasContent = fullText.length > 500 && (hasChinese || hasStructure);
+        const retryPrompt = hasContent
+          ? `你的上次输出未能被解析。请只输出 ===TRIAGE_START=== 和 ===TRIAGE_END=== 包裹的 JSON，不要输出其他内容。\n\n原始内容摘要（前4000字）：\n${fullText.slice(0, 4000)}`
+          : `请分析这个链接：${entry.url}\n\n直接用 WebFetch 或 WebSearch 获取内容，然后输出 ===TRIAGE_START=== 和 ===TRIAGE_END=== 包裹的 JSON。`;
+
         let retryText = '';
         const retryQ = query({
-          prompt: `你的上次输出未能被解析。请只输出 ===TRIAGE_START=== 和 ===TRIAGE_END=== 包裹的 JSON，不要输出其他内容。\n\n原始内容摘要（前2000字）：\n${fullText.slice(0, 2000)}`,
+          prompt: retryPrompt,
           options: {
             systemPrompt: buildTriagePrompt(),
             cwd: process.cwd(),
-            allowedTools: [],
+            allowedTools: hasContent ? [] : ['WebFetch', 'WebSearch'],
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
-            maxTurns: 1,
+            maxTurns: hasContent ? 2 : 10,
             abortController: new AbortController(),
             persistSession: false,
           },
@@ -498,10 +524,17 @@ ${urlsSection}
 }
 
 // 后台串行处理 batch
-async function processBatch(batch: TriageBatch): Promise<void> {
+async function processBatch(batch: TriageBatch, abort: AbortController): Promise<void> {
   for (const entry of batch.entries) {
-    await processOne(entry);
-    // 每完成一条，持久化
+    // 检查是否已中止
+    if (abort.signal.aborted) {
+      // 剩余 pending 条目标记为中止
+      for (const e of batch.entries) {
+        if (e.status === 'pending') { e.status = 'error'; e.error = '已中止'; }
+      }
+      break;
+    }
+    await processOne(entry, abort);
     await saveTriageBatch(batch);
   }
 
@@ -524,11 +557,15 @@ export function createBatch(urls: string[]): TriageBatch {
   };
 
   activeBatches.set(batch.id, batch);
+  const abort = new AbortController();
+  batchAborts.set(batch.id, abort);
 
   // 后台处理，不 await
-  processBatch(batch).catch(err => {
+  processBatch(batch, abort).catch(err => {
     console.error(`[triage] batch ${batch.id} 处理失败:`, err);
     batch.status = 'done';
+  }).finally(() => {
+    batchAborts.delete(batch.id);
   });
 
   return batch;
@@ -539,7 +576,12 @@ export function getBatch(batchId: string): TriageBatch | null {
   return activeBatches.get(batchId) ?? null;
 }
 
-// 删除 batch
+// 删除 batch（触发 abort 中止正在运行的 agent）
 export function deleteBatch(batchId: string): boolean {
+  const abort = batchAborts.get(batchId);
+  if (abort) {
+    abort.abort();
+    batchAborts.delete(batchId);
+  }
   return activeBatches.delete(batchId);
 }

@@ -1,5 +1,21 @@
 [
   {
+    "id": "261fc092-7b32-46f0-a473-ceb142097a3d",
+    "name": "Spark 2.0 — Web 端大规模 3D 高斯泼溅流式渲染引擎",
+    "categoryId": "3d-与可视化技术",
+    "sectionHeadings": [
+      "一句话定义",
+      "解决什么问题",
+      "核心技术架构",
+      "使用门槛与成本",
+      "适用场景与目标用户",
+      "与 AI Agent 的关系"
+    ],
+    "sourceCount": 5,
+    "skillFileCount": 0,
+    "updatedAt": "2026-04-16T04:20:29.884Z"
+  },
+  {
     "id": "0cebd980-d76b-4317-9d21-bdcb3dc7b08d",
     "name": "dbskill：Claude Code 商业诊断技能包",
     "categoryId": "ai-工具与技能包",

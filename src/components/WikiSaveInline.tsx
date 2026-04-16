@@ -105,8 +105,8 @@ export function WikiSaveInline({ entry, stages, wikiSave }: Props) {
         )}
       </div>
 
-      {/* 方案确认卡片 */}
-      {wikiSave.proposal && !wikiSave.isStreaming && (
+      {/* 方案确认卡片：只要有过 proposal 就始终显示，不受 streaming 影响 */}
+      {wikiSave.proposal && (
         <ProposalCard
           proposal={wikiSave.proposal}
           isSaving={wikiSave.isSaving}
@@ -114,7 +114,7 @@ export function WikiSaveInline({ entry, stages, wikiSave }: Props) {
         />
       )}
 
-      {/* 输入框 */}
+      {/* 输入框：始终可用，和确认按钮并列——用户可以随时调整也可以直接确认 */}
       {!wikiSave.saved && !wikiSave.isSaving && (
         <form onSubmit={handleSubmit} className="flex items-center gap-3 mt-4">
           <input

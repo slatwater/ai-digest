@@ -112,17 +112,55 @@ const SYSTEM_PROMPT = `你是一个知识管理助手。用户在深入研究一
 - 内容精炼，有信息密度，不空泛描述
 - 来源链接从上下文中提取，补充 type 标注
 - 用中文输出
-- 如果用户对方案有调整意见，修改后重新输出完整 JSON`;
 
-// 解析 agent 输出中的 JSON 方案
+## 关键规则（违反则输出无效）
+**每一次回复的末尾必须附带完整 JSON 代码块**，无论用户是在询问、调整还是确认。
+- 首轮：整理方案并输出 JSON
+- 用户提问/调整：简短回答后，必须重新输出完整 JSON（含调整后的内容）
+- 用户确认：必须再次输出完整 JSON（保持不变也要输出）
+- 禁止只说"已确认"、"可以使用了"而不附 JSON。前端需要解析 JSON 才能显示「确认存入」按钮。`;
+
+// 解析 agent 输出中的 JSON 方案（容忍多种格式）
 function extractProposal(text: string): Record<string, unknown> | null {
-  const match = text.match(/```json\s*\n([\s\S]*?)\n\s*```/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[1]);
-  } catch {
-    return null;
+  // 方案 1：标准 ```json 代码块
+  const jsonBlock = text.match(/```(?:json|JSON)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (jsonBlock) {
+    try {
+      const parsed = JSON.parse(jsonBlock[1].trim());
+      if (isValidProposal(parsed)) return parsed;
+    } catch { /* fall through */ }
   }
+
+  // 方案 2：直接找包含 name + sections 字段的 JSON 对象
+  // 从后往前找（最新的方案），匹配最外层大括号
+  const matches = [...text.matchAll(/\{[\s\S]*?"sections"[\s\S]*?\}/g)];
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const raw = matches[i][0];
+    // 尝试找完整的括号闭合
+    let depth = 0;
+    let end = -1;
+    for (let j = 0; j < raw.length; j++) {
+      if (raw[j] === '{') depth++;
+      else if (raw[j] === '}') {
+        depth--;
+        if (depth === 0) { end = j + 1; break; }
+      }
+    }
+    if (end > 0) {
+      try {
+        const parsed = JSON.parse(raw.slice(0, end));
+        if (isValidProposal(parsed)) return parsed;
+      } catch { /* continue */ }
+    }
+  }
+
+  return null;
+}
+
+function isValidProposal(obj: unknown): obj is Record<string, unknown> {
+  if (!obj || typeof obj !== 'object') return false;
+  const o = obj as Record<string, unknown>;
+  return typeof o.name === 'string' && Array.isArray(o.sections);
 }
 
 export async function runWikiSave(
@@ -166,6 +204,8 @@ export async function runWikiSave(
       },
     });
 
+    let proposalSent = false;
+
     for await (const message of q) {
       reportFromSDKMessage('aidigest', message);
 
@@ -187,16 +227,25 @@ export async function runWikiSave(
             if (text) {
               fullReply += text;
               send('text', { content: text });
+
+              // 实时检测：一旦 JSON 完整就推送 proposal
+              if (!proposalSent) {
+                const proposal = extractProposal(fullReply);
+                if (proposal) {
+                  send('proposal', proposal);
+                  proposalSent = true;
+                }
+              }
             }
           }
         }
       }
     }
 
-    // 检查是否包含 JSON 方案
-    const proposal = extractProposal(fullReply);
-    if (proposal) {
-      send('proposal', proposal);
+    // 最后再兜底检查一次（可能 SSE 中途没捕获到）
+    if (!proposalSent) {
+      const proposal = extractProposal(fullReply);
+      if (proposal) send('proposal', proposal);
     }
 
     send('done', {});

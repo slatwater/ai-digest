@@ -14,6 +14,7 @@ export interface ExpandStage {
 interface ExpandState {
   entry: TriageEntry;
   stages: ExpandStage[];
+  sessionId: string;   // 整轮会话 ID，新会话时重新生成
 }
 
 export function useExpand() {
@@ -21,13 +22,13 @@ export function useExpand() {
   const stateRef = useRef<ExpandState | null>(null);
 
   // 流式请求单个问题
-  const runExpand = useCallback((entry: TriageEntry, question: string, idx: number) => {
+  const runExpand = useCallback((entry: TriageEntry, question: string, idx: number, sessionId: string, resetSession: boolean) => {
     (async () => {
       try {
         const res = await fetch('/api/expand', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ entry, question }),
+          body: JSON.stringify({ entry, question, expandSessionId: sessionId, resetSession }),
         });
 
         const reader = res.body?.getReader();
@@ -89,16 +90,18 @@ export function useExpand() {
 
   // 开始新会话（自动发起第一个问题）
   const startSession = useCallback((entry: TriageEntry, initialQuestion: string) => {
+    const sessionId = `expand-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const newState: ExpandState = {
       entry,
       stages: [{ question: initialQuestion, answer: '', loading: true, finished: false }],
+      sessionId,
     };
     setState(newState);
     stateRef.current = newState;
-    runExpand(entry, initialQuestion, 0);
+    runExpand(entry, initialQuestion, 0, sessionId, true); // 新会话重置
   }, [runExpand]);
 
-  // 追问
+  // 追问（复用同一 sessionId，保留上下文）
   const askQuestion = useCallback((question: string) => {
     const current = stateRef.current;
     if (!current) return;
@@ -109,7 +112,7 @@ export function useExpand() {
     };
     setState(newState);
     stateRef.current = newState;
-    runExpand(current.entry, question, idx);
+    runExpand(current.entry, question, idx, current.sessionId, false); // 续问不重置
   }, [runExpand]);
 
   // 退出

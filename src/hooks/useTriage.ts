@@ -110,9 +110,14 @@ export function useTriage() {
     }
   }, [startPolling]);
 
-  // 重置
+  // 重置：中止后端 agent + 清理前端状态
   const reset = useCallback(() => {
     stopPolling();
+    const bid = state.batchId;
+    if (bid) {
+      // 触发后端 abort
+      fetch(`/api/triage?batchId=${bid}`, { method: 'DELETE' }).catch(() => {});
+    }
     setState({
       batchId: null,
       batch: null,
@@ -120,7 +125,7 @@ export function useTriage() {
       isProcessing: false,
       error: null,
     });
-  }, [stopPolling]);
+  }, [stopPolling, state.batchId]);
 
   // 统计
   const counts = {

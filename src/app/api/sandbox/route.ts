@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server';
-import { runSandbox } from '@/lib/sandbox';
+import { runSandbox, destroySession } from '@/lib/sandbox';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  const { itemIds, message, history = [], sessionId = null } = await req.json();
+  const { itemIds, message, history = [], sessionId = null, model = 'sonnet' } = await req.json();
 
   if (!itemIds?.length || !message) {
     return Response.json({ error: '缺少 itemIds 或 message' }, { status: 400 });
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await runSandbox(itemIds, message, history, sessionId, send);
+        await runSandbox(itemIds, message, history, sessionId, model, send);
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : 'Unknown error' });
       } finally {
@@ -47,4 +47,14 @@ export async function POST(req: NextRequest) {
       Connection: 'keep-alive',
     },
   });
+}
+
+// 退出沙盒：清理子进程 + 临时目录 + SDK 会话文件
+export async function DELETE(req: NextRequest) {
+  const { sessionId } = await req.json();
+  if (!sessionId) {
+    return Response.json({ error: '缺少 sessionId' }, { status: 400 });
+  }
+  const ok = await destroySession(sessionId);
+  return Response.json({ ok });
 }

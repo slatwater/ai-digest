@@ -29,9 +29,11 @@ interface SandboxState {
   isStreaming: boolean;
   currentReply: string;
   toolStatus: string | null;
-  toolTraces: ToolTrace[];    // 执行轨迹
+  toolTraces: ToolTrace[];
   error: string | null;
   selectedItemIds: string[];
+  model: 'sonnet' | 'opus';
+  mode: 'skill' | 'tryout' | null;
   started: boolean;
 }
 
@@ -48,6 +50,8 @@ export function useSandbox() {
     toolTraces: [],
     error: null,
     selectedItemIds: [],
+    model: 'sonnet',
+    mode: null,
     started: false,
   });
 
@@ -74,13 +78,13 @@ export function useSandbox() {
           fullReply += event.data.content;
           setState(prev => ({ ...prev, currentReply: fullReply, toolStatus: null }));
         } else if (event.type === 'session') {
-          // 会话初始化信息（含子指令列表）
           setState(prev => ({
             ...prev,
             sessionId: event.data.sessionId,
             loadedSkills: event.data.skills,
             subCommands: event.data.subCommands || [],
             activeSkill: event.data.activeSkill,
+            mode: event.data.mode || null,
           }));
         } else if (event.type === 'skill_switch') {
           setState(prev => ({ ...prev, activeSkill: event.data.command }));
@@ -168,6 +172,7 @@ export function useSandbox() {
           message: message.trim(),
           history,
           sessionId: currentSessionId,
+          model: state.model,
         }),
         signal: abortRef.current.signal,
       });
@@ -221,6 +226,7 @@ export function useSandbox() {
           message: '__init__',
           history: [],
           sessionId: null,
+          model: state.model,
         }),
       });
       if (!res.ok) return;
@@ -257,9 +263,23 @@ export function useSandbox() {
     } catch { /* ignore */ }
   }, [state.selectedItemIds]);
 
-  // 重置沙盒
+  // 切换模型
+  const setModel = useCallback((m: 'sonnet' | 'opus') => {
+    setState(prev => ({ ...prev, model: m }));
+  }, []);
+
+  // 重置沙盒：调后端清理子进程 + 临时目录
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    const sid = sessionRef.current;
+    if (sid) {
+      // fire-and-forget 清理
+      fetch('/api/sandbox', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid }),
+      }).catch(() => {});
+    }
     setState({
       sessionId: null,
       loadedSkills: [],
@@ -272,9 +292,11 @@ export function useSandbox() {
       toolTraces: [],
       error: null,
       selectedItemIds: [],
+      model: 'sonnet',
+      mode: null,
       started: false,
     });
   }, []);
 
-  return { ...state, send, start, setSelectedItems, toggleItem, reset };
+  return { ...state, send, start, setSelectedItems, toggleItem, setModel, reset };
 }

@@ -34,7 +34,7 @@ export function useWikiSave() {
   const runStream = useCallback(async (entry: TriageEntry, stages: ExpandStage[], userMessage: string, history: ChatMessage[]) => {
     setIsStreaming(true);
     setToolStatus(null);
-    setProposal(null);
+    // 不清空 proposal：agent 可能本轮不输出 JSON，保留上一轮的 proposal 让按钮持续可见
 
     try {
       const res = await fetch('/api/wiki-save', {
@@ -123,7 +123,7 @@ export function useWikiSave() {
     const userMsg: ChatMessage = { role: 'user', content: text.trim(), timestamp: Date.now() };
     historyRef.current = [...historyRef.current, userMsg];
     setMessages(prev => [...prev, { role: 'user', content: text.trim() }]);
-    setProposal(null);
+    // 不清空 proposal，保留上一轮方案作为兜底
     runStream(entryRef.current, stagesRef.current, text.trim(), historyRef.current);
   }, [runStream]);
 

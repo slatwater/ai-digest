@@ -1,19 +1,24 @@
 import { NextRequest } from 'next/server';
-import { runExpand } from '@/lib/expand';
+import { runExpand, resetExpandSession } from '@/lib/expand';
 import type { TriageEntry } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const { entry, question } = await req.json() as {
+  const { entry, question, expandSessionId, resetSession } = await req.json() as {
     entry: TriageEntry;
     question: string;
+    expandSessionId: string;
+    resetSession?: boolean;
   };
 
-  if (!entry || !question) {
-    return Response.json({ error: '缺少 entry 或 question' }, { status: 400 });
+  if (!entry || !question || !expandSessionId) {
+    return Response.json({ error: '缺少 entry、question 或 expandSessionId' }, { status: 400 });
   }
+
+  // 新会话开始时重置
+  if (resetSession) resetExpandSession(expandSessionId);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -36,7 +41,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await runExpand(entry, question, send);
+        await runExpand(entry, question, expandSessionId, send);
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : 'Unknown error' });
       } finally {
