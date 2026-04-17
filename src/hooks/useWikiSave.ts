@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { TriageEntry, ChatMessage, WikiSection, WikiSourceLink } from '@/lib/types';
+import { TriageEntry, WikiSection, WikiSourceLink } from '@/lib/types';
 import type { ExpandStage } from './useExpand';
 
 export interface WikiSaveProposal {
@@ -29,9 +29,9 @@ export function useWikiSave() {
 
   const entryRef = useRef<TriageEntry | null>(null);
   const stagesRef = useRef<ExpandStage[]>([]);
-  const historyRef = useRef<ChatMessage[]>([]);
+  const wikiSessionIdRef = useRef<string>('');
 
-  const runStream = useCallback(async (entry: TriageEntry, stages: ExpandStage[], userMessage: string, history: ChatMessage[]) => {
+  const runStream = useCallback(async (entry: TriageEntry, stages: ExpandStage[], userMessage: string) => {
     setIsStreaming(true);
     setToolStatus(null);
     // 不清空 proposal：agent 可能本轮不输出 JSON，保留上一轮的 proposal 让按钮持续可见
@@ -40,7 +40,7 @@ export function useWikiSave() {
       const res = await fetch('/api/wiki-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry, stages, userMessage, history }),
+        body: JSON.stringify({ entry, stages, userMessage, wikiSessionId: wikiSessionIdRef.current }),
       });
 
       const reader = res.body?.getReader();
@@ -51,7 +51,10 @@ export function useWikiSave() {
       const decoder = new TextDecoder();
 
       const handleEvent = (event: { type: string; data: Record<string, unknown> }) => {
-        if (event.type === 'tool_status') {
+        if (event.type === 'sessionId') {
+          // 捕获后端返回的 wikiSessionId
+          wikiSessionIdRef.current = event.data.wikiSessionId as string;
+        } else if (event.type === 'tool_status') {
           setToolStatus(event.data.label as string);
         } else if (event.type === 'text') {
           setToolStatus(null);
@@ -69,10 +72,7 @@ export function useWikiSave() {
         } else if (event.type === 'proposal') {
           setProposal(event.data as unknown as WikiSaveProposal);
         } else if (event.type === 'done') {
-          historyRef.current = [
-            ...historyRef.current,
-            { role: 'assistant' as const, content: accumulated, timestamp: Date.now() },
-          ];
+          // 不再需要 historyRef，SDK resume 维护上下文
         }
       };
 
@@ -108,23 +108,21 @@ export function useWikiSave() {
   const startSession = useCallback((entry: TriageEntry, stages: ExpandStage[]) => {
     entryRef.current = entry;
     stagesRef.current = stages;
-    historyRef.current = [];
+    wikiSessionIdRef.current = '';  // 重置，首轮不带 sessionId
     setActive(true);
     setMessages([]);
     setProposal(null);
     setSaved(false);
     setSavedItemId(null);
-    runStream(entry, stages, '', []);
+    runStream(entry, stages, '');
   }, [runStream]);
 
   // 发送用户调整意见
   const sendMessage = useCallback((text: string) => {
     if (!entryRef.current || !text.trim()) return;
-    const userMsg: ChatMessage = { role: 'user', content: text.trim(), timestamp: Date.now() };
-    historyRef.current = [...historyRef.current, userMsg];
     setMessages(prev => [...prev, { role: 'user', content: text.trim() }]);
     // 不清空 proposal，保留上一轮方案作为兜底
-    runStream(entryRef.current, stagesRef.current, text.trim(), historyRef.current);
+    runStream(entryRef.current, stagesRef.current, text.trim());
   }, [runStream]);
 
   // 确认存入
@@ -155,7 +153,7 @@ export function useWikiSave() {
     setIsStreaming(false);
     entryRef.current = null;
     stagesRef.current = [];
-    historyRef.current = [];
+    wikiSessionIdRef.current = '';
   }, []);
 
   return {

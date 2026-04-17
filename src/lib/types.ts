@@ -394,12 +394,26 @@ export interface TriageEntry {
   scores?: TriageScores;         // 旧版四维度评分（兼容）
   verdictReason?: string;        // verdict 理由（一句话）
   relatedEntries?: TriageRelation[]; // 知识库关联（参考用）
+  // token 用量统计
+  tokenUsage?: {
+    model: string;               // 使用的模型
+    turns: number;               // agent 轮次
+    inputTokens: number;         // 总 input tokens
+    outputTokens: number;        // 总 output tokens
+    cacheReadTokens: number;     // cache read tokens
+    costUsd?: number;            // 费用（美元）
+    durationMs?: number;         // 耗时（毫秒）
+  };
 }
+
+// 解析可选模型
+export type TriageModel = 'sonnet' | 'opus';
 
 export interface TriageBatch {
   id: string;
   createdAt: string;
   status: 'processing' | 'done';
+  model?: TriageModel;
   entries: TriageEntry[];
 }
 

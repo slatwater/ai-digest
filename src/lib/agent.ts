@@ -239,7 +239,11 @@ export function safeParseJSON<T>(raw: string, label: string): T | null {
     try {
       return JSON.parse(stripCodeFence(text));
     } catch (e) {
-      console.warn(`[digest] ${label} JSON 解析失败:`, (e as Error).message, '| 原文前100字符:', text.slice(0, 100));
+      const msg = (e as Error).message;
+      const posMatch = msg.match(/position (\d+)/);
+      const pos = posMatch ? parseInt(posMatch[1]) : -1;
+      const context = pos >= 0 ? `| 出错位置前后: ...${text.slice(Math.max(0, pos - 80), pos)}<<<HERE>>>${text.slice(pos, pos + 80)}...` : '';
+      console.warn(`[digest] ${label} JSON 解析失败:`, msg, '| 原文前100字符:', text.slice(0, 100), context);
       return null;
     }
   }

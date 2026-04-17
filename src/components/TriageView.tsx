@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useTriage } from '@/hooks/useTriage';
 import { TriageSection } from './TriageSection';
-import { TriageEntry } from '@/lib/types';
+import { TriageEntry, TriageModel } from '@/lib/types';
 
 interface Props {
   triage: ReturnType<typeof useTriage>;
@@ -54,13 +54,14 @@ function ProcessingEntry({ entry }: { entry: TriageEntry }) {
 
 export function TriageView({ triage, onExpand }: Props) {
   const [input, setInput] = useState('');
+  const [model, setModel] = useState<TriageModel>('sonnet');
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
     const urls = input.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
     if (urls.length === 0) return;
-    triage.submit(urls);
-  }, [input, triage]);
+    triage.submit(urls, model);
+  }, [input, triage, model]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); handleSubmit(); }
@@ -134,8 +135,43 @@ export function TriageView({ triage, onExpand }: Props) {
                 className="flex items-center justify-between pt-3 mt-2"
                 style={{ borderTop: '1px solid oklch(90% 0.005 260 / 0.4)' }}
               >
-                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>
-                  {hasUrls ? `${validUrlCount} 条链接` : '自动溯源 · 识别具名技术 · 匹配 Wiki'}
+                <span className="flex items-center gap-3">
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>
+                    {hasUrls ? `${validUrlCount} 条链接` : '自动溯源 · 识别具名技术 · 匹配 Wiki'}
+                  </span>
+                  {hasUrls && (
+                    <span
+                      className="inline-flex items-center"
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--text-xs)',
+                        background: 'oklch(96% 0.005 260 / 0.6)',
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {(['sonnet', 'opus'] as TriageModel[]).map(m => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setModel(m)}
+                          style={{
+                            padding: '3px 10px',
+                            color: model === m ? 'var(--text-new)' : 'var(--text-quaternary)',
+                            background: model === m ? 'oklch(100% 0 0 / 0.8)' : 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            fontSize: 'inherit',
+                            fontWeight: model === m ? 600 : 400,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </span>
+                  )}
                 </span>
 
                 <button
@@ -178,13 +214,27 @@ export function TriageView({ triage, onExpand }: Props) {
               {triage.counts.done}/{triage.counts.total}
             </span>
           )}
-          {allDone && (
-            <span style={{ color: 'var(--text-tertiary)' }}>
-              {triage.counts.total} 条解析完成
-              {doneEntries.reduce((s, e) => s + (e.concepts?.length || 0), 0) > 0 &&
-                ` · ${doneEntries.reduce((s, e) => s + (e.concepts?.length || 0), 0)} 概念`}
-            </span>
-          )}
+          {allDone && (() => {
+            const totalConcepts = doneEntries.reduce((s, e) => s + (e.concepts?.length || 0), 0);
+            const usages = doneEntries.map(e => e.tokenUsage).filter(Boolean);
+            const totalInput = usages.reduce((s, u) => s + (u!.inputTokens + u!.cacheReadTokens), 0);
+            const totalOutput = usages.reduce((s, u) => s + u!.outputTokens, 0);
+            const usedModel = usages[0]?.model;
+            return (
+              <span style={{ color: 'var(--text-tertiary)' }}>
+                {triage.counts.total} 条解析完成
+                {totalConcepts > 0 && ` · ${totalConcepts} 概念`}
+                {usages.length > 0 && (
+                  <span style={{ color: 'var(--text-quaternary)', marginLeft: 8 }}>
+                    {usedModel && `${usedModel} · `}
+                    {totalInput > 1000 ? `${(totalInput / 1000).toFixed(1)}k` : totalInput} in
+                    {' / '}
+                    {totalOutput > 1000 ? `${(totalOutput / 1000).toFixed(1)}k` : totalOutput} out
+                  </span>
+                )}
+              </span>
+            );
+          })()}
         </div>
         <button onClick={() => triage.reset()}
           style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}

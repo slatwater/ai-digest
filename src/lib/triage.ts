@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
-import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept, SourceInfo } from './types';
+import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept, SourceInfo, TriageModel } from './types';
 import { safeScrape, safeParseJSON, stripCodeFence } from './agent';
 import { saveTriageBatch } from './storage';
 import { reportFromSDKMessage } from './token-report';
@@ -50,7 +50,7 @@ function buildTriagePrompt(): string {
 
 ## 工作流程
 
-### 第一步：判断来源层级（最重要）
+### 第一步：判断来源层级 + 溯源（最重要）
 
 读取文章内容，立刻判断：**这是一手来源还是二手转载？**
 
@@ -61,14 +61,21 @@ function buildTriagePrompt(): string {
 **如果是二手转载：**
 1. 从文中提取关键词（项目名、作者名、论文标题等）
 2. 用 WebSearch 找到一手来源（GitHub 仓库、论文页、官方博客）
-3. 用 WebFetch 读取一手来源的内容
+3. 用 WebFetch 读取一手来源的内容（**仅此一次 WebFetch**）
 4. **后续所有分析基于一手来源**，二手原文不再参考
 5. sources 中标记一手来源为 type="original"
 
 **如果是一手来源：**
 直接基于文章内容分析，无需额外溯源。
 
-### 第二步：基于一手来源识别主角 + 组件
+### 第二步：一轮补充搜索（可选）
+
+确认一手来源并读取其内容后，**最多再做 1 次 WebSearch** 查找相关来源（论文、GitHub、官方文档）。
+- 只用搜索结果的标题和摘要判断相关性，**不要 WebFetch 这些补充来源**
+- 将相关的搜索结果直接加入 sources 数组（type="paper"|"github"|"docs"|"related"）
+- 如果一手来源内容已经足够分析，跳过此步
+
+### 第三步：识别主角 + 组件
 
 **分析对象是一手来源的内容，不是用户提交的二手推文。**
 
@@ -78,11 +85,16 @@ function buildTriagePrompt(): string {
 每个具名技术必须有公认名称和可查证来源。
 每篇文章 1 个主角 + 0-3 个组件。
 
-### 第三步：verdict
+### 第四步：verdict
 
 verdict 规则：
 - **save**: 文章有具名主角，有实质技术内容（新技术、新数据、新场景、新机制）
 - **skip**: 无具名主角（纯观点/营销）/ 内容空洞
+
+## 工具使用限制
+- **溯源阶段不限制**：WebSearch 和 WebFetch 按需使用，直到确认找到一手来源并读取其内容
+- **找到一手来源后**：最多 1 次 WebSearch 补充相关来源，不再 WebFetch
+- 补充搜索完成后（或无需补充时），立刻输出结果，不要继续搜索
 
 ## 输出格式
 
@@ -293,7 +305,7 @@ function setPhase(entry: TriageEntry, label: string) {
 }
 
 // 处理单条 URL
-async function processOne(entry: TriageEntry, batchAbort: AbortController): Promise<void> {
+async function processOne(entry: TriageEntry, batchAbort: AbortController, model?: TriageModel): Promise<void> {
   entry.status = 'processing';
   entry.livePhases = [];
   setPhase(entry, '采集页面');
@@ -323,7 +335,7 @@ async function processOne(entry: TriageEntry, batchAbort: AbortController): Prom
 
     // 工具始终开启，Agent 需要主动去查一手资料
     const allowedTools = ['WebFetch', 'WebSearch'];
-    const maxTurns = 18;
+    const maxTurns = 12;
 
     // 判断是否来自二手平台（推文、社交媒体）
     const isSecondaryPlatform = /^https?:\/\/(x\.com|twitter\.com|threads\.net|weibo\.com)/i.test(entry.url);
@@ -372,12 +384,18 @@ ${urlsSection}
     let fullText = '';
     setPhase(entry, '分析内容');
 
+    const systemPrompt = buildTriagePrompt();
+    console.log(`[triage-log] === 开始解析 ${entry.url} [model=${model || 'sonnet'}] ===`);
+    console.log(`[triage-log] system_prompt_chars=${systemPrompt.length}, user_prompt_chars=${userPrompt.length}, scraped_chars=${scraped.length}`);
+
     const q = query({
       prompt: userPrompt,
       options: {
-        systemPrompt: buildTriagePrompt(),
+        systemPrompt,
+        model: model || 'sonnet',
         cwd: process.cwd(),
         allowedTools,
+        disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
         maxTurns,
@@ -386,13 +404,27 @@ ${urlsSection}
       },
     });
 
+    let turnCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let resultUsage: any = null;
+
     for await (const message of q) {
       reportFromSDKMessage('aidigest', message);
 
       // 实时状态：检测工具调用
       if (message.type === 'assistant') {
+        turnCount++;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const usage = (message.message as any)?.usage;
         const blocks = message.message?.content;
         if (Array.isArray(blocks)) {
+          const toolUses = blocks.filter((b: { type: string }) => b.type === 'tool_use');
+          const toolNames = toolUses.map((b: { type: string; name?: string }) => b.name || '?').join(', ');
+          const toolInputChars = toolUses.reduce((sum: number, b: { type: string; input?: unknown }) => sum + JSON.stringify(b.input || {}).length, 0);
+          const textChars = blocks.filter((b: { type: string }) => b.type === 'text').reduce((sum: number, b: { type: string; text?: string }) => sum + (b.text?.length || 0), 0);
+
+          console.log(`[triage-log] turn=${turnCount} | input=${usage?.input_tokens ?? '?'} output=${usage?.output_tokens ?? '?'} cache_read=${usage?.cache_read_input_tokens ?? 0} | tools=[${toolNames || 'none'}] tool_input_chars=${toolInputChars} text_chars=${textChars}`);
+
           for (const block of blocks) {
             if (block.type === 'tool_use' && typeof block.name === 'string') {
               const labels: Record<string, string> = {
@@ -408,6 +440,16 @@ ${urlsSection}
             }
           }
         }
+      }
+
+      // 最终结果日志 + 捕获 usage
+      if (message.type === 'result') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const msg = message as any;
+        const u = msg.usage;
+        console.log(`[triage-log] === 结束 ${entry.url} ===`);
+        console.log(`[triage-log] total: turns=${msg.num_turns ?? turnCount} input=${u?.input_tokens ?? '?'} output=${u?.output_tokens ?? '?'} cache_read=${u?.cache_read_input_tokens ?? 0} cost=$${msg.total_cost_usd ?? '?'} stop=${msg.stop_reason ?? msg.subtype} duration=${msg.duration_ms ?? '?'}ms`);
+        resultUsage = msg;
       }
 
       const text = extractText(message);
@@ -453,6 +495,20 @@ ${urlsSection}
       entry.verdictReason = result.verdictReason;
       entry.relatedEntries = result.relatedEntries || [];
 
+      // 保存 token 用量
+      if (resultUsage) {
+        const u = resultUsage.usage;
+        entry.tokenUsage = {
+          model: model || 'sonnet',
+          turns: resultUsage.num_turns ?? turnCount,
+          inputTokens: u?.input_tokens ?? 0,
+          outputTokens: u?.output_tokens ?? 0,
+          cacheReadTokens: u?.cache_read_input_tokens ?? 0,
+          costUsd: resultUsage.total_cost_usd,
+          durationMs: resultUsage.duration_ms,
+        };
+      }
+
       entry.status = 'done';
     } else {
       // 已中止则跳过重试
@@ -479,8 +535,10 @@ ${urlsSection}
           prompt: retryPrompt,
           options: {
             systemPrompt: buildTriagePrompt(),
+            model: model || 'sonnet',
             cwd: process.cwd(),
             allowedTools: hasContent ? [] : ['WebFetch', 'WebSearch'],
+            disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
             maxTurns: hasContent ? 2 : 10,
@@ -534,7 +592,7 @@ async function processBatch(batch: TriageBatch, abort: AbortController): Promise
       }
       break;
     }
-    await processOne(entry, abort);
+    await processOne(entry, abort, batch.model);
     await saveTriageBatch(batch);
   }
 
@@ -543,11 +601,12 @@ async function processBatch(batch: TriageBatch, abort: AbortController): Promise
 }
 
 // 创建 batch 并启动后台处理
-export function createBatch(urls: string[]): TriageBatch {
+export function createBatch(urls: string[], model?: TriageModel): TriageBatch {
   const batch: TriageBatch = {
     id: uuidv4(),
     createdAt: new Date().toISOString(),
     status: 'processing',
+    model,
     entries: urls.map(url => ({
       id: uuidv4(),
       url,

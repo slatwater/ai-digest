@@ -6,7 +6,7 @@ export const maxDuration = 300;
 
 // 创建研判 batch
 export async function POST(req: NextRequest) {
-  const { urls } = await req.json();
+  const { urls, model } = await req.json();
 
   if (!Array.isArray(urls) || urls.length === 0) {
     return Response.json({ error: '请提供至少一个 URL' }, { status: 400 });
@@ -22,7 +22,9 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: '未找到有效的 URL' }, { status: 400 });
   }
 
-  const batch = createBatch(validUrls);
+  // 校验模型参数
+  const validModel = model === 'opus' ? 'opus' : 'sonnet';
+  const batch = createBatch(validUrls, validModel);
   return Response.json({ batchId: batch.id, count: validUrls.length });
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { TriageBatch } from '@/lib/types';
+import { TriageBatch, TriageModel } from '@/lib/types';
 
 interface TriageState {
   batchId: string | null;
@@ -56,7 +56,7 @@ export function useTriage() {
   }, [stopPolling]);
 
   // 提交 URLs
-  const submit = useCallback(async (urls: string[]) => {
+  const submit = useCallback(async (urls: string[], model?: TriageModel) => {
     setState(prev => ({
       ...prev,
       isSubmitting: true,
@@ -69,7 +69,7 @@ export function useTriage() {
       const res = await fetch('/api/triage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls }),
+        body: JSON.stringify({ urls, model }),
       });
 
       if (!res.ok) {

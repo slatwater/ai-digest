@@ -1,5 +1,20 @@
 [
   {
+    "id": "51ca2c93-cf26-46da-a397-b53c9d538c25",
+    "name": "DESIGN.md：AI 代理的品牌设计规范格式与工具链",
+    "categoryId": "ai-工具与技能包",
+    "sectionHeadings": [
+      "是什么",
+      "标准 9 章节结构",
+      "生成方式：半自动提取 + 社区众包",
+      "逆向提取工具链",
+      "推荐工作流"
+    ],
+    "sourceCount": 7,
+    "skillFileCount": 0,
+    "updatedAt": "2026-04-16T14:38:19.862Z"
+  },
+  {
     "id": "261fc092-7b32-46f0-a473-ceb142097a3d",
     "name": "Spark 2.0 — Web 端大规模 3D 高斯泼溅流式渲染引擎",
     "categoryId": "3d-与可视化技术",

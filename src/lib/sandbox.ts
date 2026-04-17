@@ -33,6 +33,7 @@ interface SandboxSession {
   sdkSessionId: string | null;
   model: string;               // 'sonnet' | 'opus'
   wikiContext: string;          // wiki 条目内容（工具试用模式用）
+  githubUrl: string | null;    // original 类型的 GitHub 链接（工具试用模式用）
 }
 
 // 活跃会话缓存（30 分钟过期）
@@ -200,16 +201,20 @@ function buildSandboxPrompt(session: SandboxSession): string {
 5. 用中文与用户交流`);
   } else {
     // ── 工具试用模式 ──
+    const ghSection = session.githubUrl
+      ? `\n**一手来源**：${session.githubUrl}\n首次对话时，先用 WebFetch 读取该 GitHub 仓库的 README，获取准确的安装方式和用法，再开始试用。下面的背景知识仅供参考，以 GitHub README 为准。\n`
+      : '';
     parts.push(`你是一个工具试用沙盒。用户想在隔离环境中试用一个技术工具/库。
-
+${ghSection}
 以下是关于这个工具的背景知识：
 
 ${session.wikiContext}
 
 **工作方式**：
-1. 根据上面的背景知识和用户的需求，在工作目录中实际安装、编写代码、运行 demo
-2. 遇到问题自己调试解决
-3. 把运行结果和关键发现告诉用户
+1. ${session.githubUrl ? '先用 WebFetch 读取一手来源的 README 获取准确信息' : '根据上面的背景知识和用户的需求'}
+2. 在工作目录中实际安装、编写代码、运行 demo
+3. 遇到问题自己调试解决
+4. 把运行结果和关键发现告诉用户
 
 **工作目录**：${session.workDir}（临时目录，用完即弃，可以随意操作）
 
@@ -292,10 +297,19 @@ async function getOrCreateSession(
   // 读取 wiki 条目，解析 skill，写入磁盘
   const rawSkills: SkillRaw[] = [];
   const wikiContextParts: string[] = [];
+  let githubUrl: string | null = null;
 
   for (const itemId of itemIds) {
     const item = await getWikiItem(itemId);
     if (!item) continue;
+
+    // 提取 original 类型的 GitHub 链接
+    if (!githubUrl) {
+      const ghLink = item.sourceLinks?.find(l =>
+        l.type === 'original' && /github\.com/i.test(l.url)
+      );
+      if (ghLink) githubUrl = ghLink.url;
+    }
 
     // 收集 wiki 上下文（工具试用模式用）
     wikiContextParts.push(buildWikiContext(item));
@@ -311,10 +325,8 @@ async function getOrCreateSession(
           subCommands: extractSubCommands(sf.content),
         });
       }
-    } else {
-      const skill = parseSkillFromWikiItem(item);
-      if (skill) rawSkills.push(skill);
     }
+    // 没有 skillFiles 的条目走工具试用模式（不再从 sections 猜测 skill）
   }
 
   // 将每个 skill 写入 skills/{command}/SKILL.md，生成轻量 SkillMeta
@@ -346,6 +358,7 @@ async function getOrCreateSession(
     sdkSessionId: null,
     model,
     wikiContext: wikiContextParts.join('\n\n---\n\n'),
+    githubUrl,
   };
 
   sessions.set(id, { session, lastAccess: Date.now() });
@@ -390,11 +403,6 @@ export async function runSandbox(
     model: session.model,
     mode: session.skills.length > 0 ? 'skill' : 'tryout',
   });
-
-  if (session.skills.length === 0) {
-    send('error', { message: '未能从选中的 wiki 条目中解析出任何 skill' });
-    return;
-  }
 
   // 初始化请求：只创建会话返回元数据，不运行 agent
   if (message === '__init__') {

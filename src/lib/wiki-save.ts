@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { TriageEntry, WikiCategory, WikiItemSummary, ChatMessage } from './types';
+import { TriageEntry, WikiCategory, WikiItemSummary } from './types';
 import { getWikiCategories, getWikiIndex } from './storage';
 import { reportFromSDKMessage } from './token-report';
 import type { ExpandStage } from '@/hooks/useExpand';
@@ -120,35 +120,57 @@ const SYSTEM_PROMPT = `你是一个知识管理助手。用户在深入研究一
 - 用户确认：必须再次输出完整 JSON（保持不变也要输出）
 - 禁止只说"已确认"、"可以使用了"而不附 JSON。前端需要解析 JSON 才能显示「确认存入」按钮。`;
 
+// 从文本的 start 位置开始，找到第一个 { 并用字符串感知的方式匹配到其配对的 }
+// 正确跳过 JSON 字符串内部的 {} 和转义字符
+function extractBalancedJSON(text: string, start: number): string | null {
+  const pos = text.indexOf('{', start);
+  if (pos === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = pos; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(pos, i + 1);
+    }
+  }
+  return null;
+}
+
 // 解析 agent 输出中的 JSON 方案（容忍多种格式）
 function extractProposal(text: string): Record<string, unknown> | null {
-  // 方案 1：标准 ```json 代码块
-  const jsonBlock = text.match(/```(?:json|JSON)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (jsonBlock) {
-    try {
-      const parsed = JSON.parse(jsonBlock[1].trim());
-      if (isValidProposal(parsed)) return parsed;
-    } catch { /* fall through */ }
+  // 方案 1：从 ```json 代码块中提取
+  const fenceMatch = text.match(/```(?:json|JSON)?\s*\n/);
+  if (fenceMatch) {
+    const jsonStr = extractBalancedJSON(text, fenceMatch.index! + fenceMatch[0].length);
+    if (jsonStr) {
+      try {
+        const parsed = JSON.parse(jsonStr);
+        if (isValidProposal(parsed)) return parsed;
+      } catch { /* fall through */ }
+    }
   }
 
-  // 方案 2：直接找包含 name + sections 字段的 JSON 对象
-  // 从后往前找（最新的方案），匹配最外层大括号
-  const matches = [...text.matchAll(/\{[\s\S]*?"sections"[\s\S]*?\}/g)];
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const raw = matches[i][0];
-    // 尝试找完整的括号闭合
-    let depth = 0;
-    let end = -1;
-    for (let j = 0; j < raw.length; j++) {
-      if (raw[j] === '{') depth++;
-      else if (raw[j] === '}') {
-        depth--;
-        if (depth === 0) { end = j + 1; break; }
-      }
-    }
-    if (end > 0) {
+  // 方案 2：全文搜索所有 { 开头的 JSON 对象，从后往前尝试
+  const bracePositions: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') bracePositions.push(i);
+  }
+  for (let i = bracePositions.length - 1; i >= 0; i--) {
+    const jsonStr = extractBalancedJSON(text, bracePositions[i]);
+    if (jsonStr && jsonStr.includes('"sections"')) {
       try {
-        const parsed = JSON.parse(raw.slice(0, end));
+        const parsed = JSON.parse(jsonStr);
         if (isValidProposal(parsed)) return parsed;
       } catch { /* continue */ }
     }
@@ -163,89 +185,146 @@ function isValidProposal(obj: unknown): obj is Record<string, unknown> {
   return typeof o.name === 'string' && Array.isArray(o.sections);
 }
 
+// 活跃的 wiki-save 会话：wikiSessionId → sdkSessionId
+const wikiSessions = new Map<string, { sdkSessionId: string; lastAccess: number }>();
+const WIKI_SESSION_TTL = 30 * 60 * 1000; // 30 分钟
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of wikiSessions) {
+    if (now - entry.lastAccess > WIKI_SESSION_TTL) wikiSessions.delete(id);
+  }
+}, 5 * 60 * 1000);
+
+export function resetWikiSession(wikiSessionId: string): void {
+  wikiSessions.delete(wikiSessionId);
+}
+
 export async function runWikiSave(
   entry: TriageEntry,
   stages: ExpandStage[],
   userMessage: string,
-  history: ChatMessage[],
+  wikiSessionId: string,
   send: EventSender,
 ): Promise<void> {
-  const [categories, items] = await Promise.all([getWikiCategories(), getWikiIndex()]);
-  const context = buildContext(entry, stages, categories, items);
+  const existing = wikiSessions.get(wikiSessionId);
+  const isResume = !!existing;
 
-  // 构建 prompt：首轮自动生成方案，后续轮次带用户调整
   let prompt: string;
-  if (history.length === 0) {
+  if (!isResume) {
+    // 首轮：带完整上下文
+    const [categories, items] = await Promise.all([getWikiCategories(), getWikiIndex()]);
+    const context = buildContext(entry, stages, categories, items);
     prompt = `${context}\n\n请根据以上内容，整理出一个 Wiki 条目方案。`;
     if (userMessage.trim()) {
       prompt += `\n\n用户补充: ${userMessage}`;
     }
   } else {
-    const historyText = history.map(m =>
-      m.role === 'user' ? `用户: ${m.content}` : `助手: ${m.content}`
-    ).join('\n');
-    prompt = `${context}\n\n之前的对话:\n${historyText}\n\n用户: ${userMessage}`;
+    // 续问：只传用户新消息，SDK resume 保留上下文
+    prompt = userMessage;
   }
 
   let fullReply = '';
+  console.log(`[wiki-log] === 开始 wiki 存入 [resume=${isResume}] === prompt_chars=${prompt.length}`);
 
   try {
+    const queryOptions: Record<string, unknown> = {
+      systemPrompt: SYSTEM_PROMPT,
+      cwd: process.cwd(),
+      allowedTools: ['WebFetch'],
+      disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch'],
+      permissionMode: 'bypassPermissions' as const,
+      allowDangerouslySkipPermissions: true,
+      maxTurns: 4,
+      abortController: new AbortController(),
+      persistSession: true,
+    };
+    if (existing) {
+      queryOptions.resume = existing.sdkSessionId;
+    }
+
     const q = query({
       prompt,
-      options: {
-        systemPrompt: SYSTEM_PROMPT,
-        cwd: process.cwd(),
-        allowedTools: ['WebFetch'],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-        maxTurns: 4,
-        abortController: new AbortController(),
-        persistSession: false,
-      },
+      options: queryOptions as Parameters<typeof query>[0]['options'],
     });
 
     let proposalSent = false;
+    let capturedSdkId: string | null = existing?.sdkSessionId || null;
 
     for await (const message of q) {
       reportFromSDKMessage('aidigest', message);
 
+      // 捕获 SDK session ID
+      if (!capturedSdkId) {
+        const sid = (message as { session_id?: string }).session_id;
+        if (sid) {
+          capturedSdkId = sid;
+          wikiSessions.set(wikiSessionId, { sdkSessionId: sid, lastAccess: Date.now() });
+          send('sessionId', { wikiSessionId });
+        }
+      } else {
+        const entry = wikiSessions.get(wikiSessionId);
+        if (entry) entry.lastAccess = Date.now();
+      }
+
       if (message.type === 'assistant') {
         const blocks = message.message?.content;
         if (Array.isArray(blocks)) {
+          // 始终提取文本（即使同一消息里有 tool_use）
+          const text = blocks
+            .filter((b: { type: string }) => b.type === 'text')
+            .map((b: { type: string; text?: string }) => b.text ?? '')
+            .join('');
           const hasToolUse = blocks.some((b: { type: string }) => b.type === 'tool_use');
+
           if (hasToolUse) {
             for (const block of blocks) {
               if (block.type === 'tool_use' && typeof block.name === 'string') {
                 send('tool_status', { label: '正在补充信息...' });
               }
             }
-          } else {
-            const text = blocks
-              .filter((b: { type: string }) => b.type === 'text')
-              .map((b: { type: string; text?: string }) => b.text ?? '')
-              .join('');
-            if (text) {
-              fullReply += text;
-              send('text', { content: text });
+          }
 
-              // 实时检测：一旦 JSON 完整就推送 proposal
-              if (!proposalSent) {
-                const proposal = extractProposal(fullReply);
-                if (proposal) {
-                  send('proposal', proposal);
-                  proposalSent = true;
-                }
+          // 文本始终累积和发送
+          if (text) {
+            fullReply += text;
+            console.log(`[wiki-log] text: hasToolUse=${hasToolUse} text_chars=${text.length} fullReply_chars=${fullReply.length}`);
+            if (!hasToolUse) {
+              send('text', { content: text });
+            }
+
+            // 实时检测：一旦 JSON 完整就推送 proposal
+            if (!proposalSent) {
+              const proposal = extractProposal(fullReply);
+              if (proposal) {
+                console.log(`[wiki-log] proposal 检测到，发送`);
+                send('proposal', proposal);
+                proposalSent = true;
               }
             }
           }
         }
+      }
+
+      // result 消息日志
+      if (message.type === 'result') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const msg = message as any;
+        const u = msg.usage;
+        console.log(`[wiki-log] === 结束 ===`);
+        console.log(`[wiki-log] total: turns=${msg.num_turns ?? '?'} input=${u?.input_tokens ?? '?'} output=${u?.output_tokens ?? '?'} cache_read=${u?.cache_read_input_tokens ?? 0} cost=$${msg.total_cost_usd ?? '?'} stop=${msg.stop_reason ?? msg.subtype}`);
+        console.log(`[wiki-log] fullReply_chars=${fullReply.length} proposalSent=${proposalSent}`);
       }
     }
 
     // 最后再兜底检查一次（可能 SSE 中途没捕获到）
     if (!proposalSent) {
       const proposal = extractProposal(fullReply);
-      if (proposal) send('proposal', proposal);
+      if (proposal) {
+        console.log(`[wiki-log] 兜底 proposal 成功`);
+        send('proposal', proposal);
+      } else {
+        console.log(`[wiki-log] 兜底 proposal 失败，fullReply_chars=${fullReply.length}`);
+      }
     }
 
     send('done', {});

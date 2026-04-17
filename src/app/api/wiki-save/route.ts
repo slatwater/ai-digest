@@ -1,17 +1,17 @@
 import { NextRequest } from 'next/server';
 import { runWikiSave } from '@/lib/wiki-save';
-import type { TriageEntry, ChatMessage } from '@/lib/types';
+import type { TriageEntry } from '@/lib/types';
 import type { ExpandStage } from '@/hooks/useExpand';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const { entry, stages, userMessage, history } = await req.json() as {
+  const { entry, stages, userMessage, wikiSessionId } = await req.json() as {
     entry: TriageEntry;
     stages: ExpandStage[];
     userMessage: string;
-    history: ChatMessage[];
+    wikiSessionId: string;
   };
 
   if (!entry) {
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await runWikiSave(entry, stages || [], userMessage || '', history || [], send);
+        await runWikiSave(entry, stages || [], userMessage || '', wikiSessionId || '', send);
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : 'Unknown error' });
       } finally {

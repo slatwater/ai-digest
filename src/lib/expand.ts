@@ -111,6 +111,7 @@ export async function runExpand(
       systemPrompt,
       cwd: process.cwd(),
       allowedTools: ['WebFetch', 'WebSearch'],
+      disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
       permissionMode: 'bypassPermissions' as const,
       allowDangerouslySkipPermissions: true,
       maxTurns: 8,
@@ -128,6 +129,9 @@ export async function runExpand(
 
     let lastText = '';
     let capturedSdkId: string | null = existing?.sdkSessionId || null;
+    let turnCount = 0;
+
+    console.log(`[expand-log] === 开始深入 [resume=${isResume}] prompt_chars=${userPrompt.length} ===`);
 
     for await (const message of q) {
       reportFromSDKMessage('aidigest', message);
@@ -146,7 +150,13 @@ export async function runExpand(
       }
 
       if (message.type === 'assistant') {
-        const blocks = message.message?.content;
+        turnCount++;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const usage = (message.message as any)?.usage;
+        const blocks = message.message?.content || [];
+        const toolUses = (blocks as { type: string; name?: string }[]).filter(b => b.type === 'tool_use');
+        const toolNames = toolUses.map(b => b.name || '?').join(', ');
+        console.log(`[expand-log] turn=${turnCount} | input=${usage?.input_tokens ?? '?'} output=${usage?.output_tokens ?? '?'} cache_read=${usage?.cache_read_input_tokens ?? 0} | tools=[${toolNames || 'none'}]`);
         if (Array.isArray(blocks)) {
           // 提取文本（无论是否有 tool_use）
           const text = blocks
@@ -182,12 +192,24 @@ export async function runExpand(
 
       // result 消息：最终回答可能只在这里
       if (message.type === 'result') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const msg = message as any;
+        const u = msg.usage;
+        console.log(`[expand-log] === 结束 ===`);
+        console.log(`[expand-log] total: turns=${msg.num_turns ?? turnCount} input=${u?.input_tokens ?? '?'} output=${u?.output_tokens ?? '?'} cache_read=${u?.cache_read_input_tokens ?? 0} cost=$${msg.total_cost_usd ?? '?'} stop=${msg.stop_reason ?? msg.subtype} duration=${msg.duration_ms ?? '?'}ms`);
+
         if (message.subtype === 'success' && message.result) {
           lastText = message.result;
           send('replace', { content: message.result });
-        } else if (message.subtype === 'error_max_turns' && lastText) {
-          // agent 用完轮次但有暂存文本，补发
-          send('replace', { content: lastText });
+        } else if (message.subtype === 'error_max_turns') {
+          // agent 用完轮次：优先用 result 文本，否则用暂存文本
+          const fallback = (message as { result?: string }).result || lastText;
+          if (fallback) {
+            lastText = fallback;
+            send('replace', { content: fallback });
+          } else {
+            send('replace', { content: '回答生成超时，请重试或换一个问题。' });
+          }
         }
       }
     }
