@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection } from './types';
+import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection, ExperienceEntry, ExperienceSummary } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -280,4 +280,76 @@ export async function saveDemo(entryId: string, date: string, filename: string, 
   const filePath = path.join(demoDir, filename);
   await fs.writeFile(filePath, code, 'utf-8');
   return filePath;
+}
+
+// === 经验（Experience）存储 ===
+
+const EXPERIENCE_DIR = path.join(DATA_DIR, 'experiences');
+const EXPERIENCE_INDEX_PATH = path.join(EXPERIENCE_DIR, 'index.json');
+const EXPERIENCE_ITEMS_DIR = path.join(EXPERIENCE_DIR, 'items');
+
+function toExperienceSummary(item: ExperienceEntry): ExperienceSummary {
+  return {
+    id: item.id,
+    title: item.title,
+    summary: item.summary,
+    wikiItemNames: item.wikiItemNames,
+    cozeRunCount: item.cozeRuns.length,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function buildExperienceMarkdown(item: ExperienceEntry): string {
+  const lines: string[] = [`# ${item.title}`, '', item.summary, ''];
+  if (item.wikiItemNames.length > 0) {
+    lines.push(`**来源 Wiki**：${item.wikiItemNames.join(' · ')}`, '');
+  }
+  lines.push(item.content, '');
+  if (item.cozeRuns.length > 0) {
+    lines.push('## 验证过的 Coze 调用', '');
+    for (const run of item.cozeRuns) {
+      lines.push(`- \`${run.command}\` → ${run.status}${typeof run.exitCode === 'number' ? ` (exit ${run.exitCode})` : ''}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+export async function getExperienceIndex(): Promise<ExperienceSummary[]> {
+  try {
+    return JSON.parse(await fs.readFile(EXPERIENCE_INDEX_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+export async function getExperience(id: string): Promise<ExperienceEntry | null> {
+  try {
+    return JSON.parse(await fs.readFile(path.join(EXPERIENCE_ITEMS_DIR, `${id}.json`), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveExperience(item: ExperienceEntry): Promise<void> {
+  await fs.mkdir(EXPERIENCE_ITEMS_DIR, { recursive: true });
+  await fs.writeFile(path.join(EXPERIENCE_ITEMS_DIR, `${item.id}.json`), JSON.stringify(item, null, 2), 'utf-8');
+  await fs.writeFile(path.join(EXPERIENCE_ITEMS_DIR, `${item.id}.md`), buildExperienceMarkdown(item), 'utf-8');
+  let index: ExperienceSummary[] = [];
+  try { index = JSON.parse(await fs.readFile(EXPERIENCE_INDEX_PATH, 'utf-8')); } catch { /* */ }
+  index = index.filter(i => i.id !== item.id);
+  index.unshift(toExperienceSummary(item));
+  await fs.writeFile(EXPERIENCE_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+}
+
+export async function deleteExperience(id: string): Promise<boolean> {
+  let index: ExperienceSummary[] = [];
+  try { index = JSON.parse(await fs.readFile(EXPERIENCE_INDEX_PATH, 'utf-8')); } catch { return false; }
+  const before = index.length;
+  index = index.filter(i => i.id !== id);
+  if (index.length === before) return false;
+  await fs.writeFile(EXPERIENCE_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+  try { await fs.unlink(path.join(EXPERIENCE_ITEMS_DIR, `${id}.json`)); } catch { /* */ }
+  try { await fs.unlink(path.join(EXPERIENCE_ITEMS_DIR, `${id}.md`)); } catch { /* */ }
+  return true;
 }

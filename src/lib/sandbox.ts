@@ -1,8 +1,9 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { ChatMessage } from './types';
+import { ChatMessage, TriageModel, resolveModelId } from './types';
 import { getWikiItem } from './storage';
 import { reportFromSDKMessage } from './token-report';
+import { killProcessesByWorkDir, cleanupOrphanWorkDirs } from './process-cleanup';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -49,14 +50,14 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+// 模块加载时清理上次遗留的孤儿目录（服务器重启 / dev hot-reload 后）
+cleanupOrphanWorkDirs('aidigest-sandbox-').catch(() => {});
+
 // 清理会话：kill 子进程 + 删除临时目录 + 删除 SDK 会话文件
 async function cleanupSession(session: SandboxSession): Promise<void> {
-  // 1. kill 临时目录下的所有子进程（通过 lsof 找到使用该目录的进程）
-  try {
-    const { execSync } = await import('child_process');
-    // 找到 cwd 在临时目录下的所有进程并 kill
-    execSync(`lsof +D "${session.workDir}" 2>/dev/null | awk 'NR>1{print $2}' | sort -u | xargs -r kill -9 2>/dev/null`, { timeout: 5000 });
-  } catch { /* 没有进程或 lsof 失败，忽略 */ }
+  // 1. kill 所有相关进程（命令行含 workDir 的根进程 + 递归后代 + lsof 兜底）
+  //    必须在删目录之前调用
+  await killProcessesByWorkDir(session.workDir);
 
   // 2. 删除临时目录
   await fs.rm(session.workDir, { recursive: true, force: true }).catch(() => {});
@@ -429,7 +430,7 @@ export async function runSandbox(
   try {
     const queryOptions: Record<string, unknown> = {
       systemPrompt: buildSandboxPrompt(session),
-      model: session.model,
+      model: resolveModelId(session.model as TriageModel),
       cwd: session.workDir,
       allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
       permissionMode: 'bypassPermissions' as const,

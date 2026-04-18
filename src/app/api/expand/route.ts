@@ -1,17 +1,20 @@
 import { NextRequest } from 'next/server';
 import { runExpand, resetExpandSession } from '@/lib/expand';
-import type { TriageEntry } from '@/lib/types';
+import type { TriageEntry, TriageModel } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const { entry, question, expandSessionId, resetSession } = await req.json() as {
+  const { entry, question, expandSessionId, resetSession, model } = await req.json() as {
     entry: TriageEntry;
     question: string;
     expandSessionId: string;
     resetSession?: boolean;
+    model?: TriageModel;
   };
+
+  const validModel: TriageModel = (model === 'opus' || model === 'opus-4-6') ? model : 'sonnet';
 
   if (!entry || !question || !expandSessionId) {
     return Response.json({ error: '缺少 entry、question 或 expandSessionId' }, { status: 400 });
@@ -41,7 +44,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await runExpand(entry, question, expandSessionId, send);
+        await runExpand(entry, question, expandSessionId, send, validModel);
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : 'Unknown error' });
       } finally {

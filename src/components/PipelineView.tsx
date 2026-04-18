@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { TriageEntry } from '@/lib/types';
+import { TriageEntry, TriageModel } from '@/lib/types';
 import { ExpandStage } from '@/hooks/useExpand';
 import type { useWikiSave } from '@/hooks/useWikiSave';
 import { WikiSaveInline } from './WikiSaveInline';
@@ -12,7 +12,9 @@ interface Props {
   entry: TriageEntry;
   stages: ExpandStage[];
   canAsk: boolean;
+  model: TriageModel;
   onAsk: (question: string) => void;
+  onModelChange: (model: TriageModel) => void;
   onExit: () => void;
   wikiSave: ReturnType<typeof useWikiSave>;
 }
@@ -85,9 +87,14 @@ function ExpandBlock({ stage, index }: { stage: ExpandStage; index: number }) {
         <span className="shrink-0 tabular-nums" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
           Q{index}
         </span>
-        <p style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', lineHeight: '1.5' }}>
+        <p className="flex-1" style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', lineHeight: '1.5' }}>
           {stage.question}
         </p>
+        {stage.model && (
+          <span className="shrink-0" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--text-quaternary)' }}>
+            {stage.model === 'opus-4-6' ? 'opus 4.6' : stage.model === 'opus' ? 'opus 4.7' : 'sonnet'}
+          </span>
+        )}
       </div>
 
       {/* 加载中 */}
@@ -123,7 +130,7 @@ function ExpandBlock({ stage, index }: { stage: ExpandStage; index: number }) {
 }
 
 // ── 主组件 ──
-export function PipelineView({ entry, stages, canAsk, onAsk, onExit, wikiSave }: Props) {
+export function PipelineView({ entry, stages, canAsk, model, onAsk, onModelChange, onExit, wikiSave }: Props) {
   const [inputValue, setInputValue] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -189,6 +196,44 @@ export function PipelineView({ entry, stages, canAsk, onAsk, onExit, wikiSave }:
             outline: 'none',
           }}
         />
+        {/* 模型切换 */}
+        <span
+          className="inline-flex items-center shrink-0"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            background: 'oklch(96% 0.005 260 / 0.6)',
+            borderRadius: 6,
+            overflow: 'hidden',
+          }}
+        >
+          {([
+            { value: 'sonnet' as TriageModel, label: 'sonnet' },
+            { value: 'opus-4-6' as TriageModel, label: 'opus 4.6' },
+            { value: 'opus' as TriageModel, label: 'opus 4.7' },
+          ]).map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onModelChange(value)}
+              disabled={!canAsk}
+              style={{
+                padding: '3px 10px',
+                color: model === value ? 'var(--text-new)' : 'var(--text-quaternary)',
+                background: model === value ? 'oklch(100% 0 0 / 0.8)' : 'transparent',
+                border: 'none',
+                cursor: canAsk ? 'pointer' : 'default',
+                fontFamily: 'inherit',
+                fontSize: 'inherit',
+                fontWeight: model === value ? 600 : 400,
+                opacity: canAsk ? 1 : 0.6,
+                transition: 'all 0.15s',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
         {inputValue.trim() && canAsk && (
           <button type="submit"
             style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)', color: 'var(--text-new)', fontWeight: 500 }}>

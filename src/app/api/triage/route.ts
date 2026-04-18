@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 校验模型参数
-  const validModel = model === 'opus' ? 'opus' : 'sonnet';
+  const validModel = (model === 'opus' || model === 'opus-4-6') ? model : 'sonnet';
   const batch = createBatch(validUrls, validModel);
   return Response.json({ batchId: batch.id, count: validUrls.length });
 }

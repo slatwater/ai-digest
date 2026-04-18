@@ -18,13 +18,13 @@ interface SandboxProps {
     toolTraces: { tool: string; detail: string; timestamp: number }[];
     error: string | null;
     selectedItemIds: string[];
-    model: 'sonnet' | 'opus';
+    model: 'sonnet' | 'opus' | 'opus-4-6';
     mode: 'skill' | 'tryout' | null;
     started: boolean;
     send: (message: string) => void;
     start: () => void;
     toggleItem: (id: string) => void;
-    setModel: (m: 'sonnet' | 'opus') => void;
+    setModel: (m: 'sonnet' | 'opus' | 'opus-4-6') => void;
     reset: () => void;
   };
 }
@@ -166,21 +166,25 @@ export function SandboxView({ sandbox }: SandboxProps) {
                     已选择 {selectedItemIds.length} 个条目
                   </span>
                   <div className="flex items-center gap-1 rounded overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                    {(['sonnet', 'opus'] as const).map(m => (
+                    {([
+                      { value: 'sonnet', label: 'sonnet' },
+                      { value: 'opus-4-6', label: 'opus 4.6' },
+                      { value: 'opus', label: 'opus 4.7' },
+                    ] as const).map(({ value, label }) => (
                       <button
-                        key={m}
-                        onClick={() => setModel(m)}
+                        key={value}
+                        onClick={() => setModel(value)}
                         className="px-2.5 py-1"
                         style={{
                           fontSize: '0.65rem',
                           fontFamily: 'var(--font-mono)',
-                          fontWeight: model === m ? 600 : 400,
-                          color: model === m ? 'white' : 'var(--text-tertiary)',
-                          background: model === m ? 'var(--accent)' : 'transparent',
+                          fontWeight: model === value ? 600 : 400,
+                          color: model === value ? 'white' : 'var(--text-tertiary)',
+                          background: model === value ? 'var(--accent)' : 'transparent',
                           transition: 'all var(--duration-fast) var(--ease-out)',
                         }}
                       >
-                        {m}
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -218,7 +222,7 @@ export function SandboxView({ sandbox }: SandboxProps) {
               {mode === 'tryout' ? '工具试用' : 'Skill 沙盒'}
             </h1>
             <span className="px-1.5 py-0.5 rounded" style={{ fontSize: '0.6rem', fontFamily: 'var(--font-mono)', background: 'var(--bg-subtle)', color: 'var(--text-quaternary)' }}>
-              {model}
+              {model === 'opus-4-6' ? 'opus 4.6' : model === 'opus' ? 'opus 4.7' : 'sonnet'}
             </span>
           </div>
           {/* 已加载 skill 标签（仅 skill 模式） */}

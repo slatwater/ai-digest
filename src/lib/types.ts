@@ -407,7 +407,17 @@ export interface TriageEntry {
 }
 
 // 解析可选模型
-export type TriageModel = 'sonnet' | 'opus';
+// 'sonnet' = SDK 别名（跟随最新 sonnet），'opus' / 'opus-4-6' = 明确 ID
+// 注：SDK 0.2.85 的 'opus' 别名实际映射到 4.6，不会自动跟到 4.7
+// 所以这里把 'opus' 显式解析为 claude-opus-4-7，绕开 SDK 旧别名
+export type TriageModel = 'sonnet' | 'opus' | 'opus-4-6';
+
+// 把内部别名解析成传给 SDK 的实际模型 ID
+export function resolveModelId(model: TriageModel | undefined): string {
+  if (model === 'opus-4-6') return 'claude-opus-4-6';
+  if (model === 'opus') return 'claude-opus-4-7';
+  return model || 'sonnet';
+}
 
 export interface TriageBatch {
   id: string;
@@ -462,6 +472,42 @@ export interface WikiItemSummary {
   sectionHeadings: string[];
   sourceCount: number;
   skillFileCount?: number;
+  updatedAt: string;
+}
+
+// === 实验 / 经验 ===
+
+// coze 进程执行状态（沙盒实时推送到前端）
+export interface CozeRun {
+  id: string;              // 进程唯一 id
+  command: string;         // 执行的命令（截断）
+  status: 'running' | 'success' | 'failed';
+  startedAt: number;
+  endedAt?: number;
+  exitCode?: number;
+  stdout: string;          // 累积的 stdout
+  stderr: string;          // 累积的 stderr
+}
+
+// 经验条目：好的实验方案的产物
+export interface ExperienceEntry {
+  id: string;
+  title: string;
+  summary: string;                  // 一句话概要
+  content: string;                  // 完整 markdown 方案
+  wikiItemIds: string[];            // 来源 wiki 条目
+  wikiItemNames: string[];          // 冗余存名字，避免 join
+  cozeRuns: CozeRun[];              // 验证过的 coze 调用记录
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExperienceSummary {
+  id: string;
+  title: string;
+  summary: string;
+  wikiItemNames: string[];
+  cozeRunCount: number;
   updatedAt: string;
 }
 

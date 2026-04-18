@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
-import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept, SourceInfo, TriageModel } from './types';
+import { TriageBatch, TriageEntry, TriageVerdict, TriageRelation, TriageScores, TriageConcept, SourceInfo, TriageModel, resolveModelId } from './types';
 import { safeScrape, safeParseJSON, stripCodeFence } from './agent';
 import { saveTriageBatch } from './storage';
 import { reportFromSDKMessage } from './token-report';
@@ -80,10 +80,10 @@ function buildTriagePrompt(): string {
 **分析对象是一手来源的内容，不是用户提交的二手推文。**
 
 **先找主角**：一手来源重点介绍/提出的是什么？它就是主角（role="subject"）。
-**再找组件**：主角依赖或组合了哪些具名技术？它们是组件（role="component"）。
+**再找组件**：主角是否强依赖某一个具名技术、不提就讲不清？只有这种情况才记一个组件（role="component"）。
 
 每个具名技术必须有公认名称和可查证来源。
-每篇文章 1 个主角 + 0-3 个组件。
+每篇文章 1 个主角 + 0-1 个组件。**宁缺毋滥**：组件只在不可省略时才出现，多数文章应该 0 组件。
 
 ### 第四步：verdict
 
@@ -123,6 +123,8 @@ verdict 规则：
 }
 ===TRIAGE_END===
 
+JSON 字符串内禁止使用未转义的英文双引号。要强调或引用术语请用中文「」。
+
 ## narrative 规则
 narrative 讲的是**一手来源的事情**，不是二手推文的事情。
 
@@ -135,17 +137,20 @@ narrative 讲的是**一手来源的事情**，不是二手推文的事情。
 narrative 分两段，每段用 \n\n 分隔：
 
 第一段「溯源」：一句话交代来源链路。例如"从 @xxx 推文发现，一手来源是 GitHub microsoft/markitdown。"如果用户提交的就是一手来源，写"一手来源，作者/组织是 XXX。"
-第二段「一手来源说了什么」：基于你用 WebFetch 实际读取到的一手来源内容，写作者做了什么、解决什么问题、有什么数据/效果。概念名用 [[]] 标记。
+第二段「一手来源说了什么」：基于你用 WebFetch 实际读取到的一手来源内容，**先说作者做出了什么能用的东西、解决了谁的什么麻烦**，再补一句关键数据/效果。概念名用 [[]] 标记。
 
 写作规则：
 - 主语是一手来源的作者/项目，不是二手推文的博主
 - 每句话只讲一件事，每句不超过 25 字
-- 用大白话，假设读者不是技术专家
+- **优先说"做了什么能用的东西"和"解决了什么具体麻烦"，而不是"用了什么算法/架构"**
+- 用大白话，假设读者是产品经理/运营/工程师，不是研究员
+- 出现专业名词要么就地用一句人话解释，要么直接换成口语说法
+- 禁用 SOTA、benchmark、tokenization、推理、对齐、嵌入空间 等纯学术词，除非这词本身就是 [[标记]] 的概念名
 
 技术名标记格式：[[技术名]]
 
 正确示例（用户提交了 poetengineer 的推文，溯源到 Karpathy 的 gist）：
-"从 @poetengineer 推文发现，一手来源是 Karpathy 于 4 月发布的 GitHub Gist。\n\nKarpathy 提出用 LLM 当编译器维护个人知识库，取代传统 RAG 管道。架构基于 [[LLM Wiki]] 的三层目录结构，原始知识库约 100 篇文章、40 万字。社区已衍生出 SwarmVault、WikiMind 等多个变体。"
+"从 @poetengineer 推文发现，一手来源是 Karpathy 于 4 月发布的 GitHub Gist。\n\nKarpathy 把自己常翻的笔记交给 LLM 自己重组，写成结构清晰的个人知识库 [[LLM Wiki]]。读者可以直接问问题，LLM 现场翻笔记答你，不用搭一套传统的检索系统。原版知识库约 100 篇文章、40 万字，社区已经做出 SwarmVault、WikiMind 等好几个仿版。"
 
 错误示例（❌ 在分析二手推文内容）：
 "poetengineer 在推文中介绍了 Karpathy 的架构，并分享了自己改造成哲学学习库的经验。推文获得了大量转发..."
@@ -385,14 +390,15 @@ ${urlsSection}
     setPhase(entry, '分析内容');
 
     const systemPrompt = buildTriagePrompt();
-    console.log(`[triage-log] === 开始解析 ${entry.url} [model=${model || 'sonnet'}] ===`);
+    const resolvedModel = resolveModelId(model);
+    console.log(`[triage-log] === 开始解析 ${entry.url} [model=${resolvedModel}] ===`);
     console.log(`[triage-log] system_prompt_chars=${systemPrompt.length}, user_prompt_chars=${userPrompt.length}, scraped_chars=${scraped.length}`);
 
     const q = query({
       prompt: userPrompt,
       options: {
         systemPrompt,
-        model: model || 'sonnet',
+        model: resolvedModel,
         cwd: process.cwd(),
         allowedTools,
         disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
@@ -495,7 +501,7 @@ ${urlsSection}
       entry.verdictReason = result.verdictReason;
       entry.relatedEntries = result.relatedEntries || [];
 
-      // 保存 token 用量
+      // 保存 token 用量（用别名，UI 友好）
       if (resultUsage) {
         const u = resultUsage.usage;
         entry.tokenUsage = {
@@ -535,7 +541,7 @@ ${urlsSection}
           prompt: retryPrompt,
           options: {
             systemPrompt: buildTriagePrompt(),
-            model: model || 'sonnet',
+            model: resolvedModel,
             cwd: process.cwd(),
             allowedTools: hasContent ? [] : ['WebFetch', 'WebSearch'],
             disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],

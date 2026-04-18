@@ -230,21 +230,69 @@ export function stripCodeFence(raw: string): string {
   return raw.trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim();
 }
 
-// 安全解析 JSON：先尝试原文，失败则去围栏重试
+// 修复 LLM 输出常见的字符串内非转义双引号（如用 " 做强调标记）
+// 启发式：扫描时跟踪字符串状态，遇到 " 看下一个非空白字符是否为 , } ] : —— 是则视为真正的结束引号，否则转义
+export function repairUnescapedQuotes(text: string): string {
+  let result = '';
+  let inString = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (!inString) {
+      if (ch === '"') inString = true;
+      result += ch;
+      i++;
+      continue;
+    }
+    // 字符串内部
+    if (ch === '\\') {
+      result += ch + (text[i + 1] ?? '');
+      i += 2;
+      continue;
+    }
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      const next = text[j];
+      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
+        inString = false;
+        result += ch;
+      } else {
+        result += '\\"';
+      }
+      i++;
+      continue;
+    }
+    result += ch;
+    i++;
+  }
+  return result;
+}
+
+// 安全解析 JSON：原文 → 去围栏 → 修复内部双引号
 export function safeParseJSON<T>(raw: string, label: string): T | null {
   const text = raw.trim();
   try {
     return JSON.parse(text);
   } catch {
+    const stripped = stripCodeFence(text);
     try {
-      return JSON.parse(stripCodeFence(text));
-    } catch (e) {
-      const msg = (e as Error).message;
-      const posMatch = msg.match(/position (\d+)/);
-      const pos = posMatch ? parseInt(posMatch[1]) : -1;
-      const context = pos >= 0 ? `| 出错位置前后: ...${text.slice(Math.max(0, pos - 80), pos)}<<<HERE>>>${text.slice(pos, pos + 80)}...` : '';
-      console.warn(`[digest] ${label} JSON 解析失败:`, msg, '| 原文前100字符:', text.slice(0, 100), context);
-      return null;
+      return JSON.parse(stripped);
+    } catch {
+      // 最后一搏：修复字符串内的非转义双引号
+      try {
+        const repaired = repairUnescapedQuotes(stripped);
+        const result = JSON.parse(repaired);
+        console.log(`[digest] ${label} JSON 修复成功（转义了内部双引号）`);
+        return result;
+      } catch (e) {
+        const msg = (e as Error).message;
+        const posMatch = msg.match(/position (\d+)/);
+        const pos = posMatch ? parseInt(posMatch[1]) : -1;
+        const context = pos >= 0 ? `| 出错位置前后: ...${text.slice(Math.max(0, pos - 80), pos)}<<<HERE>>>${text.slice(pos, pos + 80)}...` : '';
+        console.warn(`[digest] ${label} JSON 解析失败:`, msg, '| 原文前100字符:', text.slice(0, 100), context);
+        return null;
+      }
     }
   }
 }

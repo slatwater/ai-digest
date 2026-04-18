@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { TriageEntry } from '@/lib/types';
+import { TriageEntry, TriageModel } from '@/lib/types';
 
 export interface ExpandStage {
   question: string;
@@ -9,12 +9,14 @@ export interface ExpandStage {
   loading: boolean;
   toolStatus?: string;
   finished: boolean;
+  model?: TriageModel;  // 该轮使用的模型
 }
 
 interface ExpandState {
   entry: TriageEntry;
   stages: ExpandStage[];
   sessionId: string;   // 整轮会话 ID，新会话时重新生成
+  model: TriageModel;  // 当前选中的模型
 }
 
 export function useExpand() {
@@ -22,13 +24,13 @@ export function useExpand() {
   const stateRef = useRef<ExpandState | null>(null);
 
   // 流式请求单个问题
-  const runExpand = useCallback((entry: TriageEntry, question: string, idx: number, sessionId: string, resetSession: boolean) => {
+  const runExpand = useCallback((entry: TriageEntry, question: string, idx: number, sessionId: string, resetSession: boolean, model: TriageModel) => {
     (async () => {
       try {
         const res = await fetch('/api/expand', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ entry, question, expandSessionId: sessionId, resetSession }),
+          body: JSON.stringify({ entry, question, expandSessionId: sessionId, resetSession, model }),
         });
 
         const reader = res.body?.getReader();
@@ -89,16 +91,17 @@ export function useExpand() {
   }, []);
 
   // 开始新会话（自动发起第一个问题）
-  const startSession = useCallback((entry: TriageEntry, initialQuestion: string) => {
+  const startSession = useCallback((entry: TriageEntry, initialQuestion: string, model: TriageModel = 'sonnet') => {
     const sessionId = `expand-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const newState: ExpandState = {
       entry,
-      stages: [{ question: initialQuestion, answer: '', loading: true, finished: false }],
+      stages: [{ question: initialQuestion, answer: '', loading: true, finished: false, model }],
       sessionId,
+      model,
     };
     setState(newState);
     stateRef.current = newState;
-    runExpand(entry, initialQuestion, 0, sessionId, true); // 新会话重置
+    runExpand(entry, initialQuestion, 0, sessionId, true, model); // 新会话重置
   }, [runExpand]);
 
   // 追问（复用同一 sessionId，保留上下文）
@@ -108,12 +111,17 @@ export function useExpand() {
     const idx = current.stages.length;
     const newState: ExpandState = {
       ...current,
-      stages: [...current.stages, { question, answer: '', loading: true, finished: false }],
+      stages: [...current.stages, { question, answer: '', loading: true, finished: false, model: current.model }],
     };
     setState(newState);
     stateRef.current = newState;
-    runExpand(current.entry, question, idx, current.sessionId, false); // 续问不重置
+    runExpand(current.entry, question, idx, current.sessionId, false, current.model); // 续问不重置
   }, [runExpand]);
+
+  // 切换模型（影响下一轮提问）
+  const setModel = useCallback((model: TriageModel) => {
+    setState(s => s ? { ...s, model } : s);
+  }, []);
 
   // 退出
   const reset = useCallback(() => {
@@ -130,9 +138,11 @@ export function useExpand() {
     active: state !== null,
     entry: state?.entry ?? null,
     stages: state?.stages ?? [],
+    model: state?.model ?? 'sonnet' as TriageModel,
     canAsk: !lastStage || lastStage.finished,
     startSession,
     askQuestion,
+    setModel,
     reset,
   };
 }

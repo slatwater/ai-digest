@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { TriageEntry } from './types';
+import { TriageEntry, TriageModel, resolveModelId } from './types';
 import { reportFromSDKMessage } from './token-report';
 
 // SSE 事件发送器
@@ -74,6 +74,7 @@ export async function runExpand(
   question: string,
   expandSessionId: string,
   send: EventSender,
+  model?: TriageModel,
 ): Promise<void> {
   if (!question.trim()) {
     send('error', { message: '请输入问题' });
@@ -109,6 +110,7 @@ export async function runExpand(
 
     const queryOptions: Record<string, unknown> = {
       systemPrompt,
+      model: resolveModelId(model),
       cwd: process.cwd(),
       allowedTools: ['WebFetch', 'WebSearch'],
       disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
@@ -131,7 +133,7 @@ export async function runExpand(
     let capturedSdkId: string | null = existing?.sdkSessionId || null;
     let turnCount = 0;
 
-    console.log(`[expand-log] === 开始深入 [resume=${isResume}] prompt_chars=${userPrompt.length} ===`);
+    console.log(`[expand-log] === 开始深入 [resume=${isResume}] [model=${resolveModelId(model)}] prompt_chars=${userPrompt.length} ===`);
 
     for await (const message of q) {
       reportFromSDKMessage('aidigest', message);
