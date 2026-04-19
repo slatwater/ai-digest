@@ -1,0 +1,40 @@
+{
+  "id": "2c50639b-f053-4b0b-8832-82edab232c23",
+  "entryId": "fe2acb2b-7aaa-4998-bf56-b526c4b44c2e",
+  "entrySnapshot": {
+    "title": "HyperFrames：HeyGen 开源的网页转视频渲染框架",
+    "url": "https://x.com/starzq/status/2045155420676014407",
+    "narrative": "从 @starzq 推文发现，一手来源是 HeyGen 官方于 2026 年 4 月发布的 GitHub 仓库 heygen-com/hyperframes。\n\nheygen-com 发布了开源视频渲染框架 [[HyperFrames]]，让开发者和 AI agent 只写 HTML 文件就能输出 MP4。不用学 After Effects，也不用拖时间轴。框架底层用 Puppeteer 截帧、FFmpeg 合成，保证「同一份 HTML 每次渲染结果完全一致」。内置 50+ 现成组件，包括社交卡片、数据可视化、着色器转场。`/website-to-hyperframes` 是随包附带的一个 Skill，安装后 AI agent 可以直接把任意网址截图并转成视频素材。项目 Apache 2.0 开源，发布数日 GitHub 已获 6200+ Star。",
+    "concepts": [
+      {
+        "name": "HyperFrames",
+        "role": "subject",
+        "root": "HeyGen（heygen-com），2026年4月开源 → 用 HTML/CSS/JS 描述视频合成，经 Puppeteer+FFmpeg 渲染为 MP4",
+        "whatItEnables": "让 AI agent 通过写网页代码直接产出视频文件，无需学习专业视频剪辑软件",
+        "sourceUrl": "https://github.com/heygen-com/hyperframes"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://github.com/heygen-com/hyperframes",
+        "title": "GitHub - heygen-com/hyperframes: Write HTML. Render video. Built for agents.",
+        "type": "original"
+      },
+      {
+        "url": "https://hyperframes.heygen.com",
+        "title": "HyperFrames — Edit Videos By Vibe-Coding",
+        "type": "docs"
+      },
+      {
+        "url": "https://hyperframes.heygen.com/guides/website-to-video",
+        "title": "Website to Video - HyperFrames - HeyGen",
+        "type": "docs"
+      }
+    ]
+  },
+  "nodes": [],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T16:30:49.095Z",
+  "updatedAt": "2026-04-19T16:30:49.097Z"
+}

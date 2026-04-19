@@ -1,7 +1,18 @@
 'use client';
 
 import { useState, Fragment } from 'react';
-import { TriageEntry, TriageConcept } from '@/lib/types';
+import { TriageEntry, TriageConcept, SourceInfo } from '@/lib/types';
+
+// ── B 方向视觉常量 ──
+const INK = '#1a1713';
+const INK2 = '#4a4238';
+const INK3 = '#7a6f60';
+const RED = '#c94a1a';
+const PAPER = '#f4ede0';
+const PAPER_WARM = '#fff7e8';
+const ERR = 'oklch(55% 0.2 25)';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const SERIF = 'var(--font-fraunces), Georgia, serif';
 
 interface Props {
   entry: TriageEntry;
@@ -9,282 +20,594 @@ interface Props {
   onExpand?: (entry: TriageEntry, question: string) => void;
 }
 
-// ── 工具函数 ──
 function getDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
+function getPath(url: string): string {
+  try { const u = new URL(url); return u.pathname + (u.search || ''); } catch { return ''; }
+}
 
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
 
-// ── D. 概念登记簿 ──
-function ConceptRegister({ concepts }: {
-  concepts: TriageConcept[];
-}) {
-  if (concepts.length === 0) return null;
+function formatDuration(ms?: number): string {
+  if (!ms) return '—';
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const r = Math.round(s - m * 60);
+  return `${m}m ${r}s`;
+}
 
+// 解析「新增量」：有 delta.gap 且无 relatedEntries 为 novel；有相关条目为 incremental；skip 为 known
+type Novelty = 'novel' | 'incremental' | 'known';
+function deriveNovelty(entry: TriageEntry): Novelty {
+  if (entry.verdict === 'skip') return 'known';
+  const hasRelated = (entry.relatedEntries?.length ?? 0) > 0;
+  return hasRelated ? 'incremental' : 'novel';
+}
+
+// ── Novelty 徽章 ──
+function NoveltyBadge({ novelty }: { novelty: Novelty }) {
+  const map: Record<Novelty, { label: string; sub: string; tone: 'red' | 'ink' | 'mute' }> = {
+    novel: { label: 'NOVEL', sub: '新增量', tone: 'red' },
+    incremental: { label: 'INCREMENT', sub: '迭代', tone: 'ink' },
+    known: { label: 'KNOWN', sub: '已知', tone: 'mute' },
+  };
+  const m = map[novelty];
+  const colors = {
+    red: { bg: RED, fg: PAPER, line: RED },
+    ink: { bg: 'transparent', fg: INK, line: INK },
+    mute: { bg: 'transparent', fg: INK3, line: 'rgba(26,23,19,0.3)' },
+  }[m.tone];
   return (
-    <div className="space-y-1">
-      {concepts.map((c, i) => (
-        <div
-          key={i}
-          className="w-full text-left py-1.5 pl-3 block"
-          style={{ borderLeft: '2px solid var(--border-subtle)' }}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {c.name}
-            </span>
-            <span style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-quaternary)', whiteSpace: 'nowrap' }}>
-              {c.role === 'subject' ? 'subject' : 'component'}
+    <span style={{
+      fontFamily: MONO,
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      fontSize: 9, letterSpacing: 1.4,
+      padding: '3px 8px',
+      background: colors.bg, color: colors.fg,
+      border: `1px solid ${colors.line}`,
+    }}>
+      <span style={{ fontWeight: 600 }}>{m.label}</span>
+      <span style={{ opacity: 0.7 }}>{m.sub}</span>
+    </span>
+  );
+}
+
+// ── Narrative 渲染：[[name]] 红色虚线链接 + **bold** ──
+function Narrative({ text, concepts }: { text: string; concepts: TriageConcept[] }) {
+  const nodes: React.ReactNode[] = [];
+  let idx = 0;
+  const re = /(\*\*[^*]+\*\*)|(\[\[[^\]]+\]\])/g;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > idx) nodes.push(<Fragment key={`t${key++}`}>{text.slice(idx, m.index)}</Fragment>);
+    const tok = m[0];
+    if (tok.startsWith('**')) {
+      nodes.push(<strong key={`b${key++}`} style={{ color: INK, fontWeight: 600 }}>{tok.slice(2, -2)}</strong>);
+    } else {
+      const inner = tok.slice(2, -2).split('|')[0];
+      const concept = concepts.find(c => c.name.trim().toLowerCase() === inner.trim().toLowerCase());
+      nodes.push(
+        <a key={`a${key++}`} href={concept?.sourceUrl || '#'}
+          target={concept?.sourceUrl ? '_blank' : undefined}
+          rel="noopener noreferrer"
+          style={{
+            color: RED, textDecoration: 'none',
+            borderBottom: `1px dashed ${RED}`,
+            padding: '0 2px', whiteSpace: 'nowrap',
+          }}>
+          {inner}
+        </a>
+      );
+    }
+    idx = m.index + tok.length;
+  }
+  if (idx < text.length) nodes.push(<Fragment key={`t${key++}`}>{text.slice(idx)}</Fragment>);
+  return (
+    <div style={{
+      fontSize: 14.5, lineHeight: 1.75, color: INK,
+      whiteSpace: 'pre-wrap',
+    }}>
+      {nodes}
+    </div>
+  );
+}
+
+// ── 源头 kind 推断 ──
+function kindFromSource(s: SourceInfo): string {
+  switch (s.type) {
+    case 'paper': return 'paper';
+    case 'github': return 'code';
+    case 'docs': return 'docs';
+    case 'original': return 'blog';
+    case 'related': return 'related';
+    default: return 'link';
+  }
+}
+
+// ── 处理中卡片 ──
+function ProcessingCard({ entry, index }: { entry: TriageEntry; index: number }) {
+  const current = entry.liveStatus || '正在解析';
+  return (
+    <article style={{
+      border: `1px dashed ${INK}`,
+      background: 'rgba(255,252,244,0.4)',
+      marginBottom: 18,
+      position: 'relative', overflow: 'hidden',
+    }}>
+      <div style={{
+        position: 'absolute', left: 0, right: 0, top: 0, height: 2,
+        background: RED, animation: 'scan 1.8s linear infinite',
+        boxShadow: '0 0 8px rgba(201,74,26,0.6)',
+      }} />
+      <div style={{
+        padding: '14px 20px', display: 'grid',
+        gridTemplateColumns: 'auto 1fr auto', gap: 16, alignItems: 'center',
+      }}>
+        <div style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: RED, letterSpacing: 1 }}>
+          <span style={{ color: INK3, opacity: 0.6 }}>№</span>
+          {String(index).padStart(2, '0')}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{
+            fontFamily: MONO, fontSize: 12, color: INK2, marginBottom: 4,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {entry.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 10, color: RED, letterSpacing: 0.5 }}>
+            {current}
+            <span style={{ marginLeft: 8, display: 'inline-flex', gap: 2 }}>
+              {[0, 1, 2].map(i => (
+                <span key={i} style={{
+                  display: 'inline-block', width: 3, height: 3, borderRadius: '50%',
+                  background: RED,
+                  animation: `typingDot 1.2s ease-in-out infinite`,
+                  animationDelay: `${i * 0.2}s`,
+                }} />
+              ))}
             </span>
           </div>
-          {c.root && (
-            <div className="mt-0.5 pl-0" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: '1.5' }}>
-              {c.root}
+        </div>
+        <div style={{
+          fontFamily: MONO, fontSize: 9, color: INK3, letterSpacing: 1.4,
+          textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <span style={{
+            display: 'inline-block', width: 8, height: 8,
+            border: `1.5px solid ${RED}`, borderTopColor: 'transparent', borderRadius: '50%',
+            animation: 'drift 0.9s linear infinite',
+          }} />
+          streaming
+        </div>
+      </div>
+    </article>
+  );
+}
+
+// ── 失败卡片 ──
+function ErrorCard({ entry, index }: { entry: TriageEntry; index: number }) {
+  return (
+    <article style={{
+      border: `1px solid ${ERR}`,
+      background: 'rgba(220,60,30,0.03)',
+      marginBottom: 18, padding: '12px 20px',
+      display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 16, alignItems: 'center',
+    }}>
+      <div style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: ERR }}>
+        <span style={{ opacity: 0.6 }}>№</span>{String(index).padStart(2, '0')}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          fontFamily: MONO, fontSize: 11, color: ERR, fontWeight: 500,
+          marginBottom: 3, letterSpacing: 0.3,
+        }}>
+          ✗ {entry.error || '解析失败'}
+        </div>
+        <div style={{
+          fontFamily: MONO, fontSize: 10, color: INK3,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {entry.url}
+        </div>
+      </div>
+      <a href={entry.url} target="_blank" rel="noopener noreferrer" style={{
+        fontFamily: MONO, fontSize: 11, padding: '5px 12px',
+        border: `1px solid ${ERR}`, color: ERR, textDecoration: 'none',
+      }}>
+        ↻ open
+      </a>
+    </article>
+  );
+}
+
+// ══════════════════════════════════════
+// 主组件：TriageSection (按实体状态分发)
+// ══════════════════════════════════════
+export function TriageSection({ entry, index, onExpand }: Props) {
+  if (entry.status === 'error') return <ErrorCard entry={entry} index={index} />;
+  if (entry.status === 'processing' || entry.status === 'pending') {
+    return <ProcessingCard entry={entry} index={index} />;
+  }
+  return <DoneCard entry={entry} index={index} onExpand={onExpand} />;
+}
+
+// ── 完成卡片主体 ──
+function DoneCard({ entry, index, onExpand }: Props) {
+  const [expanded, setExpanded] = useState(index === 1);
+  const [activeConcept, setActiveConcept] = useState<number | null>(null);
+
+  const concepts = entry.concepts || [];
+  const sources = entry.sources || [];
+  const domain = getDomain(entry.url);
+  const novelty = deriveNovelty(entry);
+
+  const tokens = entry.tokenUsage
+    ? formatTokens(entry.tokenUsage.inputTokens + entry.tokenUsage.outputTokens)
+    : '—';
+  const duration = formatDuration(entry.tokenUsage?.durationMs);
+
+  const related = entry.relatedEntries?.[0];
+
+  // 构造溯源链：第 1 条以 origin 模式展示；其余 linked
+  const originIdx = (() => {
+    const i = sources.findIndex(s => s.type === 'original' || s.type === 'paper');
+    return i === -1 ? 0 : i;
+  })();
+
+  return (
+    <article style={{
+      border: `1px solid ${INK}`,
+      background: 'rgba(255,252,244,0.85)',
+      boxShadow: `3px 3px 0 ${INK}`,
+      marginBottom: 28,
+      position: 'relative',
+      animation: 'fadeIn 0.3s ease-out',
+    }}>
+      {/* 卡片头 */}
+      <div style={{
+        borderBottom: expanded ? `1px solid ${INK}` : '1px dashed rgba(26,23,19,0.3)',
+        padding: '12px 20px',
+        display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 16, alignItems: 'center',
+      }}>
+        <div style={{
+          fontFamily: MONO, fontSize: 11, fontWeight: 600, color: RED,
+          letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <span style={{ color: INK3, opacity: 0.6 }}>№</span>
+          {String(index).padStart(2, '0')}
+        </div>
+        <button onClick={() => setExpanded(!expanded)} style={{
+          textAlign: 'left', display: 'block', width: '100%',
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        }}>
+          <div style={{
+            fontFamily: SERIF, fontSize: 21, fontWeight: 500, color: INK,
+            lineHeight: 1.25, letterSpacing: -0.3,
+          }}>
+            {entry.title}
+          </div>
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <NoveltyBadge novelty={novelty} />
+          <button onClick={() => setExpanded(!expanded)} style={{
+            fontFamily: MONO, fontSize: 10, color: INK3, letterSpacing: 1,
+            width: 40, textAlign: 'right',
+            background: 'none', border: 'none', cursor: 'pointer',
+          }}>
+            {expanded ? '[ −   ]' : '[ +   ]'}
+          </button>
+        </div>
+      </div>
+
+      {/* 元信息条 */}
+      <div style={{
+        fontFamily: MONO,
+        padding: '8px 20px',
+        display: 'flex', gap: 18, fontSize: 10, color: INK3,
+        background: 'rgba(26,23,19,0.03)',
+        borderBottom: expanded ? '1px dashed rgba(26,23,19,0.25)' : 'none',
+        letterSpacing: 0.5, flexWrap: 'wrap',
+      }}>
+        <span style={{ color: RED }}>●</span>
+        <a href={entry.url} target="_blank" rel="noopener noreferrer"
+          style={{ color: INK3, textDecoration: 'none' }}>{domain}</a>
+        <span style={{ opacity: 0.4 }}>│</span>
+        <span>duration {duration}</span>
+        <span style={{ opacity: 0.4 }}>│</span>
+        <span>{tokens} tokens</span>
+        <span style={{ opacity: 0.4 }}>│</span>
+        <span>{sources.length} sources</span>
+        {entry.verdictReason && (
+          <>
+            <span style={{ opacity: 0.4 }}>│</span>
+            <span style={{ fontStyle: 'italic', color: INK2 }}>{entry.verdictReason}</span>
+          </>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={{ padding: '24px 32px 28px 32px' }}>
+          {/* 概念 chips */}
+          {concepts.length > 0 && (
+            <div style={{ marginBottom: 22 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 0, alignItems: 'baseline' }}>
+                <span style={{
+                  fontFamily: MONO, fontSize: 10, color: INK3, letterSpacing: 1.2,
+                  textTransform: 'uppercase', marginRight: 10, paddingTop: 4,
+                }}>主角 · subjects →</span>
+                {concepts.map((c, i) => {
+                  const isActive = activeConcept === i;
+                  const hasDesc = !!(c.root || c.whatItEnables);
+                  const noteText = c.role === 'subject' ? '主角' : c.role === 'component' ? '组件' : null;
+                  return (
+                    <button key={i} onClick={() => setActiveConcept(isActive ? null : (hasDesc ? i : null))}
+                      style={{
+                        fontFamily: MONO,
+                        display: 'inline-flex', alignItems: 'baseline', gap: 5,
+                        fontSize: 11, color: isActive ? PAPER : INK,
+                        border: `1px solid ${INK}`, padding: '3px 8px',
+                        marginRight: -1, marginBottom: -1,
+                        background: isActive ? INK : (i % 2 === 0 ? PAPER_WARM : PAPER),
+                        cursor: hasDesc ? 'pointer' : 'default',
+                        position: 'relative',
+                      }}>
+                      <span style={{ fontWeight: 500 }}>{c.name}</span>
+                      {noteText && (
+                        <span style={{
+                          fontSize: 9,
+                          color: isActive ? 'rgba(255,252,244,0.6)' : INK3,
+                          opacity: isActive ? 1 : 0.8,
+                        }}>/{noteText}</span>
+                      )}
+                      {hasDesc && (
+                        <span style={{
+                          fontSize: 9, marginLeft: 3,
+                          color: isActive ? '#ff8a5c' : RED,
+                        }}>{isActive ? '▾' : '▸'}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 详情面板 */}
+              {activeConcept !== null && concepts[activeConcept] && (
+                <div style={{
+                  marginTop: 10,
+                  padding: '12px 14px',
+                  background: PAPER_WARM,
+                  border: `1px solid ${INK}`,
+                  borderLeft: `3px solid ${RED}`,
+                  display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 14, alignItems: 'start',
+                  animation: 'fadeIn 0.18s ease-out',
+                }}>
+                  <span style={{
+                    fontFamily: MONO, fontSize: 10, color: RED, letterSpacing: 1,
+                    textTransform: 'uppercase', paddingTop: 3,
+                  }}>详情 ·</span>
+                  <div>
+                    <div style={{
+                      fontFamily: MONO, fontSize: 12, color: INK, fontWeight: 600, marginBottom: 3,
+                    }}>
+                      {concepts[activeConcept].name}
+                      {concepts[activeConcept].role && (
+                        <span style={{ fontSize: 10, color: INK3, fontWeight: 400, marginLeft: 6 }}>
+                          / {concepts[activeConcept].role === 'subject' ? '主角' : '组件'}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12.5, lineHeight: 1.65, color: INK2 }}>
+                      {concepts[activeConcept].root}
+                      {concepts[activeConcept].whatItEnables && (
+                        <div style={{ marginTop: 6, color: INK2 }}>
+                          <span style={{ fontFamily: MONO, fontSize: 10, color: INK3, marginRight: 6 }}>→</span>
+                          {concepts[activeConcept].whatItEnables}
+                        </div>
+                      )}
+                    </div>
+                    {concepts[activeConcept].sourceUrl && (
+                      <div style={{
+                        fontFamily: MONO, fontSize: 10, color: INK3, marginTop: 6, letterSpacing: 0.3,
+                      }}>
+                        → <a href={concepts[activeConcept].sourceUrl} target="_blank" rel="noopener noreferrer"
+                          style={{ color: RED, textDecoration: 'none' }}>
+                          {getDomain(concepts[activeConcept].sourceUrl!)}
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => setActiveConcept(null)} style={{
+                    fontFamily: MONO, fontSize: 11, color: INK3,
+                    background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px',
+                  }}>×</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 叙述 */}
+          {entry.narrative && (
+            <div style={{
+              display: 'grid', gridTemplateColumns: '36px 1fr', gap: 16, marginBottom: 24,
+            }}>
+              <div style={{
+                fontFamily: MONO, fontSize: 9, color: INK3, letterSpacing: 1,
+                textTransform: 'uppercase',
+                writingMode: 'vertical-rl', transform: 'rotate(180deg)', paddingTop: 4,
+              }}>
+                narrative
+              </div>
+              <div>
+                <Narrative text={entry.narrative} concepts={concepts} />
+              </div>
+            </div>
+          )}
+
+          {/* 溯源链 */}
+          {sources.length > 0 && (
+            <div style={{ paddingTop: 18, borderTop: '1px dashed rgba(26,23,19,0.25)' }}>
+              <div style={{
+                fontFamily: MONO, fontSize: 10, color: RED, letterSpacing: 1.4,
+                textTransform: 'uppercase', marginBottom: 12,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+              }}>
+                <span>─ 溯源链 · source trace</span>
+                <span style={{ color: INK3 }}>{sources.length} 个节点</span>
+              </div>
+              <div>
+                {sources.map((s, i) => {
+                  const isOrigin = i === originIdx;
+                  const isLast = i === sources.length - 1;
+                  return (
+                    <div key={i} style={{
+                      display: 'grid', gridTemplateColumns: '64px 1fr',
+                      position: 'relative',
+                    }}>
+                      <div style={{
+                        position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      }}>
+                        <div style={{
+                          width: isOrigin ? 28 : 18,
+                          height: isOrigin ? 28 : 18,
+                          marginTop: isOrigin ? 2 : 7,
+                          borderRadius: '50%',
+                          border: isOrigin ? `2px solid ${RED}` : `1.5px solid ${INK}`,
+                          background: isOrigin ? RED : PAPER,
+                          display: 'grid', placeItems: 'center',
+                          fontSize: isOrigin ? 11 : 9,
+                          color: isOrigin ? PAPER : INK,
+                          fontFamily: MONO,
+                          fontWeight: isOrigin ? 700 : 500,
+                          zIndex: 2,
+                          boxShadow: isOrigin ? `0 0 0 3px ${PAPER}, 2px 2px 0 ${INK}` : 'none',
+                        }}>
+                          {isOrigin ? '◉' : String(i + 1).padStart(2, '0')}
+                        </div>
+                        {!isLast && (
+                          <div style={{
+                            width: 1, flex: 1,
+                            background: `repeating-linear-gradient(to bottom, ${INK} 0 3px, transparent 3px 6px)`,
+                            opacity: 0.5,
+                            marginTop: 2, marginBottom: -6,
+                            minHeight: 24,
+                          }} />
+                        )}
+                      </div>
+                      <div style={{
+                        paddingBottom: isLast ? 4 : 18,
+                        paddingLeft: 8,
+                        paddingTop: isOrigin ? 0 : 4,
+                      }}>
+                        <div style={{
+                          fontFamily: MONO,
+                          fontSize: isOrigin ? 10 : 9,
+                          color: isOrigin ? RED : INK3,
+                          letterSpacing: 1.2, textTransform: 'uppercase',
+                          marginBottom: 3,
+                          fontWeight: isOrigin ? 600 : 400,
+                        }}>
+                          {isOrigin
+                            ? '※ 源头 · origin'
+                            : <>↳ 发现自 正文 · {s.type === 'paper' ? '引用' : '链接'}</>}
+                        </div>
+                        <a href={s.url} target="_blank" rel="noopener noreferrer" style={{
+                          fontFamily: MONO,
+                          display: 'inline-flex', alignItems: 'baseline', gap: 8,
+                          fontSize: isOrigin ? 13 : 11.5,
+                          color: INK, textDecoration: 'none',
+                          fontWeight: isOrigin ? 600 : 400,
+                          borderBottom: '1px solid transparent',
+                          flexWrap: 'wrap',
+                        }}
+                          onMouseEnter={e => (e.currentTarget.style.borderBottomColor = RED)}
+                          onMouseLeave={e => (e.currentTarget.style.borderBottomColor = 'transparent')}
+                        >
+                          <span style={{ color: RED }}>{getDomain(s.url)}</span>
+                          <span style={{ color: INK3 }}>{getPath(s.url)}</span>
+                          <span style={{
+                            fontSize: 8.5, color: INK3, padding: '1px 6px',
+                            border: '1px solid rgba(26,23,19,0.3)',
+                            letterSpacing: 0.5, textTransform: 'uppercase',
+                            alignSelf: 'center',
+                          }}>{kindFromSource(s)}</span>
+                        </a>
+                        {(s.snippet || s.title) && (
+                          <div style={{
+                            fontSize: 11, color: INK2, marginTop: 3, lineHeight: 1.5,
+                          }}>
+                            {s.snippet || s.title}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 深入追问 CTA */}
+          {onExpand && (
+            <div style={{
+              marginTop: 22,
+              paddingTop: 18,
+              borderTop: `1px solid ${INK}`,
+            }}>
+              <button
+                onClick={() => onExpand(entry, '')}
+                className="action-btn"
+                style={{
+                  fontFamily: MONO,
+                  width: '100%',
+                  display: 'grid', gridTemplateColumns: 'auto 1fr auto auto', gap: 16,
+                  alignItems: 'center', textAlign: 'left',
+                  padding: '18px 24px',
+                  border: `1px solid ${INK}`,
+                  background: RED, color: PAPER,
+                  boxShadow: `3px 3px 0 ${INK}`,
+                  cursor: 'pointer',
+                  transition: 'transform 0.12s, box-shadow 0.12s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translate(-1px,-1px)';
+                  e.currentTarget.style.boxShadow = `4px 4px 0 ${INK}`;
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = '';
+                  e.currentTarget.style.boxShadow = `3px 3px 0 ${INK}`;
+                }}
+              >
+                <span style={{
+                  width: 32, height: 32, border: `1px solid ${PAPER}`,
+                  display: 'grid', placeItems: 'center', fontSize: 15,
+                  background: 'transparent', color: PAPER,
+                }}>?</span>
+                <span>
+                  <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.4, marginBottom: 3 }}>
+                    深入追问
+                  </div>
+                  <div style={{ fontSize: 10, opacity: 0.78, letterSpacing: 0.5 }}>
+                    进入流程式提问 · 分支式探查 · 完成后沉淀入 Wiki
+                  </div>
+                </span>
+                <span style={{
+                  fontFamily: MONO, fontSize: 10, opacity: 0.85, letterSpacing: 1,
+                  padding: '4px 10px', border: '1px solid rgba(255,252,244,0.35)',
+                }}>
+                  {related ? <>→ 关联 {related.title}</> : <>→ 新建词条</>}
+                </span>
+                <span style={{ fontSize: 16 }}>→</span>
+              </button>
             </div>
           )}
         </div>
-      ))}
-    </div>
-  );
-}
-
-// ── F. 叙述文本 ──
-function NarrativeText({ text, concepts }: {
-  text: string;
-  concepts: TriageConcept[];
-}) {
-  const parts: { type: 'text' | 'concept'; content: string; concept?: TriageConcept }[] = [];
-  // 兼容 [[name]] 和旧格式 [[name|tag]]
-  const regex = /\[\[([^|\]]+)(?:\|[^\]]+)?\]\]/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
-    const name = match[1];
-    const concept = concepts.find(c => c.name === name) || { name, root: '', whatItEnables: '' };
-    parts.push({ type: 'concept', content: name, concept });
-    lastIndex = regex.lastIndex;
-  }
-  if (lastIndex < text.length) parts.push({ type: 'text', content: text.slice(lastIndex) });
-
-  const seen = new Set<string>();
-  const rendered = parts.map((part, i) => {
-    if (part.type === 'text') return <Fragment key={i}>{part.content}</Fragment>;
-    if (seen.has(part.content)) return <span key={i} style={{ fontWeight: 600 }}>{part.content}</span>;
-    seen.add(part.content);
-    return (
-      <span
-        key={i}
-        style={{
-          fontWeight: 600,
-          color: 'var(--text-primary)',
-          lineHeight: 'inherit',
-          fontSize: 'inherit',
-        }}
-      >
-        {part.content}
-      </span>
-    );
-  });
-
-  const paragraphs: React.ReactNode[][] = [[]];
-  for (let idx = 0; idx < parts.length; idx++) {
-    const part = parts[idx];
-    const node = rendered[idx];
-    if (part.type === 'text' && part.content.includes('\n\n')) {
-      const segments = part.content.split('\n\n');
-      segments.forEach((seg, si) => {
-        if (seg) paragraphs[paragraphs.length - 1].push(<Fragment key={`${idx}-${si}`}>{seg}</Fragment>);
-        if (si < segments.length - 1) paragraphs.push([]);
-      });
-    } else {
-      paragraphs[paragraphs.length - 1].push(node);
-    }
-  }
-
-  return (
-    <div className="space-y-3" style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)', lineHeight: '1.85' }}>
-      {paragraphs.filter(p => p.length > 0).map((para, i) => (
-        <p key={i} style={i === 0 ? { fontWeight: 500 } : undefined}>{para}</p>
-      ))}
-    </div>
-  );
-}
-
-// ── G. 溯源链路 ──
-function SourceProvenance({ entry }: { entry: TriageEntry }) {
-  const sources = entry.sources?.length
-    ? entry.sources
-    : (entry.concepts || []).filter(c => c.sourceUrl).map(c => ({ url: c.sourceUrl!, title: c.name, type: 'related' as const }));
-
-  const primary = sources.filter(s => s.type === 'original' || s.type === 'paper');
-  const inputDomain = getDomain(entry.url);
-  const inputIsSource = sources.some(s => getDomain(s.url) === inputDomain && (s.type === 'original' || s.type === 'paper'));
-
-  // 构建有序链路节点
-  interface ChainNode { url: string; title: string; domain: string; tag: string; highlight?: boolean }
-  const chain: ChainNode[] = [];
-
-  // 1. 起点：用户提交的链接
-  if (!inputIsSource) {
-    chain.push({ url: entry.url, title: entry.title || inputDomain, domain: inputDomain, tag: '原链接' });
-  }
-
-  // 2. 源头
-  for (const s of primary) {
-    chain.push({ url: s.url, title: s.title || getDomain(s.url), domain: getDomain(s.url), tag: s.type === 'paper' ? '论文' : '源头', highlight: true });
-  }
-
-  // 3. 补充来源（GitHub、文档等）
-  const typeLabels: Record<string, string> = { github: 'GitHub', docs: '文档', related: '相关' };
-  for (const s of sources) {
-    if (s.type === 'original' || s.type === 'paper') continue;
-    if (getDomain(s.url) === inputDomain) continue;
-    chain.push({ url: s.url, title: s.title || getDomain(s.url), domain: getDomain(s.url), tag: typeLabels[s.type] || '相关' });
-  }
-
-  // 源头自身
-  if (chain.length === 0 && inputIsSource) {
-    chain.push({ url: entry.url, title: entry.title || inputDomain, domain: inputDomain, tag: '源头', highlight: true });
-  }
-
-  if (chain.length === 0) return null;
-
-  return (
-    <div>
-      <span style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-quaternary)', display: 'block', marginBottom: 8 }}>
-        溯源链路
-      </span>
-      <div className="flex flex-col gap-1">
-        {chain.map((node, i) => (
-          <div key={i} className="flex items-start gap-2">
-            {/* 连接线 */}
-            <div className="flex flex-col items-center shrink-0" style={{ width: 12, paddingTop: 5 }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: node.highlight ? 'var(--text-new)' : 'var(--border)' }} />
-              {i < chain.length - 1 && (
-                <span className="w-px flex-1 mt-1" style={{ background: 'var(--border-subtle)', minHeight: 12 }} />
-              )}
-            </div>
-            {/* 内容 */}
-            <div className="min-w-0 pb-1.5">
-              <span style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: node.highlight ? 'var(--text-new)' : 'var(--text-quaternary)', fontWeight: 500 }}>
-                {node.tag}
-              </span>
-              <a
-                href={node.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block truncate mt-0.5"
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--text-tertiary)',
-                  textDecoration: 'none',
-                  transition: 'color var(--duration-fast) var(--ease-out)',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent-text)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
-              >
-                {node.title}
-                <span style={{ color: 'var(--text-quaternary)', opacity: 0.5, marginLeft: 6 }}>{node.domain}</span>
-              </a>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── H. 深入入口（自由输入，触发 onExpand 切视图） ──
-function ExpandTrigger({ onExpand }: { onExpand: (q: string) => void }) {
-  const [question, setQuestion] = useState('');
-
-  return (
-    <form onSubmit={e => { e.preventDefault(); const q = question.trim(); if (q) { onExpand(q); setQuestion(''); } }}
-      className="flex items-center gap-2">
-      <input type="text" value={question} onChange={e => setQuestion(e.target.value)}
-        placeholder="想深入了解什么？"
-        className="flex-1 px-0 py-1.5"
-        style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)',
-          border: 'none', borderBottom: '1px solid var(--border-subtle)', background: 'transparent', outline: 'none' }}
-      />
-      {question.trim() && (
-        <button type="submit" style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-new)', fontWeight: 500 }}>→</button>
       )}
-    </form>
-  );
-}
-
-// ══════════════════════════════════════
-// ── 主组件：情报简报 ──
-// ══════════════════════════════════════
-export function TriageSection({ entry, index, onExpand }: Props) {
-  const concepts = entry.concepts || [];
-
-  return (
-    <section className="relative mb-12">
-      {/* ── A. 头部：编号 + 来源域名 + 分割线 ── */}
-      <div className="flex items-center gap-3 mb-6">
-        <span className="tabular-nums" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-          {String(index).padStart(2, '0')}
-        </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-          {getDomain(entry.url)}
-        </span>
-        <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-      </div>
-
-      {/* 标题 */}
-      <div className="mb-3">
-        <a href={entry.url} target="_blank" rel="noopener noreferrer"
-          className="font-semibold tracking-tight leading-snug hover:underline"
-          style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)', textUnderlineOffset: '3px', textDecorationColor: 'var(--border)' }}>
-          {entry.title}
-        </a>
-      </div>
-
-      {/* ── D. 判定理由 ── */}
-      {entry.verdictReason && (
-        <p className="mb-5" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', fontStyle: 'italic', lineHeight: '1.6' }}>
-          {entry.verdictReason}
-        </p>
-      )}
-
-      {/* ── E. 概念登记簿 ── */}
-      {concepts.length > 0 && (
-        <div className="mb-6 relative">
-          <ConceptRegister
-            concepts={concepts}
-          />
-        </div>
-      )}
-
-      {/* ── F. 叙事正文 ── */}
-      {entry.narrative ? (
-        <div className="mb-5">
-          <NarrativeText
-            text={entry.narrative}
-            concepts={concepts}
-          />
-        </div>
-      ) : entry.explanation ? (
-        <p className="mb-5" style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)', lineHeight: '1.85' }}>
-          {entry.explanation}
-        </p>
-      ) : null}
-
-      {/* ── G. 来源链路 ── */}
-      <div className="mb-8">
-        <SourceProvenance entry={entry} />
-      </div>
-
-      {/* ── H. 深入 ── */}
-      {onExpand && (
-        <div className="pt-6" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-          <ExpandTrigger onExpand={q => onExpand(entry, q)} />
-        </div>
-      )}
-    </section>
+    </article>
   );
 }

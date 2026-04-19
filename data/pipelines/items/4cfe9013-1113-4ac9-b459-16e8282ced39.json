@@ -1,0 +1,30 @@
+{
+  "id": "4cfe9013-1113-4ac9-b459-16e8282ced39",
+  "entryId": "test-1776524451948",
+  "entrySnapshot": {
+    "title": "FlexAttention — Test Entry",
+    "url": "https://pytorch.org/blog/flexattention",
+    "narrative": "主角是 **FlexAttention** —— 把 [[mask_mod]] 编译成 Triton。",
+    "concepts": [
+      {
+        "name": "FlexAttention",
+        "role": "subject",
+        "root": "起源",
+        "whatItEnables": "统一 attention API",
+        "sourceUrl": "https://pytorch.org/blog/flexattention"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://pytorch.org/blog/flexattention",
+        "title": "FlexAttention",
+        "type": "original"
+      }
+    ]
+  },
+  "nodes": [],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-18T15:00:52.028Z",
+  "updatedAt": "2026-04-18T15:00:52.029Z"
+}

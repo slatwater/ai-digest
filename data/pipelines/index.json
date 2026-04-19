@@ -1,0 +1,77 @@
+[
+  {
+    "id": "2c50639b-f053-4b0b-8832-82edab232c23",
+    "entryId": "fe2acb2b-7aaa-4998-bf56-b526c4b44c2e",
+    "title": "HyperFrames：HeyGen 开源的网页转视频渲染框架",
+    "nodeCount": 0,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T16:30:49.097Z"
+  },
+  {
+    "id": "e4edb464-cc77-4c40-a93a-16b52b604efa",
+    "entryId": "6266632e-cd07-4817-b3df-9afa4edf09ff",
+    "title": "NotebookLM MCP 服务器（Claude Code 低成本查文档）",
+    "nodeCount": 8,
+    "sedimentCount": 2,
+    "savedWikiItemId": "b0202a5f-3b9f-480e-8a61-bee96efb4b87",
+    "updatedAt": "2026-04-19T16:13:33.177Z"
+  },
+  {
+    "id": "7f7c896f-11ce-430a-a33e-0705da026c88",
+    "entryId": "dca210bc-7154-4b52-b09c-812710fda87b",
+    "title": "CL4R1T4S：AI系统提示词泄露公开项目",
+    "nodeCount": 8,
+    "sedimentCount": 1,
+    "savedWikiItemId": "b41c3b12-98c9-445b-b0a7-a53f39c9c070",
+    "updatedAt": "2026-04-19T13:24:30.313Z"
+  },
+  {
+    "id": "3d226f36-ad2d-4b07-afbb-dd62db37ea3a",
+    "entryId": "12f4c1fd-5723-441e-a66f-435b09dafec8",
+    "title": "Claude Design（Anthropic 设计工具）",
+    "nodeCount": 28,
+    "sedimentCount": 1,
+    "savedWikiItemId": "4e143fa5-a60d-4629-a532-f241bf9c5ec4",
+    "updatedAt": "2026-04-19T11:25:46.552Z"
+  },
+  {
+    "id": "d0146d39-f9ba-4c94-95f9-8fc9efdf0746",
+    "entryId": "a765a87a-40cc-4b3c-b021-665a23c036e5",
+    "title": "CL4R1T4S：AI 系统提示词公开透明化仓库",
+    "nodeCount": 4,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T05:58:52.586Z"
+  },
+  {
+    "id": "ce7a8f37-6e1e-455d-8d94-1b1c9ce3f751",
+    "entryId": "a765a87a-40cc-4b3c-b021-665a23c036e5",
+    "title": "CL4R1T4S：AI 系统提示词公开透明化仓库",
+    "nodeCount": 14,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T05:21:13.074Z"
+  },
+  {
+    "id": "63d93bb0-7ba5-41e4-add0-707e8d615c15",
+    "entryId": "52534264-20aa-4867-b79d-7dd1b7351e97",
+    "title": "CL4R1T4S：AI 系统提示词公开透明项目",
+    "nodeCount": 2,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-18T17:31:49.943Z"
+  },
+  {
+    "id": "59a74fdd-63dc-42ea-b378-68de25c74a4c",
+    "entryId": "53187888-1bc0-45fc-89ed-a86816594f3d",
+    "title": "Claude Opus 4.7 与 Claude Code 最佳实践指南",
+    "nodeCount": 4,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-18T15:23:39.733Z"
+  },
+  {
+    "id": "4cfe9013-1113-4ac9-b459-16e8282ced39",
+    "entryId": "test-1776524451948",
+    "title": "FlexAttention — Test Entry",
+    "nodeCount": 0,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-18T15:00:52.029Z"
+  }
+]

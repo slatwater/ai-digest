@@ -1,0 +1,191 @@
+{
+  "id": "e4edb464-cc77-4c40-a93a-16b52b604efa",
+  "entryId": "6266632e-cd07-4817-b3df-9afa4edf09ff",
+  "entrySnapshot": {
+    "title": "NotebookLM MCP 服务器（Claude Code 低成本查文档）",
+    "url": "https://x.com/billtheinvestor/status/2045581824613925350",
+    "narrative": "从 @billtheinvestor 推文发现，一手来源是 PleasePrompto 在 GitHub 上发布的仓库 notebooklm-mcp。\n\nPleasePrompto 做了一个 MCP 服务器 [[notebooklm-mcp]]，让 Claude Code 等编程助手直接向 Google NotebookLM 提问，而不是把整份文档塞进对话窗口。开发者只需先把文档上传到 NotebookLM，之后 AI 助手提问时，服务器用 Puppeteer 自动操控浏览器、向 NotebookLM 发起查询，Gemini 2.5 从已索引的文档里综合出带引用来源的答案再返回给助手。项目声称 NotebookLM 不会凭空编造，只从上传文档里回答，因此几乎消除了 API 幻觉问题；配置约 5 分钟，目前已有 2000+ GitHub Stars。",
+    "concepts": [
+      {
+        "name": "notebooklm-mcp",
+        "role": "subject",
+        "root": "PleasePrompto（GitHub），2026 年 → 用浏览器自动化操控 NotebookLM，让 AI 编程助手通过 MCP 协议直接向 NotebookLM 提问，拿到引用来源的压缩答案，而不是把整份文档塞进上下文",
+        "whatItEnables": "Claude Code / Codex / Cursor 可以直接向已索引的 NotebookLM 笔记本提问，大幅减少读取文档所消耗的 token",
+        "sourceUrl": "https://github.com/PleasePrompto/notebooklm-mcp"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://github.com/PleasePrompto/notebooklm-mcp",
+        "title": "PleasePrompto/notebooklm-mcp - MCP server for NotebookLM",
+        "type": "original"
+      },
+      {
+        "url": "https://x.com/billtheinvestor/status/2045581824613925350",
+        "title": "@billtheinvestor 推文（二手转载）",
+        "type": "related"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "question",
+      "state": "done",
+      "text": "他实现了还是呢吗",
+      "parent": null,
+      "branchIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:05:15",
+      "model": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "answer",
+      "state": "done",
+      "text": "已实现，且是完整可用的项目。\n\n仓库 `PleasePrompto/notebooklm-mcp` [[1]] 确实是真实落地的，不是空架子。具体证据：\n\n- **代码完整**：README 引用了多个文档文件（`usage-guide.md`、`tools.md`、`configuration.md`、`troubleshooting.md`），说明有实质内容而非占位文字；\n- **浏览器自动化已接通**：核心机制用 Chrome/Puppeteer 驱动 NotebookLM 界面，鉴权、查询、返回答案整条链路有对应实现；\n- **三档工具配置**：`minimal`（5 工具）/ `standard`（10 工具）/ `full`（16 工具）可按需选用，说明功能迭代已到一定深度；\n- **多客户端适配**：提供了 Claude Code、Cursor、VS Code、Gemini、Codex 等的安装说明；\n- **社区采纳**：2000+ Stars、262 Forks，不像是只有 README 的虚假项目。\n\n唯一没法 100% 确认的是 `/src` 目录里的源码覆盖率，但从文档体量和社区规模来看，**主体功能已可正常使用**，并非\"画饼\"。\n\n[[1]] https://github.com/PleasePrompto/notebooklm-mcp",
+      "parent": "n1",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 280,
+      "w": 280,
+      "createdAt": "00:05:15",
+      "model": "sonnet",
+      "duration": "32.4s",
+      "tokens": 17
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "实现了什么功能",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 480,
+      "w": 280,
+      "createdAt": "00:06:30",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "功能分三层，覆盖从问答到笔记本管理的完整流程：\n\n---\n\n### 🔍 核心问答（所有档位都有）\n- **`ask_question`**：主功能，向 NotebookLM 提问，返回带引用来源的答案；底层用 Puppeteer 自动操控浏览器完成查询\n- **`get_health`**：检查鉴权状态和当前配置，排查连接问题用\n\n### 🔐 鉴权与会话管理\n- **`setup_auth`** / **`re_auth`**：首次登录或切换 Google 账户，打开可见浏览器让用户手动完成 OAuth\n- **`list_sessions`** / **`close_session`** / **`reset_session`**：管理底层浏览器进程，避免多个自动化实例冲突\n\n### 📚 笔记本库（standard / full 档）\n这是区别于同类工具的核心亮点——在本地维护一份\"笔记本索引\"：\n- **`add_notebook`** / **`remove_notebook`**：注册/注销 NotebookLM 里的笔记本 URL\n- **`list_notebooks`** / **`search_notebooks`**：按名称、描述、标签检索，方便 AI 自动选择查哪本\n- **`select_notebook`**：设置默认笔记本，省得每次 ask_question 都指定目标\n- **`get_library_stats`**：统计库里有多少本、查询频次等元数据\n\n### 📡 资源接口（MCP Resource 协议）\n- `notebooklm://library` 和 `notebooklm://library/{id}`：以 JSON 形式暴露整个笔记本库，供支持 MCP Resources 的客户端直接读取 [[1]]\n\n---\n\n总体来看，**`ask_question` 是灵魂**，其余工具围绕\"管理哪些文档可被查\"和\"维持浏览器会话稳定\"两件事展开。\n\n[[1]] https://github.com/PleasePrompto/notebooklm-mcp",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 680,
+      "w": 280,
+      "createdAt": "00:06:30",
+      "model": "sonnet",
+      "duration": "30.7s",
+      "tokens": 1,
+      "marked": true,
+      "markedAs": "功能分三层，覆盖从问答到笔记本管理的完整流程："
+    },
+    {
+      "id": "n5",
+      "type": "question",
+      "state": "done",
+      "text": "不是技术方面，他们解决了什么问题",
+      "parent": "n4",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 880,
+      "w": 280,
+      "createdAt": "00:07:42",
+      "model": "sonnet"
+    },
+    {
+      "id": "n6",
+      "type": "answer",
+      "state": "done",
+      "text": "核心矛盾只有一个：**AI 编程助手的上下文窗口装不下你的文档**。\n\n当你让 Claude 或 Cursor 帮你看一份几百页的 SDK 文档、内部 Wiki、或 PDF 规范时，要么塞不进去，要么塞进去了但费用爆炸（百万 token 的上下文每次都要重新计费）。开发者的现实处境是：\n\n- 文档太长 → 只能贴片段，AI 看不到全貌，答案不准\n- 想查多份文档 → 每次都要手动复制粘贴，繁琐且易出错\n- 文档经常更新 → 上传一次就过期，要反复重新喂给 AI\n\n**notebooklm-mcp 的解法**是把这个负担外包给 NotebookLM：文档只需上传一次，NotebookLM 永久索引；AI 助手需要查阅时，通过这个 MCP 服务器\"呼叫\"NotebookLM，拿到一段精炼的、带引用来源的摘要答案，而不是把原始文档整份塞进对话。\n\n换句话说，它把 AI 助手从\"被迫死记硬背整本书\"变成了\"随时可以查字典\"——**上下文窗口的压力转移到了 NotebookLM 的检索层**。\n\n附带的好处是幻觉更少：NotebookLM 被设计为只从已上传的文档里作答，不会凭空捏造，所以返回给 AI 助手的内容可信度更高，比直接让 AI 凭记忆回答技术细节要可靠得多 [[1]]。\n\n[[1]] https://github.com/PleasePrompto/notebooklm-mcp",
+      "parent": "n5",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 1080,
+      "w": 280,
+      "createdAt": "00:07:42",
+      "model": "sonnet",
+      "duration": "16.4s"
+    },
+    {
+      "id": "n7",
+      "type": "question",
+      "state": "done",
+      "text": "NotebookLM是什么工具，使用的好处是什么，免费吗",
+      "parent": "n6",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 1280,
+      "w": 280,
+      "createdAt": "00:09:07",
+      "model": "sonnet"
+    },
+    {
+      "id": "n8",
+      "type": "answer",
+      "state": "done",
+      "text": "**NotebookLM** 是 Google 在 2023 年推出的 AI 研究笔记工具，现由 Gemini 2.5 驱动。\n\n---\n\n### 它是什么\n\n本质是一个\"私人文档问答引擎\"。你上传自己的材料（PDF、Google Doc、网页、YouTube 视频、音频等），之后所有问答都**只在这些材料范围内**进行——Gemini 不会混入外部知识或编造内容，每条回答都附有引用，可以追溯到原文具体段落。\n\n---\n\n### 核心好处\n\n| 特性 | 实际意义 |\n|------|---------|\n| **闭域回答** | 不会幻觉，答案来源透明，适合处理专业/私有文档 |\n| **多源合并** | 一个笔记本最多 50 个来源，可以跨文档综合问答 |\n| **音频摘要** | 能把文档自动生成播客式对话（Audio Overview），听着学 |\n| **永久索引** | 上传一次，之后随时查，无需重复处理 |\n\n对于 notebooklm-mcp 的使用场景来说，最关键的是前两条——闭域+多源，正好弥补 AI 编程助手\"文档记忆力差\"的短板。\n\n---\n\n### 收费情况\n\n- **免费**：个人账户可直接用，每个笔记本 50 个来源，无限问答，Audio Overview 每天有次数上限\n- **NotebookLM Plus**（付费）：随 Google One AI Premium 套餐提供（约 $19.99/月），解锁更多并发、更高次数限制、团队共享功能\n\n对大多数开发者来说，**免费版已经够用** [[1]]。\n\n[[1]] https://notebooklm.google.com",
+      "parent": "n7",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 1480,
+      "w": 280,
+      "createdAt": "00:09:07",
+      "model": "sonnet",
+      "duration": "18.9s",
+      "tokens": 16,
+      "marked": true,
+      "markedAs": "**NotebookLM** 是 Google 在 2023 年推出的 AI 研究笔记工具，现由 Gemini 2.5 "
+    }
+  ],
+  "sediment": [
+    {
+      "id": "s-1776615075605",
+      "fromNode": "n8",
+      "mode": "full",
+      "text": "**NotebookLM** 是 Google 在 2023 年推出的 AI 研究笔记工具，现由 Gemini 2.5 ",
+      "excerpts": [
+        "NotebookLM是什么工具，使用的好处是什么，免费吗\n\n**NotebookLM** 是 Google 在 2023 年推出的 AI 研究笔记工具，现由 Gemini 2.5 驱动。\n\n---\n\n### 它是什么\n\n本质是一个\"私人文档问答引擎\"。你上传自己的材料（PDF、Google Doc、网页、YouTube 视频、音频等），之后所有问答都**只在这些材料范围内**进行——Gemini 不会混入外部知识或编造内容，每条回答都附有引用，可以追溯到原文具体段落。\n\n---\n\n### 核心好处\n\n| 特性 | 实际意义 |\n|------|---------|\n| **闭域回答** | 不会幻觉，答案来源透明，适合处理专业/私有文档 |\n| **多源合并** | 一个笔记本最多 50 个来源，可以跨文档综合问答 |\n| **音频摘要** | 能把文档自动生成播客式对话（Audio Overview），听着学 |\n| **永久索引** | 上传一次，之后随时查，无需重复处理 |\n\n对于 notebooklm-mcp 的使用场景来说，最关键的是前两条——闭域+多源，正好弥补 AI 编程助手\"文档记忆力差\"的短板。\n\n---\n\n### 收费情况\n\n- **免费**：个人账户可直接用，每个笔记本 50 个来源，无限问答，Audio Overview 每天有次数上限\n- **NotebookLM Plus**（付费）：随 Google One AI Premium 套餐提供（约 $19.99/月），解锁更多并发、更高次数限制、团队共享功能\n\n对大多数开发者来说，**免费版已经够用** [[1]]。\n\n[[1]] https://notebooklm.google.com"
+      ],
+      "markedAt": "00:11:15",
+      "suggestedSection": "新要点",
+      "order": 0
+    },
+    {
+      "id": "s-1776615213159",
+      "fromNode": "n4",
+      "mode": "full",
+      "text": "功能分三层，覆盖从问答到笔记本管理的完整流程：",
+      "excerpts": [
+        "实现了什么功能\n\n功能分三层，覆盖从问答到笔记本管理的完整流程：\n\n---\n\n### 🔍 核心问答（所有档位都有）\n- **`ask_question`**：主功能，向 NotebookLM 提问，返回带引用来源的答案；底层用 Puppeteer 自动操控浏览器完成查询\n- **`get_health`**：检查鉴权状态和当前配置，排查连接问题用\n\n### 🔐 鉴权与会话管理\n- **`setup_auth`** / **`re_auth`**：首次登录或切换 Google 账户，打开可见浏览器让用户手动完成 OAuth\n- **`list_sessions`** / **`close_session`** / **`reset_session`**：管理底层浏览器进程，避免多个自动化实例冲突\n\n### 📚 笔记本库（standard / full 档）\n这是区别于同类工具的核心亮点——在本地维护一份\"笔记本索引\"：\n- **`add_notebook`** / **`remove_notebook`**：注册/注销 NotebookLM 里的笔记本 URL\n- **`list_notebooks`** / **`search_notebooks`**：按名称、描述、标签检索，方便 AI 自动选择查哪本\n- **`select_notebook`**：设置默认笔记本，省得每次 ask_question 都指定目标\n- **`get_library_stats`**：统计库里有多少本、查询频次等元数据\n\n### 📡 资源接口（MCP Resource 协议）\n- `notebooklm://library` 和 `notebooklm://library/{id}`：以 JSON 形式暴露整个笔记本库，供支持 MCP Resources 的客户端直接读取 [[1]]\n\n---\n\n总体来看，**`ask_question` 是灵魂**，其余工具围绕\"管理哪些文档可被查\"和\"维持浏览器会话稳定\"两件事展开。\n\n[[1]] https://github.com/PleasePrompto/notebooklm-mcp"
+      ],
+      "markedAt": "00:13:33",
+      "suggestedSection": "新要点",
+      "order": 1
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T16:04:55.606Z",
+  "updatedAt": "2026-04-19T16:13:33.177Z",
+  "sdkSessionId": "0879ac79-6880-461c-9727-723f9f57e43f",
+  "savedWikiItemId": "b0202a5f-3b9f-480e-8a61-bee96efb4b87",
+  "draft": {
+    "name": "NotebookLM MCP 服务器（Claude Code 低成本查文档）",
+    "categoryId": "ai-工具与技能包",
+    "newCategory": null,
+    "sections": [],
+    "sourceLinks": [
+      {
+        "url": "https://x.com/billtheinvestor/status/2045581824613925350",
+        "title": "NotebookLM MCP 服务器（Claude Code 低成本查文档）",
+        "type": "original"
+      }
+    ]
+  }
+}

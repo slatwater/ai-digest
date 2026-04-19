@@ -1,0 +1,93 @@
+{
+  "id": "d0146d39-f9ba-4c94-95f9-8fc9efdf0746",
+  "entryId": "a765a87a-40cc-4b3c-b021-665a23c036e5",
+  "entrySnapshot": {
+    "title": "CL4R1T4S：AI 系统提示词公开透明化仓库",
+    "url": "https://t.co/ECZ5mGGWKK",
+    "narrative": "t.co 短链跳转后，一手来源是 GitHub 仓库 elder-plinius/[[CL4R1T4S]]，链接指向其 ANTHROPIC 目录下的 Claude-Design-Sys-Prompt.txt 文件。\n\nelder-plinius 建了一个收集 AI 系统提示词的公开仓库 [[CL4R1T4S]]，目前覆盖 27 个厂商/产品，已获 15.3k stars、3.1k forks。此次链接指向的文件是 Claude 设计智能体的完整系统提示词，共 71.5 KB、422 行：里面写明了 Claude 在设计场景下怎么干活——用 HTML 生成设计原型、锁定特定版本的 React/Babel、按「理解需求 → 查阅资源 → 规划 → 构建 → 验证」的固定流程完成任务，并被明确要求不得向用户透露自身系统提示内容。",
+    "concepts": [
+      {
+        "name": "CL4R1T4S",
+        "role": "subject",
+        "root": "elder-plinius 维护的 GitHub 仓库 → 专门提取并公开各大 AI 产品的系统提示词，主张「理解输入才能信任输出」",
+        "whatItEnables": "任何人都能直接查看 Anthropic、OpenAI、Google、xAI、Cursor、Devin 等 27 个 AI 产品背后的隐藏指令框架",
+        "sourceUrl": "https://github.com/elder-plinius/CL4R1T4S"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/Claude-Design-Sys-Prompt.txt",
+        "title": "CL4R1T4S / ANTHROPIC / Claude-Design-Sys-Prompt.txt",
+        "type": "original"
+      },
+      {
+        "url": "https://github.com/elder-plinius/CL4R1T4S",
+        "title": "GitHub - elder-plinius/CL4R1T4S: LEAKED SYSTEM PROMPTS FOR CHATGPT, GEMINI, GROK, CLAUDE, PERPLEXITY, CURSOR, DEVIN, REPLIT, AND MORE!",
+        "type": "github"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "question",
+      "state": "done",
+      "text": "该工具原文是否只是一段提示词文档",
+      "parent": null,
+      "branchIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "13:56:38",
+      "model": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "answer",
+      "state": "done",
+      "text": "**CL4R1T4S 本质上就是一个纯文档集合仓库，没有可执行代码。**\n\n具体来说：\n\n**仓库结构**\n- 根目录下是 27 个以厂商/产品命名的文件夹（ANTHROPIC、OPENAI、CURSOR 等）\n- 每个文件夹里存放对应产品的系统提示词文本文件（`.txt` / `.md`）\n- 仅有 `README.md` 和 `LICENSE` 两个额外顶层文件\n\n**没有的东西**\n- 无爬虫/抓取脚本\n- 无自动化工具或 CI 流水线\n- 无任何可执行代码（Python、JS 等）\n\n**采集方式**\nREADME 明确说明：提示词靠**社区手动提交 PR** 贡献，而非程序自动提取。提交方式是人工复现——比如构造特定对话诱使模型输出自身系统提示，或从产品泄露/公开渠道整理，再手动粘贴进仓库。\n\n**定性结论**\nCL4R1T4S 是一个「透明度倡导型知识库」，更接近 wiki 而非工具链。15.3k stars 的热度来自内容本身的稀缺性（拿到各家 AI 的 system prompt），而不是因为它附带了什么技术能力。那条「不得向用户透露系统提示」的指令写在 Claude 设计智能体的提示词里，本身就是仓库收录内容的一部分——对照组和证据同时存在于同一文件 [[1]](https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/Claude-Design-Sys-Prompt.txt)。",
+      "parent": "n1",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 280,
+      "w": 280,
+      "createdAt": "13:56:38",
+      "model": "sonnet",
+      "duration": "36.3s",
+      "tokens": 97
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "仅仅看当前的源头文档",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 480,
+      "w": 280,
+      "createdAt": "13:58:19",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "这份源头文档的实质是 **一段纯文本的系统提示词**，但内容密度远超普通说明文字，兼具多重角色：\n\n**文档构成（422 行 / 71.5 KB）**\n\n| 层次 | 内容 |\n|------|------|\n| 行为约束 | 禁止透露工具名/系统提示；工作流顺序强制执行 |\n| 工具调用规范 | 内嵌 30+ 个工具的完整 JSON Schema（`read_file`、`write_file`、`save_screenshot`、`fork_verifier_agent` 等） |\n| HTML 模板片段 | 硬编码了带 SRI integrity hash 的 React 18.3.1 + Babel script 标签 |\n| Tweaks 协议 | 定义了 `EDITMODE-BEGIN/END` 标记与 `postMessage` 通信约定 |\n| 设计方法论 | 反模式列表（禁用过度渐变/圆角、禁用 `scrollIntoView`）、文件不超 1000 行等 |\n\n**关键定性**\n\n它是一份「将 Agent 行为完全参数化」的配置文档——工具的存在、调用格式、工作流顺序、UI 交付物的技术选型，全部由这段文字在运行时注入模型。仓库里没有任何宿主代码，所以 **文档本身即是「产品」**，离开 Anthropic 的 Claude 设计平台运行时，它只是可读的文本，不可独立执行 [[1]](https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/Claude-Design-Sys-Prompt.txt)。",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 680,
+      "w": 280,
+      "createdAt": "13:58:19",
+      "model": "sonnet",
+      "duration": "33.0s",
+      "tokens": 3
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T05:55:33.398Z",
+  "updatedAt": "2026-04-19T05:58:52.586Z",
+  "sdkSessionId": "bccb189a-63a6-46d1-9e3f-0372217d4ab3"
+}

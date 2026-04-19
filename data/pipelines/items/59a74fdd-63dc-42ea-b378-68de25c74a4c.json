@@ -1,0 +1,106 @@
+{
+  "id": "59a74fdd-63dc-42ea-b378-68de25c74a4c",
+  "entryId": "53187888-1bc0-45fc-89ed-a86816594f3d",
+  "entrySnapshot": {
+    "title": "Claude Opus 4.7 与 Claude Code 最佳实践指南",
+    "url": "https://x.com/bcherny/status/2044847848035156457",
+    "narrative": "从 @bcherny 推文发现，一手来源是 Anthropic 官方 Claude 博客上由 Boris Cherny（Head of Claude Code）发布的 Opus 4.7 与 Claude Code 配合使用指南。\n\nBoris Cherny 发布了 [[Claude Opus 4.7]] 在 Claude Code 下的完整使用建议。[[Auto Mode]] 解决了长任务被频繁权限弹窗打断的问题，面向 Max 用户开放。新增的「努力等级」（Effort Levels）让开发者自行调节模型投入档位，默认 Xhigh 适合大多数编码场景，Max 档保留给极难问题。配套还发布了 /fewer-permission-prompts 技能，会扫描历史会话记录、自动生成推荐的命令白名单，省去手动配置权限的步骤。",
+    "concepts": [
+      {
+        "name": "Claude Opus 4.7",
+        "role": "subject",
+        "root": "Anthropic 2026 → 引入自适应思考机制，模型自行决定何时需要深度推理，取代上一代固定预算扩展思考；编码能力较前代提升",
+        "whatItEnables": "在 Claude Code 中执行深研、大规模重构等长任务，减少中途打断，支持按努力等级控制成本",
+        "sourceUrl": "https://claude.com/blog/best-practices-for-using-claude-opus-4-7-with-claude-code"
+      },
+      {
+        "name": "Auto Mode",
+        "role": "component",
+        "root": "Anthropic Claude Code 2026 → 用模型分类器替代用户逐条审批命令权限，自动判断执行是否安全，Shift+Tab 切换",
+        "whatItEnables": "Max 订阅用户无需盯着屏幕逐一放行权限弹窗，长任务可全程无人值守运行",
+        "sourceUrl": "https://claude.com/blog/best-practices-for-using-claude-opus-4-7-with-claude-code"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://claude.com/blog/best-practices-for-using-claude-opus-4-7-with-claude-code",
+        "title": "Best Practices for Using Claude Opus 4.7 with Claude Code",
+        "type": "original"
+      },
+      {
+        "url": "https://www.anthropic.com/news/claude-opus-4-7",
+        "title": "Introducing Claude Opus 4.7",
+        "type": "related"
+      },
+      {
+        "url": "https://github.com/anthropics/claude-code/releases",
+        "title": "Claude Code Releases · anthropics/claude-code",
+        "type": "related"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "question",
+      "state": "done",
+      "text": "最核心的使用方法是什么",
+      "parent": null,
+      "branchIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 360,
+      "createdAt": "23:12:07",
+      "model": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "answer",
+      "state": "done",
+      "text": "以下是 Claude Opus 4.7 + Claude Code 的最核心使用方法 [[1]](https://claude.com/blog/best-practices-for-using-claude-opus-4-7-with-claude-code)：\n\n---\n\n## 一、Auto Mode —— 不被权限弹窗打断\n\n`Shift+Tab` 切换进入 Auto Mode，模型分类器会自动判断命令是否安全执行，无需逐条手动审批。适合已有充分上下文的长任务（如大型重构、批量迁移）。搭配 `/fewer-permission-prompts` 技能可自动扫描历史会话，生成推荐白名单，一次配置省去反复确认。\n\n---\n\n## 二、Effort Levels —— 主动调节推理投入\n\n| 档位 | 适用场景 |\n|------|---------|\n| `low/medium` | 成本/延迟敏感、范围窄的小任务 |\n| `high` | 多会话并发时的智能/成本平衡 |\n| **`xhigh`（默认）** | 绝大多数编码任务，自主性强且不过度消耗 token |\n| `max` | 真正疑难问题；注意有收益递减和过度思考倾向 |\n\n不要直接套用旧版设置，建议在任务过程中动态调整档位。\n\n---\n\n## 三、适配「自适应思考」的 Prompt 写法\n\nOpus 4.7 取消了固定思考预算，改为**模型自行决定是否深度推理**。关键在于用语言显式引导：\n\n- 需要深思：`\"这个问题比看起来难，请逐步仔细思考\"`\n- 需要快速：`\"优先快速响应，不要深度推理\"`\n\n---\n\n## 四、任务描述方式的变化\n\n4.7 模型**推理更多、调工具更少**，且默认不主动拆分子 Agent。最佳实践是：\n- **一次性把完整需求给齐**，而不是多轮渐进式补充说明；\n- 需要并行子任务时，**显式要求**（如 \"同时处理 A 和 B\"），否则模型倾向串行。\n\n---\n\n四条核心变化都指向同一个方向：减少\"模型猜意图\"的消耗，让开发者在任务启动前就把意图、范围、并发需求交代清楚。",
+      "parent": "n1",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 220,
+      "w": 360,
+      "createdAt": "23:12:07",
+      "model": "sonnet",
+      "duration": "34.8s",
+      "tokens": 17,
+      "marked": false,
+      "markedAs": "以下是 Claude Opus 4.7 + Claude Code 的最核心使用方法 [[1]](https://cla"
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "自适应prompt写法是什么",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": -340,
+      "y": 480,
+      "w": 360,
+      "createdAt": "23:23:19",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "基于上一轮抓取的来源 [[1]](https://claude.com/blog/best-practices-for-using-claude-opus-4-7-with-claude-code)，结合 Opus 4.7 自适应思考机制的具体语言模式，直接深入：\n\n---\n\n## 触发深度推理\n\n模型看到以下信号会**主动投入更多思考 token**：\n\n```\n\"这个问题比表面看起来更复杂，请逐步仔细推理\"\n\"在给出答案前，先全面分析各种边界情况\"\n\"这是一个涉及多个约束的优化问题，请深思后再行动\"\n```\n\n关键词模式：`\"比看起来难\"` / `\"逐步\"` / `\"边界情况\"` / `\"全面分析\"` —— 这些词语直接触发模型的内部分类器判定「此处需要扩展推理」。\n\n---\n\n## 抑制过度推理\n\n```\n\"优先快速响应，不需要深度思考\"\n\"这是个简单修改，直接执行即可\"\n\"跳过推理，直接给出结果\"\n```\n\n在 `xhigh`/`max` 档位下尤其有用——避免模型在简单 rename、格式化等任务上浪费思考预算。\n\n---\n\n## 与旧版「思考预算」的本质区别\n\n| 旧版（固定预算） | 4.7 自适应 |\n|----------------|------------|\n| 开发者设 `thinking_budget: N` | 模型自行决定是否思考 |\n| token 消耗可预测 | token 消耗随问题难度浮动 |\n| 需调参数文件 | 用自然语言 prompt 引导即可 |\n\n旧版迁移注意：**不要把 `budget_tokens` 参数直接移植过来**，应改为在 prompt 里用语言描述期望的推理深度。\n\n---\n\n## 实用组合模式\n\n对于大型任务，可以把「难度声明」嵌入任务开头：\n\n```\n\"以下重构涉及循环依赖和多个副作用，是个真正的难题。\n请在修改前仔细规划，列出你的推理步骤，再开始写代码。\"\n```\n\n这比单纯设 `max` 档位更精准——既告知了问题类型，又指定了输出格式（先列步骤），让模型的推理投入有明确落点。",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": -340,
+      "y": 620,
+      "w": 360,
+      "createdAt": "23:23:19",
+      "model": "sonnet",
+      "duration": "19.9s"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-18T15:10:58.339Z",
+  "updatedAt": "2026-04-18T15:23:39.733Z",
+  "sdkSessionId": "c26978e0-2626-4080-ae63-4de1fca07381"
+}

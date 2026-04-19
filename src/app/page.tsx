@@ -9,22 +9,32 @@ import { PipelineView } from '@/components/PipelineView';
 import { SandboxView } from '@/components/SandboxView';
 import { ExperimentView } from '@/components/ExperimentView';
 import { ExperienceView } from '@/components/ExperienceView';
-import { useWikiSave } from '@/hooks/useWikiSave';
 import { useTriage } from '@/hooks/useTriage';
-import { useExpand } from '@/hooks/useExpand';
+import { usePipeline } from '@/hooks/usePipeline';
 import { useSandbox } from '@/hooks/useSandbox';
 import { useExperiment } from '@/hooks/useExperiment';
+import type { TriageEntry } from '@/lib/types';
 
 type View = 'triage' | 'wiki' | 'sandbox' | 'experiment' | 'experience' | 'blueprint';
 
 export default function Home() {
   const [view, setView] = useState<View>('triage');
   const [focusExperienceId, setFocusExperienceId] = useState<string | null>(null);
-  const wikiSave = useWikiSave();
+  const [pipelineEntry, setPipelineEntry] = useState<TriageEntry | null>(null);
   const triage = useTriage();
-  const expand = useExpand();
+  const pipeline = usePipeline();
   const sandbox = useSandbox();
   const experiment = useExperiment();
+
+  const openPipeline = useCallback(async (entry: TriageEntry) => {
+    setPipelineEntry(entry);
+    await pipeline.startFromEntry({ entry });
+  }, [pipeline]);
+
+  const closePipeline = useCallback(() => {
+    pipeline.exit();
+    setPipelineEntry(null);
+  }, [pipeline]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleNavigate = useCallback((v: any) => {
@@ -47,25 +57,18 @@ export default function Home() {
       />
 
       <main className="flex-1 min-h-0 flex">
-        <div className="flex-1 overflow-y-auto">
+        <div className={`flex-1 min-h-0 ${pipelineEntry && view === 'triage' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {/* 解析（含深入子视图） */}
           {view === 'triage' && (
-            expand.active && expand.entry ? (
-              <div className="max-w-[860px] mx-auto px-8 py-10">
-                <PipelineView
-                  entry={expand.entry}
-                  stages={expand.stages}
-                  canAsk={expand.canAsk}
-                  model={expand.model}
-                  onAsk={expand.askQuestion}
-                  onModelChange={expand.setModel}
-                  onExit={() => { expand.reset(); wikiSave.reset(); }}
-                  wikiSave={wikiSave}
-                />
-              </div>
+            pipelineEntry ? (
+              <PipelineView
+                entry={pipelineEntry}
+                pipeline={pipeline}
+                onExit={closePipeline}
+              />
             ) : (
               <TriageView triage={triage}
-                onExpand={(entry, question) => expand.startSession(entry, question)} />
+                onExpand={(entry) => openPipeline(entry)} />
             )
           )}
 

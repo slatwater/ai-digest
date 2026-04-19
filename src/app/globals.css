@@ -388,6 +388,8 @@ input:focus, input:focus-visible {
 @keyframes pulseDot { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 @keyframes scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
+@keyframes drift { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes typingDot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.3; } 30% { transform: translateY(-3px); opacity: 1; } }
 @keyframes conceptPulse {
   0% { box-shadow: 0 0 0 0 oklch(45% 0.12 160 / 0.4); }
   50% { box-shadow: 0 0 0 4px oklch(45% 0.12 160 / 0.15); }
@@ -401,3 +403,79 @@ input:focus, input:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Pipeline Deep Mode (深入追问画布) ───────────────────────────
+   Scoped under .pipeline-deep 根容器，和主站 light 主题隔离 */
+.pipeline-deep {
+  --bg: #14110d;
+  --bg2: #1c1812;
+  --panel: #201b14;
+  --panel2: #28221a;
+  --ink: #f4ede0;
+  --ink2: #c9bfae;
+  --ink3: #8a7f6d;
+  --ink4: #5a5144;
+  --rule: #3a3428;
+  --amber: #e8a24c;
+  --amber-soft: rgba(232, 162, 76, 0.12);
+  --red: #e05d35;
+  --red-soft: rgba(224, 93, 53, 0.14);
+  --red-deep: #c94a1a;
+  --teal: #5fb3a8;
+  --branch: #b884d9;
+  --ok: #8fc07a;
+
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, -apple-system, sans-serif;
+  height: 100%;
+  overflow: hidden;
+}
+.pipeline-deep * { box-sizing: border-box; }
+.pipeline-deep .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+.pipeline-deep .serif { font-family: Fraunces, Georgia, serif; }
+
+.pipeline-deep .canvas-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(244, 237, 224, 0.07) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.pipeline-deep .noise-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0 0.8  0 0 0 0.08 0'/></filter><rect width='300' height='300' filter='url(%23n)'/></svg>");
+}
+
+.pipeline-deep .scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.pipeline-deep .scroll::-webkit-scrollbar-track { background: transparent; }
+.pipeline-deep .scroll::-webkit-scrollbar-thumb { background: var(--ink4); border-radius: 3px; }
+.pipeline-deep .scroll::-webkit-scrollbar-thumb:hover { background: var(--ink3); }
+
+.pipeline-deep .tool-btn {
+  transition: all 0.12s;
+  border: 1px solid var(--rule);
+  background: var(--bg2);
+  color: inherit;
+  cursor: pointer;
+}
+.pipeline-deep .tool-btn:hover { border-color: var(--amber); color: var(--amber); }
+
+.pipeline-deep button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.pipeline-deep a { color: inherit; }
+
+@keyframes pipelineScanBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+@keyframes pipelineTypingDot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.3; } 30% { transform: translateY(-3px); opacity: 1; } }
+@keyframes pipelineFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }

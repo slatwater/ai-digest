@@ -1,0 +1,65 @@
+{
+  "id": "63d93bb0-7ba5-41e4-add0-707e8d615c15",
+  "entryId": "52534264-20aa-4867-b79d-7dd1b7351e97",
+  "entrySnapshot": {
+    "title": "CL4R1T4S：AI 系统提示词公开透明项目",
+    "url": "https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/Claude-Design-Sys-Prompt.txt",
+    "narrative": "一手来源，维护者是 elder-plinius，GitHub 仓库名为 [[CL4R1T4S]]，当前已获 15k Star。\n\n[[CL4R1T4S]] 将收集到的各大 AI 系统提示词按厂商分文件夹公开存放，Anthropic 目录下的这份文件是 Claude 某款设计工具的完整运行提示词，共 422 行、71.5 KB。该提示词揭示：这款工具让 Claude 以 HTML 为输出格式扮演设计师角色，内置文件读写、截图、生成 PPTX、调用 React 18.3.1 组件等一整套工具；还暴露了名为「Tweaks」的参数化调整机制、「fork_verifier_agent」代理验证节点，以及在 HTML 输出中嵌套调用 claude.complete() 的接口——这些均未见于 Anthropic 公开文档。仓库还同步收录了 ChatGPT、Gemini、Grok、Perplexity、Cursor、Devin、Replit 等产品的系统提示词，形成跨厂商的对照集。",
+    "concepts": [
+      {
+        "name": "CL4R1T4S",
+        "role": "subject",
+        "root": "elder-plinius 维护的 GitHub 仓库 → 收集并公开各大 AI 产品（ChatGPT、Gemini、Grok、Claude 等）的系统提示词",
+        "whatItEnables": "任何人可以直接查看主流 AI 产品内部运行时的完整系统提示词文本",
+        "sourceUrl": "https://github.com/elder-plinius/CL4R1T4S"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/Claude-Design-Sys-Prompt.txt",
+        "title": "CL4R1T4S / ANTHROPIC / Claude-Design-Sys-Prompt.txt",
+        "type": "original"
+      },
+      {
+        "url": "https://github.com/elder-plinius/CL4R1T4S",
+        "title": "elder-plinius/CL4R1T4S - LEAKED SYSTEM PROMPTS FOR AI SYSTEMS",
+        "type": "github"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "question",
+      "state": "done",
+      "text": "他这个靠谱吗",
+      "parent": null,
+      "branchIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:31:17",
+      "model": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "answer",
+      "state": "done",
+      "text": "**可信度：参差不齐，要分情况看。**\n\n### 来源获取方式决定可靠性\n\nCL4R1T4S 里的\"提示词\"来源至少有三类，可信度差异很大：\n\n| 来源类型 | 示例 | 可信度 |\n|---|---|---|\n| **越狱/诱导模型自己吐出** | 早期 ChatGPT system prompt | 中等——模型可能被截断、改写 |\n| **逆向工程 + 流量抓包** | Cursor、Devin 等客户端产品 | 较高——网络层拿到的明文更难篡改 |\n| **社区拼凑 / 推测重构** | 部分 Gemini、Grok 条目 | 低——存在明显填充痕迹 |\n\n你提到的这份 `Claude-Design-Sys-Prompt.txt`（422 行、71.5 KB）体积偏大，内含具体工具名（`fork_verifier_agent`、`claude.complete()`）和版本号（React 18.3.1），这些细节不像是凭空捏造，但也不排除是把多次输出拼合后二次加工的产物。\n\n### 几个红旗信号\n\n- **单一维护者**，elder-plinius 本身以 jailbreak 社区出名，动机是\"揭秘\"而非\"考证\"；\n- README 里有 `5h1f7 y0ur f0cu5`（leet speak：\"shift your focus\"）这类刻意混淆写法，说明作者有时会在内容里埋梗 [[1]]；\n- Anthropic 从未公开承认该文件，也没有 DMCA 下架——既不能视作背书，也不能视作否认。\n\n### 实用结论\n\n- 把它当**一手原始材料用要打折扣**，核心机制（工具列表、约束规则）有参考价值，但具体参数细节不宜直接引用进正式文档；\n- 如果要验证某条内容，最好对比 Anthropic 官方 API 文档或通过实际调用行为交叉印证。\n\n[[1]] https://github.com/elder-plinius/CL4R1T4S",
+      "parent": "n1",
+      "branchIdx": 0,
+      "x": 80,
+      "y": 280,
+      "w": 280,
+      "createdAt": "01:31:17",
+      "model": "sonnet",
+      "duration": "32.9s",
+      "tokens": 32
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-18T17:30:01.347Z",
+  "updatedAt": "2026-04-18T17:31:49.943Z",
+  "sdkSessionId": "ec689c37-6e1c-4754-9e64-2d25f6a6b7de"
+}

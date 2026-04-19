@@ -154,44 +154,18 @@ interface Props {
   onExpand?: (entry: TriageEntry, question: string) => void;
 }
 
-// ── 处理工单（逐步打勾进度） ──
-function ProcessingEntry({ entry }: { entry: TriageEntry }) {
-  const isProcessing = entry.status === 'processing';
-  const phases = entry.livePhases || [];
-  const current = entry.liveStatus;
-
+function StatCell({ n, label, sub, tone }: { n: number; label: string; sub: string; tone: 'ink' | 'red' | 'mute' | 'err' }) {
+  const col = { ink: INK, red: RED, mute: MUTE, err: 'oklch(55% 0.2 25)' }[tone];
   return (
-    <div className="py-4">
-      {/* 头部 */}
-      <div className="flex items-center gap-3 mb-3">
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: isProcessing ? 'var(--text-new)' : 'var(--text-quaternary)', fontWeight: 500 }}>
-          {isProcessing ? 'processing' : 'queued'}
-        </span>
-        <div className="flex-1 h-px" style={{ background: isProcessing ? 'var(--border-new)' : 'var(--border-subtle)' }} />
+    <div style={{
+      padding: '6px 18px', borderLeft: '1px solid rgba(26,23,19,0.2)',
+      textAlign: 'right', minWidth: 92,
+    }}>
+      <div style={{ fontFamily: MONO, fontSize: 9, color: MUTE, letterSpacing: 1, textTransform: 'uppercase' }}>{sub}</div>
+      <div style={{ fontFamily: 'var(--font-fraunces), Georgia, serif', fontSize: 28, color: col, fontWeight: 500, lineHeight: 1, margin: '2px 0' }}>
+        {String(n).padStart(2, '0')}
       </div>
-
-      {/* URL */}
-      <div className="truncate mb-3" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-        {entry.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-      </div>
-
-      {/* 阶段进度 */}
-      {isProcessing && (phases.length > 0 || current) && (
-        <div className="flex items-center gap-3 flex-wrap" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
-          {phases.map((phase, i) => (
-            <span key={i} className="flex items-center gap-1.5" style={{ color: 'var(--text-tertiary)' }}>
-              <span style={{ color: 'var(--text-new)' }}>✓</span>
-              {phase}
-            </span>
-          ))}
-          {current && (
-            <span className="flex items-center gap-1.5" style={{ color: 'var(--text-new)' }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--text-new)', animation: 'pulseDot 2s ease-in-out infinite' }} />
-              {current}
-            </span>
-          )}
-        </div>
-      )}
+      <div style={{ fontSize: 10, color: '#4a4238' }}>{label}</div>
     </div>
   );
 }
@@ -437,65 +411,184 @@ export function TriageView({ triage, onExpand }: Props) {
   }
 
   // ═══ 有 batch ═══
+  const doneN = doneEntries.length;
+  const procN = processingEntries.length;
+  const errN = errorEntries.length;
+  const novelN = doneEntries.filter(e =>
+    e.verdict !== 'skip' && (e.relatedEntries?.length ?? 0) === 0
+  ).length;
+  const batchEntries = triage.batch?.entries ?? [];
+  const runCreatedAt = triage.batch?.createdAt
+    ? new Date(triage.batch.createdAt)
+    : new Date();
+  const runDateStr = runCreatedAt.toISOString().slice(0, 10);
+  const runTimeStr = runCreatedAt.toTimeString().slice(0, 5);
+  const usages = doneEntries.map(e => e.tokenUsage).filter(Boolean) as NonNullable<TriageEntry['tokenUsage']>[];
+  const totalInput = usages.reduce((s, u) => s + u.inputTokens + u.cacheReadTokens, 0);
+  const totalOutput = usages.reduce((s, u) => s + u.outputTokens, 0);
+  const rawModel = usages[0]?.model || triage.batch?.model;
+  const modelLabel = rawModel === 'opus-4-6' ? 'opus 4.6' : rawModel === 'opus' ? 'opus 4.7' : rawModel || 'sonnet';
+  const elapsedMs = usages.reduce((s, u) => s + (u.durationMs || 0), 0);
+  const elapsedLabel = (() => {
+    if (!elapsedMs) return '—';
+    const s = Math.floor(elapsedMs / 1000);
+    const m = Math.floor(s / 60);
+    const r = s - m * 60;
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+  })();
+
+
   return (
-    <div className="max-w-[860px] mx-auto px-8 py-10 pb-24">
-      <div className="flex items-center justify-between mb-10">
-        <div className="flex items-center gap-4" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>
-          {triage.isProcessing && (
-            <span className="flex items-center gap-2" style={{ color: 'var(--text-new)' }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--text-new)', animation: 'pulseDot 2s ease-in-out infinite' }} />
-              {triage.counts.done}/{triage.counts.total}
-            </span>
+    <div className="min-h-full relative" style={{ background: PAPER, color: INK }}>
+      {/* 4pt + 80pt 方格纸 */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage: `
+          linear-gradient(to right, rgba(26,23,19,0.045) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(26,23,19,0.045) 1px, transparent 1px),
+          linear-gradient(to right, rgba(26,23,19,0.09) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(26,23,19,0.09) 1px, transparent 1px)`,
+        backgroundSize: '8px 8px, 8px 8px, 80px 80px, 80px 80px',
+      }} />
+      <div className="absolute inset-0 pointer-events-none" style={{
+        opacity: 0.45, mixBlendMode: 'multiply',
+        backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.1  0 0 0 0 0.08  0 0 0 0 0.05  0 0 0 0.12 0'/></filter><rect width='300' height='300' filter='url(%23n)'/></svg>")`,
+      }} />
+
+      <main style={{
+        position: 'relative', zIndex: 2,
+        maxWidth: 1280, margin: '0 auto',
+        padding: '32px 48px 80px 48px',
+        display: 'grid', gridTemplateColumns: '60px 1fr', gap: 28,
+      }}>
+        {/* 左侧竖排元数据 */}
+        <div style={{ paddingTop: 6 }}>
+          <div style={{
+            fontFamily: MONO, fontSize: 10, color: MUTE, letterSpacing: 1.2, lineHeight: 1.6,
+            writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+            textTransform: 'uppercase', position: 'sticky', top: 140,
+          }}>
+            RUN · {runDateStr} · {runTimeStr} · Operator Seven Stars · VOL.IV
+          </div>
+        </div>
+
+        <div style={{ minWidth: 0 }}>
+          {/* RunHeader */}
+          <div style={{ position: 'relative' }}>
+            <svg style={{ position: 'absolute', top: -12, right: 0, zIndex: 1 }} width="100" height="100" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="44" fill="none" stroke={INK} strokeWidth="0.5" opacity="0.3" />
+              <circle cx="50" cy="50" r="28" fill="none" stroke={INK} strokeWidth="0.5" opacity="0.3" strokeDasharray="2 3" />
+              <line x1="0" y1="50" x2="100" y2="50" stroke={INK} strokeWidth="0.5" opacity="0.2" />
+              <line x1="50" y1="0" x2="50" y2="100" stroke={INK} strokeWidth="0.5" opacity="0.2" />
+              <circle cx="50" cy="50" r="2.5" fill={RED} />
+              <text x="54" y="48" fontFamily="JetBrains Mono" fontSize="6" fill={INK} opacity="0.6">R.026</text>
+            </svg>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 14 }}>
+              <div style={{ fontFamily: MONO, fontSize: 10, fontWeight: 500, color: RED, letterSpacing: 2, textTransform: 'uppercase' }}>
+                § 02 · Triage Output
+              </div>
+              <div style={{ flex: 1, borderTop: `1px solid ${INK}`, opacity: 0.25, marginTop: 4 }} />
+              <div style={{ fontFamily: MONO, fontSize: 10, color: MUTE }}>
+                run {runDateStr} · {runTimeStr} · {procN > 0 ? 'streaming' : 'complete'}
+              </div>
+            </div>
+
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'end',
+              paddingBottom: 18, borderBottom: `1px solid ${INK}`,
+            }}>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: MUTE, letterSpacing: 0.5 }}>
+                  model {modelLabel}
+                  {totalInput > 0 && (
+                    <>
+                      &nbsp;·&nbsp; {totalInput > 1000 ? `${(totalInput / 1000).toFixed(1)}k` : totalInput} in / {totalOutput > 1000 ? `${(totalOutput / 1000).toFixed(1)}k` : totalOutput} out
+                    </>
+                  )}
+                  {elapsedMs > 0 && <>&nbsp;·&nbsp; elapsed {elapsedLabel}</>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 0 }}>
+                <StatCell n={doneN} label="解析完成" sub="done" tone="ink" />
+                <StatCell n={procN} label="处理中" sub="streaming" tone={procN > 0 ? 'red' : 'mute'} />
+                <StatCell n={errN} label="失败" sub="error" tone={errN > 0 ? 'err' : 'mute'} />
+                <StatCell n={novelN} label="新增量" sub="novel" tone="red" />
+              </div>
+            </div>
+          </div>
+
+          {/* 卡片列表 — 按 batch 原顺序 */}
+          <div style={{ marginTop: 28 }}>
+            {batchEntries.map((entry, i) => (
+              <TriageSection key={entry.id} entry={entry} index={i + 1} onExpand={onExpand} />
+            ))}
+          </div>
+
+          {/* Intake 条（追加解析 = 重置 + 重新提交） */}
+          {allDone && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const val = (e.currentTarget.elements.namedItem('intake') as HTMLInputElement)?.value.trim();
+                if (!val || !val.startsWith('http')) return;
+                const m = triage.batch?.model || 'sonnet';
+                triage.submit([val], m);
+              }}
+              style={{
+                display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 16, alignItems: 'center',
+                border: `1px solid ${INK}`, background: '#fff7e8',
+                padding: '10px 16px', marginTop: 40, marginBottom: 24,
+                boxShadow: `3px 3px 0 ${INK}`,
+              }}
+            >
+              <div style={{ fontFamily: MONO, fontSize: 10, color: RED, letterSpacing: 1.4, textTransform: 'uppercase' }}>
+                ＋ intake
+              </div>
+              <input
+                name="intake"
+                placeholder="粘贴新链接，⌘+↵ 追加解析…"
+                style={{
+                  fontFamily: MONO, fontSize: 12, padding: '8px 10px',
+                  border: '1px solid rgba(26,23,19,0.25)', background: 'transparent',
+                  color: INK, outline: 'none',
+                }}
+              />
+              <button type="submit" style={{
+                fontFamily: MONO, fontSize: 11, padding: '8px 14px', background: RED, color: PAPER,
+                border: `1px solid ${INK}`, letterSpacing: 0.5, cursor: 'pointer',
+              }}>
+                triage &nbsp;→
+              </button>
+            </form>
           )}
-          {allDone && (() => {
-            const totalConcepts = doneEntries.reduce((s, e) => s + (e.concepts?.length || 0), 0);
-            const usages = doneEntries.map(e => e.tokenUsage).filter(Boolean);
-            const totalInput = usages.reduce((s, u) => s + (u!.inputTokens + u!.cacheReadTokens), 0);
-            const totalOutput = usages.reduce((s, u) => s + u!.outputTokens, 0);
-            const rawModel = usages[0]?.model;
-            const usedModel = rawModel === 'opus-4-6' ? 'opus 4.6' : rawModel === 'opus' ? 'opus 4.7' : rawModel;
-            return (
-              <span style={{ color: 'var(--text-tertiary)' }}>
-                {triage.counts.total} 条解析完成
-                {totalConcepts > 0 && ` · ${totalConcepts} 概念`}
-                {usages.length > 0 && (
-                  <span style={{ color: 'var(--text-quaternary)', marginLeft: 8 }}>
-                    {usedModel && `${usedModel} · `}
-                    {totalInput > 1000 ? `${(totalInput / 1000).toFixed(1)}k` : totalInput} in
-                    {' / '}
-                    {totalOutput > 1000 ? `${(totalOutput / 1000).toFixed(1)}k` : totalOutput} out
-                  </span>
-                )}
-              </span>
-            );
-          })()}
-        </div>
-        <button onClick={() => triage.reset()}
-          style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}
-          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-quaternary)')}>
-          重新开始
-        </button>
-      </div>
 
-      {doneEntries.map((entry, i) => (
-        <div key={entry.id} style={{ animation: 'fadeIn 0.3s ease-out' }}>
-          <TriageSection entry={entry} index={i + 1} onExpand={onExpand} />
+          {/* 底部刻度尺 + reset 入口 */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginTop: 16,
+            fontFamily: MONO, fontSize: 9, color: MUTE,
+          }}>
+            <span>end of run</span>
+            <div style={{ flex: 1, height: 8, position: 'relative', borderTop: `1px solid ${INK}`, opacity: 0.3 }}>
+              {Array.from({ length: 20 }).map((_, i) => (
+                <div key={i} style={{
+                  position: 'absolute', top: 0, left: `${i * 5}%`,
+                  width: 1, height: i % 5 === 0 ? 6 : 3, background: INK, opacity: 0.6,
+                }} />
+              ))}
+            </div>
+            <button onClick={() => triage.reset()}
+              style={{
+                fontFamily: MONO, fontSize: 10, color: MUTE,
+                background: 'none', border: 'none', cursor: 'pointer', letterSpacing: 0.5,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = RED)}
+              onMouseLeave={e => (e.currentTarget.style.color = MUTE)}
+            >
+              ↺ reset
+            </button>
+          </div>
         </div>
-      ))}
-
-      {processingEntries.length > 0 && (
-        <div className="rounded -mx-4 px-4" style={{ background: 'var(--bg-processing)' }}>
-          {processingEntries.map(entry => <ProcessingEntry key={entry.id} entry={entry} />)}
-        </div>
-      )}
-
-      {errorEntries.map(entry => (
-        <div key={entry.id} className="py-4" style={{ fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
-          {entry.title} — {entry.error || '解析失败'}
-        </div>
-      ))}
-
+      </main>
     </div>
   );
 }

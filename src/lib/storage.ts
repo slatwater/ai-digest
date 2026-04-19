@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection, ExperienceEntry, ExperienceSummary } from './types';
+import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection, ExperienceEntry, ExperienceSummary, PipelineSession, PipelineSessionSummary, SedimentPoint } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -351,5 +351,85 @@ export async function deleteExperience(id: string): Promise<boolean> {
   await fs.writeFile(EXPERIENCE_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
   try { await fs.unlink(path.join(EXPERIENCE_ITEMS_DIR, `${id}.json`)); } catch { /* */ }
   try { await fs.unlink(path.join(EXPERIENCE_ITEMS_DIR, `${id}.md`)); } catch { /* */ }
+  return true;
+}
+
+// === Pipeline Session 存储（深入追问分支画布） ===
+
+const PIPELINE_DIR = path.join(DATA_DIR, 'pipelines');
+const PIPELINE_INDEX_PATH = path.join(PIPELINE_DIR, 'index.json');
+const PIPELINE_ITEMS_DIR = path.join(PIPELINE_DIR, 'items');
+
+function toPipelineSummary(s: PipelineSession): PipelineSessionSummary {
+  return {
+    id: s.id,
+    entryId: s.entryId,
+    title: s.entrySnapshot.title,
+    nodeCount: s.nodes.length,
+    sedimentCount: s.sediment.length,
+    savedWikiItemId: s.savedWikiItemId,
+    updatedAt: s.updatedAt,
+  };
+}
+
+export async function getPipelineIndex(): Promise<PipelineSessionSummary[]> {
+  try {
+    return JSON.parse(await fs.readFile(PIPELINE_INDEX_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+export async function getPipelineSession(id: string): Promise<PipelineSession | null> {
+  try {
+    const raw = JSON.parse(await fs.readFile(path.join(PIPELINE_ITEMS_DIR, `${id}.json`), 'utf-8')) as PipelineSession;
+    // 老数据迁移：把 detail: string 升级为 mode='full' + excerpts=[detail]
+    if (Array.isArray(raw.sediment)) {
+      raw.sediment = raw.sediment.map(s => {
+        const legacy = s as SedimentPoint & { detail?: string };
+        if (!legacy.mode || !Array.isArray(legacy.excerpts)) {
+          return {
+            id: legacy.id,
+            fromNode: legacy.fromNode,
+            mode: 'full',
+            text: legacy.text,
+            excerpts: legacy.detail ? [legacy.detail] : [],
+            markedAt: legacy.markedAt,
+            suggestedSection: legacy.suggestedSection,
+            order: legacy.order,
+          };
+        }
+        return legacy;
+      });
+    }
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+export async function savePipelineSession(session: PipelineSession): Promise<void> {
+  await fs.mkdir(PIPELINE_ITEMS_DIR, { recursive: true });
+  session.updatedAt = new Date().toISOString();
+  await fs.writeFile(
+    path.join(PIPELINE_ITEMS_DIR, `${session.id}.json`),
+    JSON.stringify(session, null, 2),
+    'utf-8',
+  );
+  let index: PipelineSessionSummary[] = [];
+  try { index = JSON.parse(await fs.readFile(PIPELINE_INDEX_PATH, 'utf-8')); } catch { /* */ }
+  index = index.filter(i => i.id !== session.id);
+  index.unshift(toPipelineSummary(session));
+  await fs.writeFile(PIPELINE_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+}
+
+export async function deletePipelineSession(id: string): Promise<boolean> {
+  let index: PipelineSessionSummary[] = [];
+  try { index = JSON.parse(await fs.readFile(PIPELINE_INDEX_PATH, 'utf-8')); } catch { return false; }
+  const before = index.length;
+  index = index.filter(i => i.id !== id);
+  if (index.length === before) return false;
+  await fs.writeFile(PIPELINE_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+  try { await fs.unlink(path.join(PIPELINE_ITEMS_DIR, `${id}.json`)); } catch { /* */ }
   return true;
 }

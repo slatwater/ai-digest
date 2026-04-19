@@ -1,5 +1,27 @@
 [
   {
+    "id": "681d4bfe-7670-493d-9fb3-a721090535eb",
+    "name": "HTML 设计助手通用系统提示词（模型无关版）",
+    "categoryId": "ai-工具与技能包",
+    "sectionHeadings": [
+      "完整提示词正文"
+    ],
+    "sourceCount": 3,
+    "skillFileCount": 0,
+    "updatedAt": "2026-04-19T13:22:21.582Z"
+  },
+  {
+    "id": "4e143fa5-a60d-4629-a532-f241bf9c5ec4",
+    "name": "Claude Design（Anthropic 设计工具）",
+    "categoryId": "ai-工具与技能包",
+    "sectionHeadings": [
+      "新要点"
+    ],
+    "sourceCount": 2,
+    "skillFileCount": 0,
+    "updatedAt": "2026-04-19T11:25:46.550Z"
+  },
+  {
     "id": "51ca2c93-cf26-46da-a397-b53c9d538c25",
     "name": "DESIGN.md：AI 代理的品牌设计规范格式与工具链",
     "categoryId": "ai-工具与技能包",

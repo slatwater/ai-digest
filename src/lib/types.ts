@@ -511,3 +511,99 @@ export interface ExperienceSummary {
   updatedAt: string;
 }
 
+// === 深入追问 Pipeline（分支画布 + 沉淀区） ===
+
+export type PipelineNodeType = 'question' | 'answer';
+export type PipelineNodeState = 'pending' | 'streaming' | 'done' | 'error';
+
+export interface PipelineNode {
+  id: string;                    // 如 n1/n2
+  type: PipelineNodeType;
+  state: PipelineNodeState;
+  text: string;                  // 问题或回答正文
+  parent: string | null;         // 上级节点 id（null = 根）
+  branchIdx: number;             // 分支编号（0 = 主干）
+  branchLabel?: string;          // 分支标签（如 "A · 稀疏化机制"）
+  // 画布坐标（前端可编辑）
+  x?: number;
+  y?: number;
+  w?: number;
+  createdAt: string;
+  duration?: string;             // 如 "8.3s"
+  tokens?: number;               // output tokens
+  sources?: string[];            // 模型引用的来源
+  marked?: boolean;
+  markedAs?: string;             // 标记后的简要标题
+  model?: TriageModel;
+  error?: string;
+}
+
+export type SedimentMode = 'full' | 'custom';
+
+export interface SedimentPoint {
+  id: string;
+  fromNode: string;              // 来自哪个 node
+  mode: SedimentMode;            // full=整个 Q+A 原文；custom=用户手动框选的多段
+  text: string;                  // 标题（简短）
+  excerpts: string[];            // 无损原文片段；full 模式 length=1，custom 可多段
+  markedAt: string;              // HH:MM:SS
+  suggestedSection?: string;     // 建议归入段落名
+  order: number;
+}
+
+export interface PipelineWikiCandidate {
+  action: 'append' | 'new';
+  entryId?: string;              // append 时的目标 WikiItem.id
+  name?: string;                 // new 时的草拟名
+  categoryId?: string;
+}
+
+// Compose 阶段的段落：只含分组（由哪些 sedimentIds 组成），无 content
+// 后端 save 时按 sedimentIds 查原文，拼接成最终 WikiSection.content
+export interface ComposeDraftSection {
+  heading: string;
+  sedimentIds: string[];
+}
+
+export interface PipelineDraft {
+  name: string;
+  categoryId: string;
+  newCategory?: { name: string } | null;
+  sections: ComposeDraftSection[];
+  sourceLinks: WikiSourceLink[];
+  appendToItemId?: string;       // 若为追加，目标条目 id
+}
+
+export interface PipelineSessionSnapshot {
+  title: string;
+  url: string;
+  narrative?: string;
+  concepts?: TriageConcept[];
+  sources?: SourceInfo[];
+}
+
+export interface PipelineSession {
+  id: string;
+  entryId: string;                         // 来源 triage entry
+  entrySnapshot: PipelineSessionSnapshot;  // 冻结的上下文，脱离原 entry 也能跑
+  nodes: PipelineNode[];
+  sediment: SedimentPoint[];
+  wikiCandidate?: PipelineWikiCandidate;
+  draft?: PipelineDraft;
+  sdkSessionId?: string;                   // 共享的 Claude Agent SDK session
+  model?: TriageModel;
+  savedWikiItemId?: string;                // 存入 wiki 后的条目 id
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PipelineSessionSummary {
+  id: string;
+  entryId: string;
+  title: string;
+  nodeCount: number;
+  sedimentCount: number;
+  savedWikiItemId?: string;
+  updatedAt: string;
+}
+

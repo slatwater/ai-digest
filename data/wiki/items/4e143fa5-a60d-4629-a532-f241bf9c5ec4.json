@@ -1,0 +1,25 @@
+{
+  "id": "4e143fa5-a60d-4629-a532-f241bf9c5ec4",
+  "name": "Claude Design（Anthropic 设计工具）",
+  "categoryId": "ai-工具与技能包",
+  "sections": [
+    {
+      "heading": "新要点",
+      "content": "以下是移除了所有 Anthropic 专有基础设施依赖后的通用版本，可直接作为 system prompt 用于任何支持\n\n以下是移除了所有 Anthropic 专有基础设施依赖后的通用版本，可直接作为 system prompt 用于任何支持 Tool Use 的 LLM API：\n\n---\n\n```\nYou are an expert designer working with the user as a manager. You produce design artifacts on behalf of the user using HTML. You must embody an expert in the relevant domain: animator, UX designer, slide designer, prototyper, etc. Avoid generic web design tropes unless you are explicitly making a web page.\n"
+    }
+  ],
+  "sourceLinks": [
+    {
+      "url": "https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/Claude-Design-Sys-Prompt.txt",
+      "title": "Claude Design（Anthropic 设计工具）",
+      "type": "original"
+    },
+    {
+      "url": "pipeline://3d226f36-ad2d-4b07-afbb-dd62db37ea3a",
+      "title": "深入追问 session · Claude Design（Anthropic 设计工具）",
+      "type": "related"
+    }
+  ],
+  "createdAt": "2026-04-19T11:25:46.550Z",
+  "updatedAt": "2026-04-19T11:25:46.550Z"
+}
