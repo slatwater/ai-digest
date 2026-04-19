@@ -1,0 +1,78 @@
+{
+  "id": "467054e7-ddcb-43db-ae81-cc91d5aebb12",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:27:31",
+      "inputUrls": [
+        "https://en.wikipedia.org/wiki/Attention_Is_All_You_Need"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 1,
+      "x": 80,
+      "y": 1040,
+      "w": 280,
+      "createdAt": "01:27:52",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n3",
+      "type": "parse",
+      "state": "streaming",
+      "text": "https://en.wikipedia.org/wiki/Attention_Is_All_You_Need",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:28:18",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "cbced50f-c5b6-406f-9b0a-2e3c1b93f8b7-0",
+        "batchId": "cbced50f-c5b6-406f-9b0a-2e3c1b93f8b7",
+        "url": "https://en.wikipedia.org/wiki/Attention_Is_All_You_Need",
+        "title": "https://en.wikipedia.org/wiki/Attention_Is_All_You_Need",
+        "livePhases": [],
+        "liveStatus": "排队中"
+      }
+    },
+    {
+      "id": "n4",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 2,
+      "x": 80,
+      "y": 2000,
+      "w": 280,
+      "createdAt": "01:30:41",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T17:27:31.308Z",
+  "updatedAt": "2026-04-19T17:30:41.390Z"
+}

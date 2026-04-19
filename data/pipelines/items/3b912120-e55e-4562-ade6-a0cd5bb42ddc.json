@@ -1,0 +1,63 @@
+{
+  "id": "3b912120-e55e-4562-ade6-a0cd5bb42ddc",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:31:36",
+      "inputUrls": [
+        "https://x.com/_avichawla/status/2045767552526340205"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "streaming",
+      "text": "https://x.com/_avichawla/status/2045767552526340205",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:32:42",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "c0dfe638-2718-4729-aff4-0a6f082854e0-0",
+        "batchId": "c0dfe638-2718-4729-aff4-0a6f082854e0",
+        "url": "https://x.com/_avichawla/status/2045767552526340205",
+        "title": "https://x.com/_avichawla/status/2045767552526340205",
+        "livePhases": [],
+        "liveStatus": "排队中"
+      }
+    },
+    {
+      "id": "n3",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 1,
+      "x": 80,
+      "y": 1040,
+      "w": 280,
+      "createdAt": "01:32:51",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T17:31:36.729Z",
+  "updatedAt": "2026-04-19T17:38:56.274Z"
+}

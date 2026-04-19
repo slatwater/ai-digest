@@ -513,17 +513,37 @@ export interface ExperienceSummary {
 
 // === 深入追问 Pipeline（分支画布 + 沉淀区） ===
 
-export type PipelineNodeType = 'question' | 'answer';
+// 节点类型：input=URL 输入卡；parse=解析结果卡；question/answer=追问链
+export type PipelineNodeType = 'input' | 'parse' | 'question' | 'answer';
 export type PipelineNodeState = 'pending' | 'streaming' | 'done' | 'error';
+
+// Parse 节点内嵌的 triage entry 快照
+export interface ParseNodePayload {
+  entryId: string;                 // 对应 TriageEntry.id
+  batchId?: string;                // 所属 batch（轮询用）
+  url: string;
+  title: string;
+  verdict?: TriageVerdict;
+  verdictReason?: string;
+  narrative?: string;
+  concepts?: TriageConcept[];
+  sources?: SourceInfo[];
+  relatedEntries?: TriageRelation[];
+  delta?: TriageDelta;
+  livePhases?: string[];
+  liveStatus?: string;
+  tokenUsage?: TriageEntry['tokenUsage'];
+}
 
 export interface PipelineNode {
   id: string;                    // 如 n1/n2
   type: PipelineNodeType;
   state: PipelineNodeState;
-  text: string;                  // 问题或回答正文
+  text: string;                  // 问题或回答正文；input 节点存 URL 列表；parse 节点存摘要
   parent: string | null;         // 上级节点 id（null = 根）
   branchIdx: number;             // 分支编号（0 = 主干）
   branchLabel?: string;          // 分支标签（如 "A · 稀疏化机制"）
+  flowIdx?: number;              // 所属流（0=第一条，+1=新流程按钮创建）
   // 画布坐标（前端可编辑）
   x?: number;
   y?: number;
@@ -536,6 +556,11 @@ export interface PipelineNode {
   markedAs?: string;             // 标记后的简要标题
   model?: TriageModel;
   error?: string;
+  // input 节点字段
+  inputUrls?: string[];          // 用户粘贴的 URL 列表
+  inputModel?: TriageModel;      // 提交时使用的模型
+  // parse 节点字段
+  parseEntry?: ParseNodePayload; // 解析完成后填充
 }
 
 export type SedimentMode = 'full' | 'custom';
@@ -584,8 +609,8 @@ export interface PipelineSessionSnapshot {
 
 export interface PipelineSession {
   id: string;
-  entryId: string;                         // 来源 triage entry
-  entrySnapshot: PipelineSessionSnapshot;  // 冻结的上下文，脱离原 entry 也能跑
+  entryId?: string;                        // 旧字段：首个 parse 节点对应的 triage entry，兼容老数据
+  entrySnapshot?: PipelineSessionSnapshot; // 旧字段：冻结的上下文；新模型下每个 parse 节点自带 payload
   nodes: PipelineNode[];
   sediment: SedimentPoint[];
   wikiCandidate?: PipelineWikiCandidate;
@@ -599,7 +624,7 @@ export interface PipelineSession {
 
 export interface PipelineSessionSummary {
   id: string;
-  entryId: string;
+  entryId?: string;
   title: string;
   nodeCount: number;
   sedimentCount: number;

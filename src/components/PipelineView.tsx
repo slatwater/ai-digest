@@ -6,26 +6,25 @@ import type {
   PipelineNode,
   SedimentPoint,
   SedimentMode,
-  TriageEntry,
   TriageModel,
-  TriageConcept,
-  SourceInfo,
 } from '@/lib/types';
 import type { usePipeline } from '@/hooks/usePipeline';
 
 type PipelineCtx = ReturnType<typeof usePipeline>;
 
 interface Props {
-  entry: TriageEntry;
   pipeline: PipelineCtx;
-  onExit: () => void;
+  onExit?: () => void;            // 可选：外部导航（如返回 wiki 等其它视图）
 }
-
-type CtxTab = 'card' | 'concepts' | 'wiki' | 'sources';
 
 // 卡片固定尺寸
 const NODE_W = 280;
 const NODE_H = 160;
+
+function validUrl(u: string): boolean {
+  const t = u.trim();
+  return /^https?:\/\//i.test(t);
+}
 
 // 文本截断助手
 function truncate(text: string, max: number): string {
@@ -37,16 +36,25 @@ function truncate(text: string, max: number): string {
 /* ──────────────────────────────────────────────────────────
    Narrative — markdown-ish inline renderer
    ────────────────────────────────────────────────────────── */
-function Narrative({ text, small }: { text: string; small?: boolean }) {
+type NarrativeSize = 'small' | 'normal' | 'large';
+
+function Narrative({ text, small, size }: { text: string; small?: boolean; size?: NarrativeSize }) {
   if (!text) return null;
+  const resolved: NarrativeSize = size ?? (small ? 'small' : 'normal');
+  const fontSize = resolved === 'large' ? 16 : resolved === 'small' ? 12 : 13;
+  const codeFontSize = resolved === 'large' ? 14 : resolved === 'small' ? 11 : 12;
+  const lineHeight = resolved === 'large' ? 1.85 : 1.65;
+  const color = resolved === 'large' ? 'var(--ink)' : 'var(--ink2)';
   const parts = text.split(/(\*\*[^*]+\*\*|\[\[[^\]]+\]\]|`[^`]+`)/g);
   return (
     <span
+      className={resolved === 'large' ? 'serif' : undefined}
       style={{
-        fontSize: small ? 12 : 13,
-        lineHeight: 1.65,
-        color: 'var(--ink2)',
+        fontSize,
+        lineHeight,
+        color,
         whiteSpace: 'pre-wrap',
+        letterSpacing: resolved === 'large' ? 0.1 : 0,
       }}
     >
       {parts.map((p, i) => {
@@ -64,6 +72,7 @@ function Narrative({ text, small }: { text: string; small?: boolean }) {
                 color: 'var(--amber)',
                 borderBottom: '1px dashed var(--amber)',
                 textDecoration: 'none',
+                fontWeight: resolved === 'large' ? 500 : 400,
               }}
             >
               {p.slice(2, -2)}
@@ -75,7 +84,7 @@ function Narrative({ text, small }: { text: string; small?: boolean }) {
               key={i}
               style={{
                 fontFamily: 'JetBrains Mono,monospace',
-                fontSize: small ? 11 : 12,
+                fontSize: codeFontSize,
                 background: 'var(--bg2)',
                 padding: '1px 5px',
                 color: 'var(--amber)',
@@ -95,21 +104,25 @@ function Narrative({ text, small }: { text: string; small?: boolean }) {
    TopBar
    ────────────────────────────────────────────────────────── */
 function TopBar({
-  entry,
   session,
   onExit,
   onOpenReview,
+  onNewFlow,
   model,
   onModelChange,
 }: {
-  entry: TriageEntry;
   session: PipelineSession;
-  onExit: () => void;
+  onExit?: () => void;
   onOpenReview: () => void;
+  onNewFlow: () => void;
   model: TriageModel;
   onModelChange: (m: TriageModel) => void;
 }) {
   const markedCount = session.nodes.filter(n => n.marked).length;
+  const firstParseTitle =
+    session.nodes.find(n => n.type === 'parse' && n.parseEntry?.title)?.parseEntry?.title ||
+    session.entrySnapshot?.title ||
+    '画布';
   const [elapsed, setElapsed] = useState('00:00:00');
   const t0 = useRef<number>(Date.parse(session.createdAt));
   useEffect(() => {
@@ -140,22 +153,36 @@ function TopBar({
         zIndex: 5,
       }}
     >
-      {/* Left: breadcrumb + title */}
+      {/* Left: title + 新流程 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <button
-          onClick={onExit}
+          onClick={onNewFlow}
           className="mono"
           style={{
             fontSize: 11,
-            color: 'var(--ink3)',
-            letterSpacing: 0.5,
+            padding: '6px 12px',
+            letterSpacing: 0.3,
+            color: 'var(--amber)',
+            border: '1px solid var(--amber)',
+            background: 'var(--amber-soft)',
+            fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             gap: 6,
           }}
+          title="在画布下方新增一条解析流"
         >
-          ← <span>triage</span>
+          + 新流程
         </button>
+        {onExit && (
+          <button
+            onClick={onExit}
+            className="mono"
+            style={{ fontSize: 11, color: 'var(--ink3)', letterSpacing: 0.3 }}
+          >
+            ← 返回
+          </button>
+        )}
         <span style={{ color: 'var(--ink4)' }}>/</span>
         <span
           className="serif"
@@ -170,7 +197,7 @@ function TopBar({
             whiteSpace: 'nowrap',
           }}
         >
-          {entry.title}
+          {firstParseTitle}
         </span>
         <span
           className="mono"
@@ -183,7 +210,7 @@ function TopBar({
             padding: '2px 6px',
           }}
         >
-          深度模式 · deep
+          统一画布
         </span>
       </div>
 
@@ -256,375 +283,6 @@ function TopBar({
   );
 }
 
-/* ──────────────────────────────────────────────────────────
-   ContextPanel (left)
-   ────────────────────────────────────────────────────────── */
-function ContextPanel({
-  active,
-  setActive,
-  entry,
-}: {
-  active: CtxTab;
-  setActive: (t: CtxTab) => void;
-  entry: TriageEntry;
-}) {
-  const tabs: { id: CtxTab; label: string }[] = [
-    { id: 'card', label: 'card' },
-    { id: 'concepts', label: 'subjects' },
-    { id: 'wiki', label: 'related' },
-    { id: 'sources', label: 'sources' },
-  ];
-  return (
-    <aside
-      style={{
-        width: 280,
-        height: '100%',
-        borderRight: '1px solid var(--rule)',
-        background: 'var(--panel)',
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'relative',
-        zIndex: 4,
-      }}
-    >
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--rule)' }}>
-        {tabs.map(p => (
-          <button
-            key={p.id}
-            onClick={() => setActive(p.id)}
-            className="mono"
-            style={{
-              flex: 1,
-              padding: '10px 4px',
-              fontSize: 10,
-              letterSpacing: 0.5,
-              color: active === p.id ? 'var(--amber)' : 'var(--ink3)',
-              borderBottom:
-                active === p.id
-                  ? '2px solid var(--amber)'
-                  : '2px solid transparent',
-              background: active === p.id ? 'var(--amber-soft)' : 'transparent',
-              textTransform: 'uppercase',
-            }}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      <div
-        className="scroll"
-        style={{ flex: 1, overflowY: 'auto', padding: '18px 18px 40px' }}
-      >
-        {active === 'card' && <CardContextView entry={entry} />}
-        {active === 'concepts' && <ConceptsContextView concepts={entry.concepts || []} />}
-        {active === 'wiki' && <WikiContextView />}
-        {active === 'sources' && <SourcesContextView sources={entry.sources || []} url={entry.url} />}
-      </div>
-    </aside>
-  );
-}
-
-function hostOf(u: string) {
-  try {
-    return new URL(u).hostname.replace(/^www\./, '');
-  } catch {
-    return u;
-  }
-}
-
-function CardContextView({ entry }: { entry: TriageEntry }) {
-  return (
-    <div>
-      <div
-        className="mono"
-        style={{
-          fontSize: 9,
-          color: 'var(--red)',
-          letterSpacing: 1.2,
-          textTransform: 'uppercase',
-          marginBottom: 6,
-        }}
-      >
-        ※ 来源卡片
-      </div>
-      <div
-        className="serif"
-        style={{
-          fontSize: 18,
-          lineHeight: 1.25,
-          color: 'var(--ink)',
-          fontWeight: 500,
-          letterSpacing: -0.3,
-          marginBottom: 10,
-        }}
-      >
-        {entry.title}
-      </div>
-      <div
-        className="mono"
-        style={{ fontSize: 10, color: 'var(--ink3)', marginBottom: 18 }}
-      >
-        <span style={{ color: 'var(--red)' }}>●</span> {hostOf(entry.url)}
-        {entry.verdict === 'save' && (
-          <>
-            <span style={{ margin: '0 6px', color: 'var(--ink4)' }}>│</span>
-            <span
-              style={{
-                color: 'var(--amber)',
-                border: '1px solid var(--amber)',
-                padding: '1px 5px',
-                fontSize: 9,
-                letterSpacing: 0.8,
-                textTransform: 'uppercase',
-              }}
-            >
-              save
-            </span>
-          </>
-        )}
-      </div>
-
-      {entry.narrative && (
-        <div style={{ paddingTop: 14, borderTop: '1px dashed var(--rule)' }}>
-          <div
-            className="mono"
-            style={{
-              fontSize: 9,
-              color: 'var(--ink3)',
-              letterSpacing: 1.2,
-              textTransform: 'uppercase',
-              marginBottom: 8,
-            }}
-          >
-            narrative
-          </div>
-          <Narrative text={entry.narrative} small />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ConceptsContextView({ concepts }: { concepts: TriageConcept[] }) {
-  if (!concepts.length)
-    return (
-      <div
-        className="mono"
-        style={{ fontSize: 10, color: 'var(--ink3)', padding: 20 }}
-      >
-        未识别具名技术
-      </div>
-    );
-  return (
-    <div>
-      <div
-        className="mono"
-        style={{
-          fontSize: 9,
-          color: 'var(--red)',
-          letterSpacing: 1.2,
-          textTransform: 'uppercase',
-          marginBottom: 12,
-        }}
-      >
-        主角 · subjects
-      </div>
-      {concepts.map((c, i) => (
-        <div
-          key={i}
-          style={{
-            padding: '10px 12px',
-            marginBottom: 8,
-            background: 'var(--bg2)',
-            border: '1px solid var(--rule)',
-            borderLeft: '2px solid var(--amber)',
-          }}
-        >
-          <div
-            className="mono"
-            style={{
-              fontSize: 12,
-              color: 'var(--ink)',
-              fontWeight: 500,
-              marginBottom: 2,
-            }}
-          >
-            {c.name}
-          </div>
-          {c.role && (
-            <div
-              className="mono"
-              style={{
-                fontSize: 9,
-                color: 'var(--ink3)',
-                letterSpacing: 0.5,
-                textTransform: 'uppercase',
-              }}
-            >
-              / {c.role}
-            </div>
-          )}
-          {c.whatItEnables && (
-            <div
-              style={{
-                fontSize: 11,
-                color: 'var(--ink2)',
-                marginTop: 6,
-                lineHeight: 1.5,
-              }}
-            >
-              {c.whatItEnables}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function WikiContextView() {
-  return (
-    <div>
-      <div
-        className="mono"
-        style={{
-          fontSize: 9,
-          color: 'var(--red)',
-          letterSpacing: 1.2,
-          textTransform: 'uppercase',
-          marginBottom: 12,
-        }}
-      >
-        相关词条 · 可能被补充
-      </div>
-      <div
-        className="mono"
-        style={{
-          padding: '8px',
-          fontSize: 10,
-          color: 'var(--ink3)',
-          border: '1px dashed var(--rule)',
-          textAlign: 'center',
-          lineHeight: 1.6,
-        }}
-      >
-        整理时会匹配现有词条
-        <br />
-        <span style={{ color: 'var(--ink4)' }}>无匹配则新建</span>
-      </div>
-    </div>
-  );
-}
-
-function SourcesContextView({
-  sources,
-  url,
-}: {
-  sources: SourceInfo[];
-  url: string;
-}) {
-  const all: { label: string; d: string; p: string; origin?: boolean; url: string }[] = [
-    { label: '粘贴入口', d: hostOf(url), p: new URL(url).pathname || '/', origin: true, url },
-  ];
-  for (const s of sources) {
-    if (s.url === url) continue;
-    try {
-      const u = new URL(s.url);
-      all.push({
-        label: s.type === 'github' ? '链入' : s.type === 'paper' ? '引用' : '相关',
-        d: u.hostname.replace(/^www\./, ''),
-        p: u.pathname,
-        url: s.url,
-      });
-    } catch {
-      /* skip */
-    }
-  }
-
-  return (
-    <div>
-      <div
-        className="mono"
-        style={{
-          fontSize: 9,
-          color: 'var(--red)',
-          letterSpacing: 1.2,
-          textTransform: 'uppercase',
-          marginBottom: 12,
-        }}
-      >
-        溯源链 · trace
-      </div>
-      {all.map((s, i) => (
-        <div
-          key={i}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '32px 1fr',
-            marginBottom: i === all.length - 1 ? 0 : 14,
-            position: 'relative',
-          }}
-        >
-          <div
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
-          >
-            <div
-              style={{
-                width: s.origin ? 20 : 12,
-                height: s.origin ? 20 : 12,
-                borderRadius: '50%',
-                background: s.origin ? 'var(--red)' : 'var(--bg2)',
-                border: s.origin ? '2px solid var(--red)' : '1.5px solid var(--ink3)',
-                marginTop: 3,
-              }}
-            />
-            {i < all.length - 1 && (
-              <div
-                style={{
-                  width: 1,
-                  flex: 1,
-                  marginTop: 2,
-                  background:
-                    'repeating-linear-gradient(to bottom, var(--ink4) 0 3px, transparent 3px 6px)',
-                }}
-              />
-            )}
-          </div>
-          <div>
-            <div
-              className="mono"
-              style={{
-                fontSize: 9,
-                color: s.origin ? 'var(--red)' : 'var(--ink3)',
-                letterSpacing: 1,
-                textTransform: 'uppercase',
-                marginBottom: 2,
-              }}
-            >
-              {s.origin ? '※ 源头' : `↳ ${s.label}`}
-            </div>
-            <a
-              href={s.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mono"
-              style={{
-                fontSize: 11,
-                color: 'var(--ink)',
-                textDecoration: 'none',
-                wordBreak: 'break-all',
-              }}
-            >
-              <span style={{ color: 'var(--red)' }}>{s.d}</span>
-              <span style={{ color: 'var(--ink3)' }}>{s.p}</span>
-            </a>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /* ──────────────────────────────────────────────────────────
    Canvas — pan/zoom, nodes, bezier connectors
@@ -638,6 +296,7 @@ function Canvas({
   onMark,
   onUnmark,
   onOpen,
+  onSubmitInput,
 }: {
   nodes: PipelineNode[];
   streamingNodeId: string | null;
@@ -647,6 +306,7 @@ function Canvas({
   onMark: (id: string) => void;
   onUnmark: (id: string) => void;
   onOpen: (nodeId: string) => void;
+  onSubmitInput: (nodeId: string, urls: string[]) => void;
 }) {
   const [view, setView] = useState({ x: 40, y: 20, zoom: 0.9 });
   const [panning, setPanning] = useState<
@@ -782,23 +442,34 @@ function Canvas({
             </marker>
           </defs>
           {edges.map((e, i) => {
-            const fromX = (e.from.x ?? 0) - bounds.minX + (e.from.w ?? NODE_W) / 2;
-            const fromY = (e.from.y ?? 0) - bounds.minY + NODE_H;
-            const toX = (e.to.x ?? 0) - bounds.minX + (e.to.w ?? NODE_W) / 2;
-            const toY = (e.to.y ?? 0) - bounds.minY;
-            const isBranch = e.from.branchIdx !== e.to.branchIdx;
-            const stroke = isBranch ? 'var(--branch)' : 'var(--ink3)';
-            const cy = (fromY + toY) / 2;
-            const d = `M ${fromX} ${fromY} C ${fromX} ${cy}, ${toX} ${cy}, ${toX} ${toY}`;
+            // 水平连线：从父节点右边中线 → 子节点左边中线
+            const fromX = (e.from.x ?? 0) - bounds.minX + (e.from.w ?? NODE_W);
+            const fromY = (e.from.y ?? 0) - bounds.minY + NODE_H / 2;
+            const toX = (e.to.x ?? 0) - bounds.minX;
+            const toY = (e.to.y ?? 0) - bounds.minY + NODE_H / 2;
+            const isBranch = e.from.branchIdx !== e.to.branchIdx && e.from.type !== 'input';
+            const isParseEdge = e.from.type === 'input' && e.to.type === 'parse';
+            const stroke = isBranch
+              ? 'var(--branch)'
+              : isParseEdge
+                ? 'var(--red)'
+                : 'var(--ink3)';
+            const cx = (fromX + toX) / 2;
+            const d = `M ${fromX} ${fromY} C ${cx} ${fromY}, ${cx} ${toY}, ${toX} ${toY}`;
+            // parse 解析过程：在连线中点标注当前阶段
+            const parseLabel = isParseEdge
+              ? (e.to.parseEntry?.liveStatus
+                  || (e.to.state === 'done' ? '解析完成' : null))
+              : null;
             return (
               <g key={i}>
                 <path
                   d={d}
                   stroke={stroke}
-                  strokeWidth={isBranch ? 1.5 : 1.2}
+                  strokeWidth={isBranch ? 1.5 : isParseEdge ? 1.5 : 1.2}
                   fill="none"
-                  strokeDasharray={isBranch ? '4 4' : '0'}
-                  opacity={0.7}
+                  strokeDasharray={isBranch ? '4 4' : isParseEdge && e.to.state !== 'done' ? '6 3' : '0'}
+                  opacity={0.75}
                   markerEnd="url(#pipe-arrow)"
                 />
                 {isBranch && e.to.branchLabel && (
@@ -823,6 +494,30 @@ function Canvas({
                     </text>
                   </g>
                 )}
+                {parseLabel && (
+                  <g transform={`translate(${cx}, ${(fromY + toY) / 2 - 14})`}>
+                    <rect
+                      x={-(Math.min(120, parseLabel.length * 8)) / 2 - 6}
+                      y={-10}
+                      width={Math.min(120, parseLabel.length * 8) + 12}
+                      height={16}
+                      fill="var(--bg2)"
+                      stroke="var(--red)"
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={0}
+                      y={1}
+                      fontSize="9"
+                      fill="var(--red)"
+                      fontFamily="JetBrains Mono"
+                      textAnchor="middle"
+                    >
+                      {e.to.state === 'done' ? '✓ ' : '● '}
+                      {parseLabel}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
@@ -839,6 +534,7 @@ function Canvas({
             onMark={() => onMark(n.id)}
             onUnmark={() => onUnmark(n.id)}
             onOpen={() => onOpen(n.id)}
+            onSubmitInput={onSubmitInput}
           />
         ))}
       </div>
@@ -917,9 +613,9 @@ function Canvas({
               lineHeight: 2,
             }}
           >
-            还没有追问
+            空画布
             <br />
-            <span style={{ color: 'var(--ink4)' }}>点击下方 继续追问 开始</span>
+            <span style={{ color: 'var(--ink4)' }}>点击左上角「+ 新流程」开始</span>
           </div>
         </div>
       )}
@@ -940,10 +636,61 @@ function Canvas({
           pointerEvents: 'none',
         }}
       >
-        拖拽平移 · ⌘滚轮缩放 · 选中回答可标记为要点
+        拖拽平移 · ⌘滚轮缩放 · 双击解析卡查看完整内容 · 回答卡可标记为要点
       </div>
     </div>
   );
+}
+
+// 按节点类型返回视觉规格：底色 / 左边条颜色 / 头部标签 / 头部色
+function nodeVisuals(node: PipelineNode, selected: boolean): {
+  bg: string;
+  headerBg: string;
+  leftBar: string;
+  label: string;
+  labelColor: string;
+  clickTitle: string;
+} {
+  switch (node.type) {
+    case 'input':
+      return {
+        bg: 'var(--panel)',
+        headerBg: 'rgba(0,0,0,0.22)',
+        leftBar: 'var(--ink)',
+        label: '✎ 粘贴链接',
+        labelColor: 'var(--ink2)',
+        clickTitle: '双击展开输入框',
+      };
+    case 'parse':
+      return {
+        bg: 'var(--panel)',
+        headerBg: 'rgba(201,74,26,0.08)',
+        leftBar: 'var(--red)',
+        label: '◎ 解析',
+        labelColor: 'var(--red)',
+        clickTitle: '双击查看完整解析',
+      };
+    case 'question':
+      return {
+        bg: 'var(--panel2)',
+        headerBg: 'rgba(0,0,0,0.2)',
+        leftBar: 'var(--amber)',
+        label: '→ 你问',
+        labelColor: 'var(--amber)',
+        clickTitle: '双击展开对话详情',
+      };
+    default: // answer
+      return {
+        bg: 'var(--panel)',
+        headerBg: 'transparent',
+        leftBar: 'var(--ink3)',
+        label: '← agent',
+        labelColor: 'var(--ink3)',
+        clickTitle: '双击展开对话详情',
+      };
+  }
+  // note: 选中态与 marked 态的覆盖在外层边框 / 左条处理
+  void selected;
 }
 
 function CanvasNode({
@@ -955,6 +702,7 @@ function CanvasNode({
   onMark,
   onUnmark,
   onOpen,
+  onSubmitInput,
 }: {
   node: PipelineNode;
   selected: boolean;
@@ -964,13 +712,18 @@ function CanvasNode({
   onMark: () => void;
   onUnmark: () => void;
   onOpen: () => void;
+  onSubmitInput: (nodeId: string, urls: string[]) => void;
 }) {
   const [hovering, setHovering] = useState(false);
+  const v = nodeVisuals(node, selected);
   const isQ = node.type === 'question';
+  const isAnswer = node.type === 'answer';
+  const isInput = node.type === 'input';
+  const isParse = node.type === 'parse';
   const isStreaming = node.state === 'streaming' || streaming;
 
   const stateLabel = isStreaming
-    ? '● 正在写'
+    ? (isParse ? '● 解析中' : '● 正在写')
     : node.state === 'error'
       ? '× 失败'
       : node.state === 'pending'
@@ -982,14 +735,35 @@ function CanvasNode({
       ? 'var(--red)'
       : 'var(--ink3)';
 
-  // 摘要文本
-  const summaryText = isQ
-    ? truncate(node.text, 90)
-    : node.text
-      ? truncate(node.text, 140)
-      : isStreaming
-        ? '正在生成…'
-        : '';
+  // 摘要文本（parse 节点用 title + narrative 摘要；input 节点展示 URL 列表；Q/A 用 text）
+  let summaryLines: string[] = [];
+  if (isInput) {
+    summaryLines = node.inputUrls?.length
+      ? node.inputUrls.slice(0, 3)
+      : ['（尚未粘贴链接，双击编辑）'];
+  } else if (isParse) {
+    const p = node.parseEntry;
+    summaryLines = [
+      p?.title || p?.url || '解析中…',
+      p?.narrative ? truncate(p.narrative, 110) : (p?.liveStatus || '排队中'),
+    ];
+  }
+
+  const summaryText = !isInput && !isParse
+    ? (isQ
+        ? truncate(node.text, 90)
+        : node.text
+          ? truncate(node.text, 140)
+          : isStreaming
+            ? '正在生成…'
+            : '')
+    : '';
+
+  const borderColor = selected
+    ? 'var(--amber)'
+    : node.marked
+      ? 'var(--amber)'
+      : 'var(--rule)';
 
   return (
     <div
@@ -1004,20 +778,18 @@ function CanvasNode({
       }}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
-      title="双击展开对话详情"
+      title={v.clickTitle}
       style={{
         position: 'absolute',
         left: node.x ?? 0,
         top: node.y ?? 0,
         width: node.w ?? NODE_W,
         height: NODE_H,
-        background: isQ ? 'var(--panel2)' : 'var(--panel)',
-        border: `1px solid ${
-          selected ? 'var(--amber)' : node.marked ? 'var(--amber)' : 'var(--rule)'
-        }`,
-        borderLeft: node.marked
-          ? '3px solid var(--amber)'
-          : `1px solid ${selected ? 'var(--amber)' : 'var(--rule)'}`,
+        background: v.bg,
+        borderTop: `1px solid ${borderColor}`,
+        borderRight: `1px solid ${borderColor}`,
+        borderBottom: `1px solid ${borderColor}`,
+        borderLeft: `3px solid ${node.marked ? 'var(--amber)' : v.leftBar}`,
         boxShadow: selected
           ? '0 0 0 3px rgba(232,162,76,0.15), 4px 4px 0 rgba(0,0,0,0.4)'
           : '3px 3px 0 rgba(0,0,0,0.4)',
@@ -1060,7 +832,7 @@ function CanvasNode({
           alignItems: 'center',
           gap: 6,
           borderBottom: '1px solid var(--rule)',
-          background: isQ ? 'rgba(0,0,0,0.2)' : 'transparent',
+          background: v.headerBg,
           flexShrink: 0,
         }}
       >
@@ -1070,11 +842,11 @@ function CanvasNode({
             fontSize: 9,
             letterSpacing: 0.8,
             textTransform: 'uppercase',
-            color: isQ ? 'var(--amber)' : 'var(--ink3)',
-            fontWeight: isQ ? 600 : 400,
+            color: v.labelColor,
+            fontWeight: 600,
           }}
         >
-          {isQ ? '→ 你问' : '← agent'}
+          {v.label}
         </span>
         <span className="mono" style={{ fontSize: 9, color: 'var(--ink4)' }}>
           {node.id}
@@ -1121,7 +893,7 @@ function CanvasNode({
         </span>
       </div>
 
-      {/* Body — summary only */}
+      {/* Body */}
       <div
         style={{
           flex: 1,
@@ -1129,27 +901,71 @@ function CanvasNode({
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
+          gap: 6,
         }}
       >
-        <div
-          className={isQ ? 'serif' : undefined}
-          style={{
-            fontSize: isQ ? 13 : 12,
-            lineHeight: 1.5,
-            color: isQ ? 'var(--ink)' : 'var(--ink2)',
-            fontWeight: isQ ? 500 : 400,
-            letterSpacing: isQ ? -0.1 : 0,
-            display: '-webkit-box',
-            WebkitLineClamp: isQ ? 3 : 4,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            flex: 1,
-          }}
-        >
-          {summaryText}
-        </div>
+        {isInput && (
+          <InputNodeBody
+            node={node}
+            onSubmit={urls => onSubmitInput(node.id, urls)}
+          />
+        )}
 
-        {isStreaming && !isQ && (
+        {isParse && (
+          <>
+            <div
+              className="serif"
+              style={{
+                fontSize: 13,
+                lineHeight: 1.35,
+                color: 'var(--ink)',
+                fontWeight: 600,
+                letterSpacing: -0.2,
+                display: '-webkit-box',
+                WebkitLineClamp: 1,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {summaryLines[0]}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                lineHeight: 1.5,
+                color: 'var(--ink2)',
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {summaryLines[1]}
+            </div>
+          </>
+        )}
+
+        {!isInput && !isParse && (
+          <div
+            className={isQ ? 'serif' : undefined}
+            style={{
+              fontSize: isQ ? 13 : 12,
+              lineHeight: 1.5,
+              color: isQ ? 'var(--ink)' : 'var(--ink2)',
+              fontWeight: isQ ? 500 : 400,
+              letterSpacing: isQ ? -0.1 : 0,
+              display: '-webkit-box',
+              WebkitLineClamp: isQ ? 3 : 4,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              flex: 1,
+            }}
+          >
+            {summaryText}
+          </div>
+        )}
+
+        {isStreaming && isAnswer && (
           <div
             style={{
               display: 'flex',
@@ -1201,7 +1017,7 @@ function CanvasNode({
           background: 'rgba(0,0,0,0.15)',
         }}
       >
-        {!isQ && (node.duration || node.tokens) && (
+        {isAnswer && (node.duration || node.tokens) && (
           <span
             className="mono"
             style={{ fontSize: 9, color: 'var(--ink3)' }}
@@ -1209,6 +1025,11 @@ function CanvasNode({
             {node.duration ?? ''}
             {node.duration && node.tokens ? ' · ' : ''}
             {node.tokens ? `${node.tokens}t` : ''}
+          </span>
+        )}
+        {isParse && node.parseEntry?.concepts && (
+          <span className="mono" style={{ fontSize: 9, color: 'var(--ink3)' }}>
+            {node.parseEntry.concepts.length} 概念
           </span>
         )}
         {node.createdAt && (
@@ -1219,7 +1040,7 @@ function CanvasNode({
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {!isQ && node.state === 'done' && !node.marked && (
+        {isAnswer && node.state === 'done' && !node.marked && (
           <button
             onClick={e => {
               e.stopPropagation();
@@ -1239,7 +1060,7 @@ function CanvasNode({
             ◈ 标记
           </button>
         )}
-        {!isQ && node.marked && (
+        {isAnswer && node.marked && (
           <button
             onClick={e => {
               e.stopPropagation();
@@ -1269,6 +1090,130 @@ function CanvasNode({
         </span>
       </div>
     </div>
+  );
+}
+
+// InputNodeBody — 输入卡主体（粘贴 URL，回车提交）
+function InputNodeBody({
+  node,
+  onSubmit,
+}: {
+  node: PipelineNode;
+  onSubmit: (urls: string[]) => void;
+}) {
+  const [value, setValue] = useState(node.inputUrls?.join('\n') || '');
+  const urls = value
+    .split(/\r?\n|\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  const valid = urls.filter(validUrl);
+  const submitted = (node.inputUrls?.length ?? 0) > 0;
+
+  if (submitted) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}
+      >
+        <div
+          className="mono"
+          style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 0.5 }}
+        >
+          ✓ 已提交 {node.inputUrls?.length ?? 0} 条
+        </div>
+        {node.inputUrls?.slice(0, 3).map((u, i) => (
+          <div
+            key={i}
+            className="mono"
+            style={{
+              fontSize: 10,
+              color: 'var(--ink2)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {u}
+          </div>
+        ))}
+        {node.inputUrls && node.inputUrls.length > 3 && (
+          <div className="mono" style={{ fontSize: 9, color: 'var(--ink4)' }}>
+            +{node.inputUrls.length - 3} 更多
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onClick={e => e.stopPropagation()}
+      onDoubleClick={e => e.stopPropagation()}
+      onSubmit={e => {
+        e.preventDefault();
+        if (valid.length) onSubmit(valid);
+      }}
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <textarea
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            if (valid.length) onSubmit(valid);
+          }
+        }}
+        placeholder="粘贴 http(s) 链接，每行一个"
+        className="mono"
+        style={{
+          flex: 1,
+          resize: 'none',
+          background: 'var(--bg)',
+          color: 'var(--ink)',
+          border: '1px solid var(--rule)',
+          padding: '6px 8px',
+          fontSize: 10,
+          lineHeight: 1.45,
+          outline: 'none',
+        }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span
+          className="mono"
+          style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 0.3 }}
+        >
+          {valid.length}/{urls.length} 有效
+        </span>
+        <span style={{ flex: 1 }} />
+        <button
+          type="submit"
+          disabled={!valid.length}
+          className="mono"
+          style={{
+            fontSize: 10,
+            padding: '2px 8px',
+            letterSpacing: 0.3,
+            color: valid.length ? 'var(--bg)' : 'var(--ink4)',
+            background: valid.length ? 'var(--red)' : 'transparent',
+            border: `1px solid ${valid.length ? 'var(--red)' : 'var(--rule)'}`,
+            fontWeight: 600,
+            cursor: valid.length ? 'pointer' : 'not-allowed',
+          }}
+        >
+          ⌘↵ 开始解析
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -1558,7 +1503,12 @@ function ReviewSheet({
 }) {
   const [mode, setMode] = useState<ReviewMode>('new');
   const [appendToItemId, setAppendToItemId] = useState<string>('');
-  const [name, setName] = useState(session.entrySnapshot.title);
+  // 取首个 parse 节点标题作为默认条目名；兼容老数据的 entrySnapshot
+  const defaultName =
+    session.nodes.find(n => n.type === 'parse' && n.parseEntry?.title)?.parseEntry?.title ||
+    session.entrySnapshot?.title ||
+    '未命名条目';
+  const [name, setName] = useState(defaultName);
   const [categoryId, setCategoryId] = useState<string>('');
   const [catNewName, setCatNewName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1646,13 +1596,22 @@ function ReviewSheet({
           heading: s.heading.trim() || '未命名段落',
           sedimentIds: s.sedimentIds,
         })),
-        sourceLinks: [
-          {
-            url: session.entrySnapshot.url,
-            title: session.entrySnapshot.title,
+        sourceLinks: session.nodes
+          .filter(n => n.type === 'parse' && n.parseEntry?.url)
+          .map(n => ({
+            url: n.parseEntry!.url,
+            title: n.parseEntry!.title || n.parseEntry!.url,
             type: 'original' as const,
-          },
-        ],
+          }))
+          .concat(
+            session.entrySnapshot?.url
+              ? [{
+                  url: session.entrySnapshot.url,
+                  title: session.entrySnapshot.title,
+                  type: 'original' as const,
+                }]
+              : [],
+          ),
       };
       const res = await fetch(`/api/pipeline/${session.id}/save`, {
         method: 'POST',
@@ -2734,13 +2693,30 @@ function AskSheet({
 /* ──────────────────────────────────────────────────────────
    Main PipelineView
    ────────────────────────────────────────────────────────── */
-export function PipelineView({ entry, pipeline, onExit }: Props) {
+export function PipelineView({ pipeline, onExit }: Props) {
   const session = pipeline.session;
-  const [activeCtx, setActiveCtx] = useState<CtxTab>('card');
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [showReview, setShowReview] = useState(false);
   const [askTarget, setAskTarget] = useState<AskTarget | null>(null);
   const [markTarget, setMarkTarget] = useState<string | null>(null);
+  const [parseTarget, setParseTarget] = useState<string | null>(null);
+
+  // 首次 mount：确保存在 session + 至少一张 input 节点
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const s = await pipeline.ensureSession();
+      if (cancelled) return;
+      if (s && s.nodes.length === 0) {
+        await pipeline.addInputFlow();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 只在挂载时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!session) {
     return (
@@ -2754,7 +2730,7 @@ export function PipelineView({ entry, pipeline, onExit }: Props) {
         }}
       >
         <div className="mono" style={{ fontSize: 12, letterSpacing: 1 }}>
-          正在进入深度模式…
+          正在初始化画布…
         </div>
       </div>
     );
@@ -2762,15 +2738,23 @@ export function PipelineView({ entry, pipeline, onExit }: Props) {
 
   const canAsk = pipeline.streamingNodeId === null;
 
-  // 打开对话弹窗：
-  //  - 传 nodeId：挂在该节点下，弹窗显示该节点所在链条
-  //  - 不传：底部「深入提问」入口 — 每次都是画布根新主干（parentId=null）
+  // 打开交互：
+  // - input 节点：双击不做事（直接在卡内编辑）
+  // - parse 节点：弹窗显示完整解析（含深入追问入口）
+  // - question/answer 节点：弹窗显示对话链
   const openSheet = (nodeId: string | null) => {
-    if (nodeId) {
-      setAskTarget({ parentId: nodeId, focusId: nodeId });
-    } else {
+    if (!nodeId) {
       setAskTarget({ parentId: null, focusId: null });
+      return;
     }
+    const n = session.nodes.find(x => x.id === nodeId);
+    if (!n) return;
+    if (n.type === 'input') return;
+    if (n.type === 'parse') {
+      setParseTarget(nodeId);
+      return;
+    }
+    setAskTarget({ parentId: nodeId, focusId: nodeId });
   };
 
   const onSheetAsk = (
@@ -2787,19 +2771,14 @@ export function PipelineView({ entry, pipeline, onExit }: Props) {
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
     >
       <TopBar
-        entry={entry}
         session={session}
         onExit={onExit}
         onOpenReview={() => setShowReview(true)}
+        onNewFlow={() => pipeline.addInputFlow()}
         model={pipeline.model}
         onModelChange={pipeline.setModel}
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <ContextPanel
-          active={activeCtx}
-          setActive={setActiveCtx}
-          entry={entry}
-        />
         <div
           style={{
             flex: 1,
@@ -2818,58 +2797,8 @@ export function PipelineView({ entry, pipeline, onExit }: Props) {
             onMark={(id: string) => setMarkTarget(id)}
             onUnmark={pipeline.unmarkNode}
             onOpen={nodeId => openSheet(nodeId)}
+            onSubmitInput={(id, urls) => pipeline.submitInput(id, urls)}
           />
-
-          {/* Bottom CTA bar */}
-          <div
-            style={{
-              padding: '10px 20px 14px',
-              borderTop: '1px solid var(--rule)',
-              background: 'var(--bg2)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
-            <div
-              className="mono"
-              style={{
-                fontSize: 10,
-                color: 'var(--ink3)',
-                letterSpacing: 0.4,
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <span style={{ color: 'var(--ink4)' }}>tip</span>
-              <span style={{ color: 'var(--ink4)' }}>·</span>
-              <span>双击任意卡片 → 展开该分支完整对话 + 继续追问</span>
-            </div>
-            <button
-              onClick={() => openSheet(null)}
-              disabled={!canAsk}
-              className="mono"
-              style={{
-                padding: '8px 18px',
-                fontSize: 12,
-                letterSpacing: 0.5,
-                fontWeight: 600,
-                background: canAsk ? 'var(--amber)' : 'var(--bg2)',
-                color: canAsk ? 'var(--bg)' : 'var(--ink4)',
-                border: '1px solid ' + (canAsk ? 'var(--amber)' : 'var(--rule)'),
-                boxShadow: canAsk ? '3px 3px 0 rgba(0,0,0,0.4)' : 'none',
-                cursor: canAsk ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <span>{session.nodes.length === 0 ? '开始追问' : '继续追问'}</span>
-              <span>→</span>
-            </button>
-          </div>
         </div>
         <SedimentTray
           points={session.sediment}
@@ -2881,6 +2810,18 @@ export function PipelineView({ entry, pipeline, onExit }: Props) {
           setShowReview={setShowReview}
         />
       </div>
+
+      {parseTarget && (
+        <ParseDetailSheet
+          session={session}
+          nodeId={parseTarget}
+          onClose={() => setParseTarget(null)}
+          onDeepDive={nodeId => {
+            setParseTarget(null);
+            setAskTarget({ parentId: nodeId, focusId: nodeId });
+          }}
+        />
+      )}
 
       {askTarget && (
         <AskSheet
@@ -2917,6 +2858,267 @@ export function PipelineView({ entry, pipeline, onExit }: Props) {
           onClose={() => setMarkTarget(null)}
         />
       )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+   ParseDetailSheet — 解析详情弹窗
+   ────────────────────────────────────────────────────────── */
+function ParseDetailSheet({
+  session,
+  nodeId,
+  onClose,
+  onDeepDive,
+}: {
+  session: PipelineSession;
+  nodeId: string;
+  onClose: () => void;
+  onDeepDive: (nodeId: string) => void;
+}) {
+  const node = session.nodes.find(n => n.id === nodeId);
+  const p = node?.parseEntry;
+
+  if (!node || !p) return null;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 25,
+        background: 'rgba(20,17,13,0.88)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        animation: 'pipelineFadeIn 0.2s',
+      }}
+    >
+      <div
+        className="pipeline-deep"
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 820,
+          maxWidth: '94vw',
+          height: '84vh',
+          maxHeight: 760,
+          background: 'var(--panel)',
+          border: '1px solid var(--red)',
+          boxShadow: '0 0 0 1px var(--bg), 8px 8px 0 rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '14px 20px',
+            borderBottom: '1px solid var(--rule)',
+            background: 'rgba(201,74,26,0.06)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexShrink: 0,
+          }}
+        >
+          <span
+            className="mono"
+            style={{
+              fontSize: 10,
+              color: 'var(--red)',
+              letterSpacing: 1.4,
+              textTransform: 'uppercase',
+              border: '1px solid var(--red)',
+              padding: '2px 6px',
+            }}
+          >
+            ◎ 解析详情
+          </span>
+          <span
+            className="mono"
+            style={{
+              fontSize: 10,
+              color: 'var(--ink3)',
+              letterSpacing: 0.3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+            }}
+          >
+            {p.url}
+          </span>
+          <button
+            onClick={onClose}
+            className="mono"
+            style={{ fontSize: 12, color: 'var(--ink3)', letterSpacing: 0.3 }}
+          >
+            × 关闭
+          </button>
+        </div>
+
+        {/* Body */}
+        <div
+          className="scroll"
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '22px 26px',
+            background: 'var(--bg)',
+          }}
+        >
+          <h2
+            className="serif"
+            style={{
+              fontSize: 22,
+              fontWeight: 600,
+              color: 'var(--ink)',
+              letterSpacing: -0.4,
+              lineHeight: 1.3,
+              marginBottom: 12,
+            }}
+          >
+            {p.title}
+          </h2>
+
+          {p.concepts && p.concepts.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div
+                className="mono"
+                style={{
+                  fontSize: 9,
+                  color: 'var(--red)',
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                  marginBottom: 8,
+                }}
+              >
+                ※ 识别到的技术
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {p.concepts.map((c, i) => (
+                  <span
+                    key={i}
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      padding: '3px 8px',
+                      border: `1px solid ${c.role === 'subject' ? 'var(--red)' : 'var(--ink4)'}`,
+                      color: c.role === 'subject' ? 'var(--red)' : 'var(--ink2)',
+                      background: c.role === 'subject' ? 'rgba(201,74,26,0.06)' : 'transparent',
+                      letterSpacing: 0.3,
+                    }}
+                  >
+                    {c.role === 'subject' ? '◆ ' : ''}{c.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {p.narrative && (
+            <div style={{ marginBottom: 22 }}>
+              <div
+                className="mono"
+                style={{
+                  fontSize: 9,
+                  color: 'var(--ink3)',
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                  marginBottom: 10,
+                }}
+              >
+                ── 解析叙述
+              </div>
+              {p.narrative.split(/\n\n+/).map((para, i) => (
+                <p key={i} style={{ marginBottom: 14 }}>
+                  <Narrative text={para} size="large" />
+                </p>
+              ))}
+            </div>
+          )}
+
+          {p.sources && p.sources.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div
+                className="mono"
+                style={{
+                  fontSize: 9,
+                  color: 'var(--ink3)',
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                  marginBottom: 8,
+                }}
+              >
+                ── 溯源
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {p.sources.map((s, i) => (
+                  <a
+                    key={i}
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--ink2)',
+                      textDecoration: 'none',
+                      borderBottom: '1px dashed var(--rule)',
+                      padding: '4px 0',
+                    }}
+                  >
+                    <span style={{ color: 'var(--ink4)' }}>[{s.type}]</span>{' '}
+                    {s.title || s.url}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: '12px 20px',
+            borderTop: '1px solid var(--rule)',
+            background: 'var(--bg2)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexShrink: 0,
+          }}
+        >
+          <span
+            className="mono"
+            style={{ fontSize: 10, color: 'var(--ink3)', letterSpacing: 0.3, flex: 1 }}
+          >
+            节点 {node.id} · 深入追问将以该解析为上下文派生新问题
+          </span>
+          <button
+            onClick={() => onDeepDive(node.id)}
+            className="mono"
+            style={{
+              padding: '8px 18px',
+              fontSize: 12,
+              letterSpacing: 0.5,
+              fontWeight: 600,
+              background: 'var(--amber)',
+              color: 'var(--bg)',
+              border: '1px solid var(--amber)',
+              boxShadow: '3px 3px 0 rgba(0,0,0,0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span>深入追问</span>
+            <span>→</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from 'react';
 import { TopNav } from '@/components/TopNav';
-import { TriageView } from '@/components/TriageView';
 import { WikiBrowseView } from '@/components/WikiBrowseView';
 import { BlueprintView } from '@/components/BlueprintView';
 import { PipelineView } from '@/components/PipelineView';
@@ -13,28 +12,16 @@ import { useTriage } from '@/hooks/useTriage';
 import { usePipeline } from '@/hooks/usePipeline';
 import { useSandbox } from '@/hooks/useSandbox';
 import { useExperiment } from '@/hooks/useExperiment';
-import type { TriageEntry } from '@/lib/types';
 
 type View = 'triage' | 'wiki' | 'sandbox' | 'experiment' | 'experience' | 'blueprint';
 
 export default function Home() {
   const [view, setView] = useState<View>('triage');
   const [focusExperienceId, setFocusExperienceId] = useState<string | null>(null);
-  const [pipelineEntry, setPipelineEntry] = useState<TriageEntry | null>(null);
   const triage = useTriage();
   const pipeline = usePipeline();
   const sandbox = useSandbox();
   const experiment = useExperiment();
-
-  const openPipeline = useCallback(async (entry: TriageEntry) => {
-    setPipelineEntry(entry);
-    await pipeline.startFromEntry({ entry });
-  }, [pipeline]);
-
-  const closePipeline = useCallback(() => {
-    pipeline.exit();
-    setPipelineEntry(null);
-  }, [pipeline]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleNavigate = useCallback((v: any) => {
@@ -57,20 +44,9 @@ export default function Home() {
       />
 
       <main className="flex-1 min-h-0 flex">
-        <div className={`flex-1 min-h-0 ${pipelineEntry && view === 'triage' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-          {/* 解析（含深入子视图） */}
-          {view === 'triage' && (
-            pipelineEntry ? (
-              <PipelineView
-                entry={pipelineEntry}
-                pipeline={pipeline}
-                onExit={closePipeline}
-              />
-            ) : (
-              <TriageView triage={triage}
-                onExpand={(entry) => openPipeline(entry)} />
-            )
-          )}
+        <div className={`flex-1 min-h-0 ${view === 'triage' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          {/* 统一画布：解析 + 深入追问 */}
+          {view === 'triage' && <PipelineView pipeline={pipeline} />}
 
           {/* Wiki 浏览 */}
           {view === 'wiki' && <WikiBrowseView />}

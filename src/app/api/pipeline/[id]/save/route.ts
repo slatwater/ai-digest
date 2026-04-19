@@ -124,9 +124,13 @@ export async function POST(
   }
 
   const now = new Date().toISOString();
+  const firstParseTitle =
+    session.nodes.find(n => n.type === 'parse' && n.parseEntry?.title)?.parseEntry?.title ||
+    session.entrySnapshot?.title ||
+    '未命名会话';
   const pipelineBackLink = {
     url: `pipeline://${session.id}`,
-    title: `深入追问 session · ${session.entrySnapshot.title}`,
+    title: `深入追问 session · ${firstParseTitle}`,
     type: 'related' as const,
   };
 

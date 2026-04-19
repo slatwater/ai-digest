@@ -1,0 +1,89 @@
+{
+  "id": "241a5604-8047-400e-8e64-dfe1c4417a78",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:49:12",
+      "inputUrls": [
+        "https://x.com/_avichawla/status/2045767552526340205"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://x.com/_avichawla/status/2045767552526340205",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:49:30",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "94f96ef0-eaa2-4cae-b3b9-b764e08006b6",
+        "batchId": "410a763d-b376-40eb-b193-33f735120d32",
+        "url": "https://x.com/_avichawla/status/2045767552526340205",
+        "title": "缓存增强生成（CAG）：无需实时检索的知识问答方案",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "溯源搜索",
+          "读取来源"
+        ],
+        "verdict": "save",
+        "verdictReason": "有具名主角 CAG，提出新机制（预加载 KV 缓存替代实时检索），有实验数据支撑，发表于正式学术会议",
+        "narrative": "从 @_avichawla 推文发现，一手来源是 Brian J Chan、Chao-Ting Chen、Jui-Hung Cheng、Hen-Hsen Huang 于 2024 年 12 月发表在 arXiv 的论文，已收录于 WWW 2025。\n\nChan 等人做了一个叫 [[Cache-Augmented Generation]] 的方案，专门解决「静态知识库每次查询都要访问向量数据库」的麻烦。他们把知识库一次性加载进模型的长上下文，然后把 KV 参数缓存下来；之后每次问答直接读缓存，不再触发检索。论文在多个知识问答基准上验证，CAG 的准确率与 RAG 相当甚至更高，同时消除了检索延迟和检索错误，系统结构也更简单。配套代码已开源在 GitHub。",
+        "concepts": [
+          {
+            "name": "Cache-Augmented Generation",
+            "role": "subject",
+            "root": "Brian J Chan、Chao-Ting Chen 等，arXiv 2412.15605，2024 → 把知识库预加载进模型扩展上下文并缓存 KV 运行时参数，推理时跳过实时检索步骤",
+            "whatItEnables": "让模型直接从缓存的 KV 参数中回答问题，省掉每次查询都要打向量数据库的开销",
+            "sourceUrl": "https://arxiv.org/abs/2412.15605"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://arxiv.org/abs/2412.15605",
+            "title": "Don't Do RAG: When Cache-Augmented Generation is All You Need for Knowledge Tasks",
+            "type": "original"
+          },
+          {
+            "url": "https://github.com/hhhuang/CAG",
+            "title": "GitHub - hhhuang/CAG: Cache-Augmented Generation",
+            "type": "github"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "正式提出用 KV 缓存取代实时向量检索的完整方案，并给出可复现的基准对比数据"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 4,
+          "inputTokens": 8,
+          "outputTokens": 1696,
+          "cacheReadTokens": 32441,
+          "costUsd": 0.08227005,
+          "durationMs": 47544
+        }
+      }
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T17:49:12.293Z",
+  "updatedAt": "2026-04-19T17:50:42.322Z"
+}

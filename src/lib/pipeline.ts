@@ -6,9 +6,17 @@
 //   - 持久化发生在节点创建（入库问题/占位答复）与最终 done（落定答复正文）两处
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { TriageModel, PipelineSession, PipelineNode, resolveModelId } from './types';
+import { TriageModel, PipelineSession, PipelineNode, TriageConcept, SourceInfo, resolveModelId } from './types';
 import { reportFromSDKMessage } from './token-report';
 import { savePipelineSession } from './storage';
+
+interface AskContextSnapshot {
+  title: string;
+  url: string;
+  narrative?: string;
+  concepts?: TriageConcept[];
+  sources?: SourceInfo[];
+}
 
 type EventSender = (type: string, data: unknown) => void;
 
@@ -42,9 +50,47 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// 找到当前追问最近的 parse 祖先节点，提取其 entry 作为上下文
+// 若找不到（纯追问 session），退化到 session.entrySnapshot（老数据兼容）
+function findAncestorParseContext(
+  session: PipelineSession,
+  parentId: string | null,
+): AskContextSnapshot | null {
+  const byId = new Map(session.nodes.map(n => [n.id, n]));
+  let cursor: string | null = parentId;
+  const seen = new Set<string>();
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const n = byId.get(cursor);
+    if (!n) break;
+    if (n.type === 'parse' && n.parseEntry) {
+      const p = n.parseEntry;
+      return {
+        title: p.title,
+        url: p.url,
+        narrative: p.narrative,
+        concepts: p.concepts,
+        sources: p.sources,
+      };
+    }
+    cursor = n.parent;
+  }
+  if (session.entrySnapshot) {
+    return {
+      title: session.entrySnapshot.title,
+      url: session.entrySnapshot.url,
+      narrative: session.entrySnapshot.narrative,
+      concepts: session.entrySnapshot.concepts,
+      sources: session.entrySnapshot.sources,
+    };
+  }
+  return null;
+}
+
 // 构建首轮的完整上下文（只在 pipeline 首次提问时使用）
-function buildInitialContext(session: PipelineSession): string {
-  const snap = session.entrySnapshot;
+function buildInitialContext(session: PipelineSession, parentId: string | null): string {
+  const snap = findAncestorParseContext(session, parentId);
+  if (!snap) return '（本次追问无上游解析节点，直接基于问题作答即可）';
   const parts: string[] = [];
   parts.push('## 来源文章');
   parts.push(`标题: ${snap.title}`);
@@ -82,9 +128,12 @@ function buildAncestorChain(session: PipelineSession, parentId: string | null): 
 }
 
 // 把父节点链格式化进 user prompt
+// 只渲染 question/answer 节点；input/parse 节点已在初始上下文中呈现，这里跳过
 function renderParentContext(session: PipelineSession, parentId: string | null): string {
   if (!parentId) return '';
-  const chain = buildAncestorChain(session, parentId);
+  const chain = buildAncestorChain(session, parentId).filter(
+    n => n.type === 'question' || n.type === 'answer',
+  );
   if (chain.length === 0) return '';
   const parts: string[] = [];
   parts.push(`[[parent context: ${parentId}]]`);
@@ -183,7 +232,7 @@ export async function runPipelineAsk(
   if (isFirstTurn) {
     userPrompt = [
       '## 初步解析',
-      buildInitialContext(session),
+      buildInitialContext(session, parentId),
       '',
       parentContext || '（这是这一 session 的第一个问题，没有父节点）',
       '',

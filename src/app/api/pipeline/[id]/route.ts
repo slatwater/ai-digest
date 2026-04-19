@@ -29,6 +29,7 @@ export async function GET(
 // 其它字段（id/entryId/sdkSessionId/createdAt 等）由服务端掌握
 interface PatchBody {
   nodes?: PipelineNode[];
+  nodeAdd?: PipelineNode;
   nodePatch?: { id: string; patch: Partial<PipelineNode> };
   sediment?: SedimentPoint[];
   sedimentAdd?: SedimentPoint;
@@ -50,6 +51,14 @@ export async function PATCH(
 
   if (body.nodes) {
     session.nodes = body.nodes;
+  }
+  if (body.nodeAdd) {
+    const existsIdx = session.nodes.findIndex(n => n.id === body.nodeAdd!.id);
+    if (existsIdx >= 0) {
+      session.nodes[existsIdx] = { ...session.nodes[existsIdx], ...body.nodeAdd };
+    } else {
+      session.nodes.push(body.nodeAdd);
+    }
   }
   if (body.nodePatch) {
     session.nodes = session.nodes.map(n =>

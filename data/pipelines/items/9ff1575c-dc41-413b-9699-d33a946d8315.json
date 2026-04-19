@@ -1,0 +1,129 @@
+{
+  "id": "9ff1575c-dc41-413b-9699-d33a946d8315",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:40:13",
+      "inputUrls": [
+        "https://ai.meta.com/blog/segment-anything-foundation-model-image-segmentation/"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://ai.meta.com/blog/segment-anything-foundation-model-image-segmentation/",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:40:27",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "de062995-378f-48d8-91be-a4d1aefa5532",
+        "batchId": "ae976dc6-5066-4736-a100-8f19694e524e",
+        "url": "https://ai.meta.com/blog/segment-anything-foundation-model-image-segmentation/",
+        "title": "Segment Anything Model（SAM）—— 图像分割基础模型",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "读取来源",
+          "溯源搜索"
+        ],
+        "verdict": "save",
+        "verdictReason": "具名主角 SAM 有完整技术细节、评测数据、开源资源，是图像分割领域里程碑级一手发布",
+        "narrative": "一手来源，作者/组织是 Meta AI（The Segment Anything team），发布于 2023 年 4 月 5 日。\n\nMeta AI 做了一个叫 [[SAM (Segment Anything Model)]] 的图像分割工具，让任何人都能「点一下或画个框」就把图里任意物体抠出来，不需要写代码、不需要准备标注数据、不需要重新训练模型。模型处理每张新图只需一次预计算，之后每个分割请求约 50 毫秒出结果，可以直接跑在浏览器里。为了训练这个模型，团队还顺带造了配套数据集 [[SA-1B]]：1100 万张图、超过 11 亿个掩码，比此前最大同类数据集大 400 倍；在水下摄影、细胞显微镜等从未见过的场景里，SAM 的零样本效果能与专门训练的模型持平甚至更好。模型以 Apache 2.0 开源，数据集也向研究者开放。",
+        "concepts": [
+          {
+            "name": "SAM (Segment Anything Model)",
+            "role": "subject",
+            "root": "Meta AI / Kirillov et al. / 2023 → 图像编码器生成一次性嵌入，轻量提示编码器接收点/框/文字输入，轻量掩码解码器在约 50 毫秒内输出分割结果",
+            "whatItEnables": "无需针对特定任务重新训练，零样本泛化到水下摄影、细胞显微镜等任意图像域，实时在浏览器中分割任意对象",
+            "sourceUrl": "https://ai.meta.com/blog/segment-anything-foundation-model-image-segmentation/"
+          },
+          {
+            "name": "SA-1B",
+            "role": "component",
+            "root": "Meta AI / 2023 → 通过「模型辅助标注 → 混合标注 → 全自动生成」三阶段数据引擎，在 1100 万张有授权的隐私保护图片上自动生成超 11 亿个分割掩码",
+            "whatItEnables": "提供比此前最大同类数据集大 400 倍的训练语料，支撑 SAM 的零样本泛化能力",
+            "sourceUrl": "https://ai.meta.com/blog/segment-anything-foundation-model-image-segmentation/"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://ai.meta.com/blog/segment-anything-foundation-model-image-segmentation/",
+            "title": "Introducing Segment Anything: Working toward the first foundation model for image segmentation",
+            "type": "original"
+          },
+          {
+            "url": "https://arxiv.org/abs/2304.02643",
+            "title": "[2304.02643] Segment Anything",
+            "type": "paper"
+          },
+          {
+            "url": "https://github.com/facebookresearch/segment-anything",
+            "title": "GitHub - facebookresearch/segment-anything",
+            "type": "github"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "Meta AI 首次发布面向图像分割的通用基础模型 SAM，并同步开源模型权重与规模破纪录的 SA-1B 数据集"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 4,
+          "inputTokens": 8,
+          "outputTokens": 2068,
+          "cacheReadTokens": 29642,
+          "costUsd": 0.13391485,
+          "durationMs": 62348
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "能解决什么问题",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": 768,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:42:45",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "## SAM 能解决的核心问题\n\n### 1. 图像分割的「专业门槛」问题\n传统分割模型需要：为每个新场景收集标注数据、重新训练或微调模型、具备深度学习工程能力。SAM 将这三步全部消除——用户只需点击或画框，模型即可在未见过的场景中零样本完成分割。\n\n### 2. 标注效率瓶颈\n人工逐像素标注极其耗时。SAM 的三阶段数据引擎（人工辅助→混合→全自动）将标注效率从每掩码 34 秒压缩至约 5 秒，最终全自动阶段直接不需要人工介入——这套流程本身就是一个「标注加速器」，可复用于其他数据集构建任务。\n\n### 3. 跨领域泛化失效\n专用分割模型在医疗（细胞显微镜）、遥感（卫星图像）、水下摄影等分布外场景往往大幅退化。SAM 通过 SA-1B 的 11 亿掩码 + 多样提示训练，在这些从未见过的领域里零样本效果可与该领域专门训练的模型持平或更优。\n\n### 4. 分割能力的「可组合性」缺失\n此前分割模型是独立黑盒。SAM 的架构设计（图像编码器一次预计算 + 轻量提示编码器 + 轻量解码器）使其可作为**可组合模块**嵌入更大系统：上游接目标检测器自动生成框提示，下游输出掩码供 3D 重建、视频追踪等任务消费，充当计算机视觉的「基础能力层」。\n\n### 5. 实时交互的延迟问题\n浏览器端交互式分割的工程难点在于响应速度。SAM 把重计算（图像编码）从交互链路里分离出去，每次提示响应仅需约 **50 毫秒**，达到可直接部署于 Web 端的实时水准。",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": 1112,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:42:45",
+      "model": "sonnet",
+      "duration": "17.8s"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T17:40:13.879Z",
+  "updatedAt": "2026-04-19T17:43:02.891Z",
+  "sdkSessionId": "625ca36a-c25b-493b-b513-d43bf264088e"
+}

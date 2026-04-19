@@ -361,10 +361,17 @@ const PIPELINE_INDEX_PATH = path.join(PIPELINE_DIR, 'index.json');
 const PIPELINE_ITEMS_DIR = path.join(PIPELINE_DIR, 'items');
 
 function toPipelineSummary(s: PipelineSession): PipelineSessionSummary {
+  // 标题取：第一个 parse 节点 → entrySnapshot（老数据）→ 第一个 question 的前 30 字 → 缺省
+  const firstParse = s.nodes.find(n => n.type === 'parse' && n.parseEntry?.title);
+  const firstQuestion = s.nodes.find(n => n.type === 'question');
+  const title =
+    firstParse?.parseEntry?.title ||
+    s.entrySnapshot?.title ||
+    (firstQuestion?.text ? firstQuestion.text.slice(0, 30) : '未命名会话');
   return {
     id: s.id,
     entryId: s.entryId,
-    title: s.entrySnapshot.title,
+    title,
     nodeCount: s.nodes.length,
     sedimentCount: s.sediment.length,
     savedWikiItemId: s.savedWikiItemId,

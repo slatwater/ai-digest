@@ -1,5 +1,61 @@
 [
   {
+    "id": "ea5e1dbd-f2a6-49b4-99d1-9b5607cdd841",
+    "title": "Cache-Augmented Generation（CAG）：用 KV 缓存替代实时检索",
+    "nodeCount": 2,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:55:40.519Z"
+  },
+  {
+    "id": "241a5604-8047-400e-8e64-dfe1c4417a78",
+    "title": "缓存增强生成（CAG）：无需实时检索的知识问答方案",
+    "nodeCount": 2,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:50:42.322Z"
+  },
+  {
+    "id": "0649174c-5fcd-44e9-8425-891131f8c274",
+    "title": "Cache-Augmented Generation（CAG）",
+    "nodeCount": 2,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:46:12.642Z"
+  },
+  {
+    "id": "9ff1575c-dc41-413b-9699-d33a946d8315",
+    "title": "Segment Anything Model（SAM）—— 图像分割基础模型",
+    "nodeCount": 4,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:43:02.891Z"
+  },
+  {
+    "id": "34cd2321-4afa-421d-8f97-f666026f40aa",
+    "title": "未命名会话",
+    "nodeCount": 1,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:38:56.666Z"
+  },
+  {
+    "id": "3b912120-e55e-4562-ade6-a0cd5bb42ddc",
+    "title": "https://x.com/_avichawla/status/2045767552526340205",
+    "nodeCount": 3,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:38:56.274Z"
+  },
+  {
+    "id": "467054e7-ddcb-43db-ae81-cc91d5aebb12",
+    "title": "https://en.wikipedia.org/wiki/Attention_Is_All_You_Need",
+    "nodeCount": 4,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:30:41.390Z"
+  },
+  {
+    "id": "77ad452d-6f8d-44fc-8117-767a3e2032ab",
+    "title": "未命名会话",
+    "nodeCount": 1,
+    "sedimentCount": 0,
+    "updatedAt": "2026-04-19T17:26:33.805Z"
+  },
+  {
     "id": "2c50639b-f053-4b0b-8832-82edab232c23",
     "entryId": "fe2acb2b-7aaa-4998-bf56-b526c4b44c2e",
     "title": "HyperFrames：HeyGen 开源的网页转视频渲染框架",

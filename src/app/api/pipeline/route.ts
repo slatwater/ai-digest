@@ -16,17 +16,16 @@ export async function GET() {
   return Response.json({ sessions: index });
 }
 
-// 基于一个 triage entry 创建新的 pipeline session
+// 创建 pipeline session
+// - 新模型：无 entry 也可创建（统一画布下用户先落地「输入卡」再解析）
+// - 兼容旧调用：若带 entry，则写入 entryId + entrySnapshot 以便迁移期不报错
 export async function POST(req: NextRequest) {
-  const { entry, wikiCandidate, model } = (await req.json()) as {
-    entry: TriageEntry;
+  const body = (await req.json().catch(() => ({}))) as {
+    entry?: TriageEntry;
     wikiCandidate?: PipelineWikiCandidate;
     model?: TriageModel;
   };
-
-  if (!entry?.id || !entry?.title || !entry?.url) {
-    return Response.json({ error: '缺少 entry.id / title / url' }, { status: 400 });
-  }
+  const { entry, wikiCandidate, model } = body;
 
   const validModel: TriageModel =
     model === 'opus' || model === 'opus-4-6' ? model : 'sonnet';
@@ -34,14 +33,6 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
   const session: PipelineSession = {
     id: uuidv4(),
-    entryId: entry.id,
-    entrySnapshot: {
-      title: entry.title,
-      url: entry.url,
-      narrative: entry.narrative,
-      concepts: entry.concepts,
-      sources: entry.sources,
-    },
     nodes: [],
     sediment: [],
     wikiCandidate,
@@ -49,6 +40,17 @@ export async function POST(req: NextRequest) {
     createdAt: now,
     updatedAt: now,
   };
+
+  if (entry?.id && entry.title && entry.url) {
+    session.entryId = entry.id;
+    session.entrySnapshot = {
+      title: entry.title,
+      url: entry.url,
+      narrative: entry.narrative,
+      concepts: entry.concepts,
+      sources: entry.sources,
+    };
+  }
 
   await savePipelineSession(session);
   return Response.json({ session });

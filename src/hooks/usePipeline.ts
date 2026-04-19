@@ -1,66 +1,83 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type {
   PipelineSession,
   PipelineNode,
+  ParseNodePayload,
   SedimentPoint,
   SedimentMode,
   TriageEntry,
   TriageModel,
+  TriageBatch,
 } from '@/lib/types';
 
-// 节点自动布局常量（固定摘要卡尺寸）
+// ── 画布布局常量 ──
+// 统一画布：input → parse → Q → A 均为「向右延伸」
+export const NODE_W = 280;
+export const NODE_H = 160;
+const COL_GAP = 64;      // 同一流水平列间距
+const ROW_GAP = 40;      // 同流内 parse 子行间距
+const BRANCH_DY = NODE_H + ROW_GAP; // 分支上下偏移
+const FLOW_ROW = NODE_H * 5 + 160;  // 每条流占据的纵向带宽
+const FLOW_Y_BASE = 80;
 const TRUNK_X = 80;
-const NODE_W = 280;
-const NODE_H = 160;
-const NODE_GAP = 40;
-const BRANCH_DX = 340;
 
 function nowClock() {
   return new Date().toTimeString().slice(0, 8);
 }
 
-interface CreateArgs {
-  entry: TriageEntry;
-  model?: TriageModel;
+// 下一个节点 id
+function nextNodeId(session: PipelineSession): string {
+  let max = 0;
+  for (const n of session.nodes) {
+    const m = n.id.match(/^n(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `n${max + 1}`;
 }
 
-function computePositions(
+// 计算下一条流的 y 起点
+function nextFlowY(session: PipelineSession): number {
+  const flowIdxs = session.nodes
+    .map(n => n.flowIdx ?? 0)
+    .reduce((max, v) => Math.max(max, v), -1);
+  return FLOW_Y_BASE + (flowIdxs + 1) * FLOW_ROW;
+}
+
+// Q/A 追问节点：挂在父节点右侧
+function computeAskPositions(
   session: PipelineSession,
   parentId: string | null,
   isBranch: boolean,
 ) {
   const parent = parentId ? session.nodes.find(n => n.id === parentId) : null;
   if (!parent) {
-    // 画布根主干 — 每条新主干横向错开，避免重叠
-    const existingTrunks = session.nodes.filter(
-      n => n.parent === null && n.type === 'question',
-    ).length;
-    const x = TRUNK_X + existingTrunks * BRANCH_DX;
+    const x = TRUNK_X + session.nodes.filter(n => n.parent === null).length * (NODE_W + COL_GAP);
     return {
-      questionPos: { x, y: 80, w: NODE_W },
-      answerPos: { x, y: 80 + NODE_H + NODE_GAP, w: NODE_W },
+      questionPos: { x, y: FLOW_Y_BASE, w: NODE_W },
+      answerPos: { x: x + NODE_W + COL_GAP, y: FLOW_Y_BASE, w: NODE_W },
     };
   }
-
   const parentX = parent.x ?? TRUNK_X;
-  const parentY = parent.y ?? 80;
-
-  const dx = isBranch
-    ? (() => {
-        const siblings = session.nodes.filter(n => n.parent === parentId);
-        const dir = siblings.length % 2 === 0 ? -1 : 1;
-        return BRANCH_DX * Math.ceil((siblings.length + 1) / 2) * dir;
-      })()
-    : 0;
-
-  const baseX = parentX + dx;
-  const baseY = parentY + NODE_H + NODE_GAP;
+  const parentY = parent.y ?? FLOW_Y_BASE;
+  let baseY = parentY;
+  if (isBranch) {
+    const siblings = session.nodes.filter(n => n.parent === parentId);
+    const dir = siblings.length % 2 === 0 ? -1 : 1;
+    baseY = parentY + BRANCH_DY * Math.ceil((siblings.length + 1) / 2) * dir;
+  }
+  const qx = parentX + NODE_W + COL_GAP;
+  const ax = qx + NODE_W + COL_GAP;
   return {
-    questionPos: { x: baseX, y: baseY, w: NODE_W },
-    answerPos: { x: baseX, y: baseY + NODE_H + NODE_GAP, w: NODE_W },
+    questionPos: { x: qx, y: baseY, w: NODE_W },
+    answerPos: { x: ax, y: baseY, w: NODE_W },
   };
+}
+
+interface CreateFromEntryArgs {
+  entry: TriageEntry;
+  model?: TriageModel;
 }
 
 export function usePipeline() {
@@ -69,15 +86,37 @@ export function usePipeline() {
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [model, setModelState] = useState<TriageModel>('sonnet');
   const sessionRef = useRef<PipelineSession | null>(null);
+  // batchId -> { inputNodeId, urlToNode（按 URL 匹配后端真实 entryId） }
+  const parsePollMapRef = useRef<Map<string, {
+    inputNodeId: string;
+    urlToNode: Map<string, string>;
+  }>>(new Map());
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const setSessionBoth = (next: PipelineSession | null) => {
+  const setSessionBoth = useCallback((next: PipelineSession | null) => {
     sessionRef.current = next;
     setSession(next);
-  };
+  }, []);
 
-  // 从 triage entry 创建新 pipeline session
+  // 确保存在 session：首次进入画布时调用，创建空 session
+  const ensureSession = useCallback(async () => {
+    if (sessionRef.current) return sessionRef.current;
+    const res = await fetch('/api/pipeline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    const json = await res.json();
+    if (json.session) {
+      setSessionBoth(json.session);
+      return json.session as PipelineSession;
+    }
+    return null;
+  }, [model, setSessionBoth]);
+
+  // 从 triage entry 创建新 pipeline session（老入口，兼容）
   const startFromEntry = useCallback(
-    async ({ entry, model: m }: CreateArgs) => {
+    async ({ entry, model: m }: CreateFromEntryArgs) => {
       const pickModel = m || 'sonnet';
       setModelState(pickModel);
       const res = await fetch('/api/pipeline', {
@@ -88,16 +127,241 @@ export function usePipeline() {
       const json = await res.json();
       if (json.session) setSessionBoth(json.session);
     },
-    [],
+    [setSessionBoth],
   );
 
   const exit = useCallback(() => {
     setSessionBoth(null);
     setStreamingNodeId(null);
     setToolStatus(null);
-  }, []);
+    parsePollMapRef.current.clear();
+  }, [setSessionBoth]);
 
   const setModel = useCallback((m: TriageModel) => setModelState(m), []);
+
+  // ── 新流程：创建一个空 input 节点 ──
+  const addInputFlow = useCallback(async () => {
+    const current = (await ensureSession()) ?? sessionRef.current;
+    if (!current) return;
+    const y = nextFlowY(current);
+    const flowIdx = Math.round((y - FLOW_Y_BASE) / FLOW_ROW);
+    const node: PipelineNode = {
+      id: nextNodeId(current),
+      type: 'input',
+      state: 'done',
+      text: '',
+      parent: null,
+      branchIdx: 0,
+      flowIdx,
+      x: TRUNK_X,
+      y,
+      w: NODE_W,
+      createdAt: nowClock(),
+      inputUrls: [],
+      inputModel: model,
+    };
+    const next: PipelineSession = { ...current, nodes: [...current.nodes, node] };
+    setSessionBoth(next);
+    await fetch(`/api/pipeline/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodeAdd: node }),
+    });
+    return node.id;
+  }, [ensureSession, model, setSessionBoth]);
+
+  // ── 提交 input 节点的 URL 列表：创建解析 batch + 并列 parse 占位节点 ──
+  const submitInput = useCallback(async (
+    inputNodeId: string,
+    urls: string[],
+    submitModel?: TriageModel,
+  ) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    const input = current.nodes.find(n => n.id === inputNodeId);
+    if (!input || !urls.length) return;
+
+    const useModel = submitModel || input.inputModel || model;
+
+    // 1. 提交 triage batch
+    let batchId: string | null = null;
+    try {
+      const res = await fetch('/api/triage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls, model: useModel }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || '提交失败');
+      batchId = (await res.json()).batchId as string;
+    } catch (err) {
+      console.error('[pipeline] triage submit failed', err);
+      return;
+    }
+
+    // 2. 根据 urls 生成并列 parse 占位节点
+    let draftSession = { ...current, nodes: [...current.nodes] };
+    const urlToNode = new Map<string, string>();
+    urls.forEach((url, i) => {
+      const parseX = (input.x ?? TRUNK_X) + NODE_W + COL_GAP;
+      const parseY = (input.y ?? FLOW_Y_BASE) + i * (NODE_H + ROW_GAP);
+      const id = nextNodeId(draftSession);
+      const node: PipelineNode = {
+        id,
+        type: 'parse',
+        state: 'streaming',
+        text: url,
+        parent: inputNodeId,
+        branchIdx: i,
+        flowIdx: input.flowIdx,
+        x: parseX,
+        y: parseY,
+        w: NODE_W,
+        createdAt: nowClock(),
+        model: useModel,
+        parseEntry: {
+          entryId: '',           // 真实 id 在轮询到后端后回填
+          batchId: batchId!,
+          url,
+          title: url,
+          livePhases: [],
+          liveStatus: '排队中',
+        },
+      };
+      draftSession.nodes.push(node);
+      urlToNode.set(url, id);
+    });
+
+    // 3. 更新 input 节点记录 URL
+    draftSession = {
+      ...draftSession,
+      nodes: draftSession.nodes.map(n =>
+        n.id === inputNodeId ? { ...n, inputUrls: urls, inputModel: useModel } : n,
+      ),
+    };
+    setSessionBoth(draftSession);
+
+    // 4. 持久化（一次性整个 nodes 替换）
+    await fetch(`/api/pipeline/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes: draftSession.nodes }),
+    });
+
+    // 5. 注册轮询映射（按 URL 匹配后端 entry）
+    parsePollMapRef.current.set(batchId!, { inputNodeId, urlToNode });
+  }, [model, setSessionBoth]);
+
+  // ── 合并 triage entry → parse 节点 payload ──
+  const mergeEntryIntoNode = useCallback((entry: TriageEntry, nodeId: string) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    const payload: ParseNodePayload = {
+      entryId: entry.id,
+      url: entry.url,
+      title: entry.title || entry.url,
+      verdict: entry.verdict,
+      verdictReason: entry.verdictReason,
+      narrative: entry.narrative,
+      concepts: entry.concepts,
+      sources: entry.sources,
+      relatedEntries: entry.relatedEntries,
+      delta: entry.delta,
+      livePhases: entry.livePhases,
+      liveStatus: entry.status === 'done' ? undefined : entry.liveStatus,
+      tokenUsage: entry.tokenUsage,
+    };
+    const nextState: PipelineNode['state'] =
+      entry.status === 'done' ? 'done' : entry.status === 'error' ? 'error' : 'streaming';
+    const nextNodes = current.nodes.map(n =>
+      n.id === nodeId
+        ? { ...n, state: nextState, parseEntry: { ...n.parseEntry, ...payload }, error: entry.error }
+        : n,
+    );
+    setSessionBoth({ ...current, nodes: nextNodes });
+  }, [setSessionBoth]);
+
+  // ── 统一轮询：遍历注册的 batchId，更新 parse 节点 ──
+  useEffect(() => {
+    const tick = async () => {
+      const map = parsePollMapRef.current;
+      // 自愈：session 里若存在 streaming 的 parse 节点但轮询映射里没有（页面刷新后常见），
+      // 根据 parseEntry.batchId 重新注册，按 URL 匹配后端 entry
+      const s = sessionRef.current;
+      if (s) {
+        const streamingParses = s.nodes.filter(
+          n => n.type === 'parse' && n.state === 'streaming' && n.parseEntry?.batchId,
+        );
+        for (const n of streamingParses) {
+          const batchId = n.parseEntry!.batchId!;
+          if (!map.has(batchId)) {
+            const inputNodeId = n.parent || '';
+            const urlToNode = new Map<string, string>();
+            for (const m of s.nodes) {
+              if (m.type === 'parse' && m.parseEntry?.batchId === batchId && m.parseEntry?.url) {
+                urlToNode.set(m.parseEntry.url, m.id);
+              }
+            }
+            map.set(batchId, { inputNodeId, urlToNode });
+          }
+        }
+      }
+      if (!map.size) return;
+      for (const [batchId, entry] of map.entries()) {
+        try {
+          const res = await fetch(`/api/triage?batchId=${batchId}`);
+          if (!res.ok) {
+            // 后端 batch 过期（重启/内存清理）→ 标记节点 error 并停止轮询
+            if (res.status === 404) {
+              for (const nodeId of entry.urlToNode.values()) {
+                const cur = sessionRef.current;
+                if (!cur) continue;
+                const target = cur.nodes.find(n => n.id === nodeId);
+                if (target && target.state === 'streaming') {
+                  setSessionBoth({
+                    ...cur,
+                    nodes: cur.nodes.map(n =>
+                      n.id === nodeId
+                        ? { ...n, state: 'error', error: '解析批次已过期（后端重启）' }
+                        : n,
+                    ),
+                  });
+                }
+              }
+              map.delete(batchId);
+            }
+            continue;
+          }
+          const batch: TriageBatch = await res.json();
+          let allDone = true;
+          for (const e of batch.entries) {
+            const nodeId = entry.urlToNode.get(e.url);
+            if (!nodeId) continue;
+            mergeEntryIntoNode(e, nodeId);
+            if (e.status !== 'done' && e.status !== 'error') allDone = false;
+          }
+          if (batch.status === 'done' || allDone) {
+            // 落库最终 nodes
+            const s = sessionRef.current;
+            if (s) {
+              await fetch(`/api/pipeline/${s.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nodes: s.nodes }),
+              }).catch(() => {});
+            }
+            map.delete(batchId);
+          }
+        } catch {
+          /* silent */
+        }
+      }
+    };
+    pollTimerRef.current = setInterval(tick, 3000);
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    };
+  }, [mergeEntryIntoNode]);
 
   // ── 提问（SSE）──
   const ask = useCallback(
@@ -105,7 +369,7 @@ export function usePipeline() {
       const current = sessionRef.current;
       if (!current || !question.trim()) return;
 
-      const { questionPos, answerPos } = computePositions(current, parentId, !!opts?.isBranch);
+      const { questionPos, answerPos } = computeAskPositions(current, parentId, !!opts?.isBranch);
 
       try {
         const res = await fetch(`/api/pipeline/${current.id}/ask`, {
@@ -151,8 +415,7 @@ export function usePipeline() {
         setToolStatus(null);
       }
     },
-    // handlePipelineEvent captures sessionRef.current fresh on each call, so its
-    // identity can change without invalidating ask.
+    // handlePipelineEvent captures sessionRef.current fresh on each call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [model],
   );
@@ -229,8 +492,6 @@ export function usePipeline() {
   }
 
   // ── 标记/取消标记 ──
-  // 默认 full 模式：取 Q+A 完整原文（被标节点 + 配对节点），无截断
-  // custom 模式：由调用方（标记弹框）传入手动框选的多段 excerpts
   const markNode = useCallback(async (
     nodeId: string,
     options?: {
@@ -252,7 +513,6 @@ export function usePipeline() {
     if (mode === 'custom' && options?.excerpts?.length) {
       excerpts = options.excerpts;
     } else {
-      // full 模式：找配对节点（答对问、问对答），拼成一段 Q+A 原文
       const paired = node.type === 'answer'
         ? current.nodes.find(n => n.id === node.parent && n.type === 'question')
         : current.nodes.find(n => n.parent === node.id && n.type === 'answer');
@@ -291,7 +551,7 @@ export function usePipeline() {
         sedimentAdd: sediment,
       }),
     });
-  }, []);
+  }, [setSessionBoth]);
 
   const unmarkNode = useCallback(async (nodeId: string) => {
     const current = sessionRef.current;
@@ -312,7 +572,7 @@ export function usePipeline() {
         sedimentRemoveId: sedId,
       }),
     });
-  }, []);
+  }, [setSessionBoth]);
 
   const removeSediment = useCallback(async (sedimentId: string) => {
     const current = sessionRef.current;
@@ -333,7 +593,7 @@ export function usePipeline() {
         nodePatch: s ? { id: s.fromNode, patch: { marked: false } } : undefined,
       }),
     });
-  }, []);
+  }, [setSessionBoth]);
 
   return {
     session,
@@ -342,6 +602,9 @@ export function usePipeline() {
     toolStatus,
     model,
     setModel,
+    ensureSession,
+    addInputFlow,
+    submitInput,
     startFromEntry,
     ask,
     markNode,

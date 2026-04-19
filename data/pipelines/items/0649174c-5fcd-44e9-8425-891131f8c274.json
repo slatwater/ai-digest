@@ -1,0 +1,94 @@
+{
+  "id": "0649174c-5fcd-44e9-8425-891131f8c274",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:44:36",
+      "inputUrls": [
+        "https://x.com/_avichawla/status/2045767552526340205"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://x.com/_avichawla/status/2045767552526340205",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "01:44:51",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "9cfa2bbb-5b6e-4294-96e3-b64d68441cbb",
+        "batchId": "09abfd78-63d7-420c-9847-cb58dcfede31",
+        "url": "https://x.com/_avichawla/status/2045767552526340205",
+        "title": "Cache-Augmented Generation（CAG）",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "溯源搜索",
+          "读取来源"
+        ],
+        "verdict": "save",
+        "verdictReason": "有具名技术 Cache-Augmented Generation，有同行评审论文和开源实现，技术机制与实验数据均完整",
+        "narrative": "从 @_avichawla 推文发现，一手来源是 Brian J Chan 等四位作者于 2024 年 12 月发布的 arXiv 论文（2412.15605），已收录于 ACM Web Conference 2025。\n\n作者团队提出了 [[Cache-Augmented Generation]]，给「知识库相对固定」场景下的问答系统提供了一条无需实时检索的路径。具体做法是：把所有相关文档一次性塞进 LLM 的长上下文窗口，提前算好 KV Cache 并存起来；用户提问时模型直接读这份缓存作答，不再查向量数据库。配套代码开源于 GitHub（hhhuang/CAG），提供 `kvcache.py` 和 `rag.py` 两个脚本，支持在 SQuAD 和 HotpotQA 数据集上做对比实验；多个评测显示，在知识库规模可控的场景下，CAG 的效果与传统 RAG 相当或更优。",
+        "concepts": [
+          {
+            "name": "Cache-Augmented Generation",
+            "role": "subject",
+            "root": "Brian J Chan、Chao-Ting Chen、Jui-Hung Cheng、Hen-Hsen Huang，arXiv 2412.15605，2024 → 把所有相关文档预加载进 LLM 的上下文窗口并预计算 KV Cache，推理时直接读缓存，不做实时检索",
+            "whatItEnables": "让静态知识库场景下的问答系统彻底绕开向量检索，降低延迟并简化架构",
+            "sourceUrl": "https://arxiv.org/abs/2412.15605"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://arxiv.org/abs/2412.15605",
+            "title": "Don't Do RAG: When Cache-Augmented Generation is All You Need for Knowledge Tasks",
+            "type": "original"
+          },
+          {
+            "url": "https://github.com/hhhuang/CAG",
+            "title": "GitHub - hhhuang/CAG: Cache-Augmented Generation",
+            "type": "github"
+          },
+          {
+            "url": "https://dl.acm.org/doi/10.1145/3701716.3715490",
+            "title": "Don't Do RAG: When Cache-Augmented Generation is All You Need | ACM Web Conference 2025",
+            "type": "related"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "正式论文（WWW 2025）提出 CAG 范式，实验证明静态知识库场景下 KV Cache 预计算可替代实时向量检索"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 5,
+          "inputTokens": 9,
+          "outputTokens": 1646,
+          "cacheReadTokens": 42623,
+          "costUsd": 0.1185399,
+          "durationMs": 56806
+        }
+      }
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-19T17:44:36.611Z",
+  "updatedAt": "2026-04-19T17:46:12.642Z"
+}
