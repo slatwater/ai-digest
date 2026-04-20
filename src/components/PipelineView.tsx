@@ -297,6 +297,7 @@ function Canvas({
   onUnmark,
   onOpen,
   onSubmitInput,
+  onDelete,
 }: {
   nodes: PipelineNode[];
   streamingNodeId: string | null;
@@ -307,12 +308,26 @@ function Canvas({
   onUnmark: (id: string) => void;
   onOpen: (nodeId: string) => void;
   onSubmitInput: (nodeId: string, urls: string[]) => void;
+  onDelete: (nodeId: string) => void;
 }) {
   const [view, setView] = useState({ x: 40, y: 20, zoom: 0.9 });
   const [panning, setPanning] = useState<
     { startX: number; startY: number; viewX: number; viewY: number } | null
   >(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+
+  // 点画布任意位置关闭菜单
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [ctxMenu]);
 
   const onMouseDown = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -535,9 +550,109 @@ function Canvas({
             onUnmark={() => onUnmark(n.id)}
             onOpen={() => onOpen(n.id)}
             onSubmitInput={onSubmitInput}
+            onContextMenu={(x, y) => setCtxMenu({ x, y, nodeId: n.id })}
           />
         ))}
       </div>
+
+      {ctxMenu && (() => {
+        const target = nodes.find(n => n.id === ctxMenu.nodeId);
+        // 统计级联删除的后代数
+        const descendants = new Set<string>();
+        let frontier = [ctxMenu.nodeId];
+        while (frontier.length) {
+          const next: string[] = [];
+          for (const n of nodes) {
+            if (n.parent && frontier.includes(n.parent) && !descendants.has(n.id)) {
+              descendants.add(n.id);
+              next.push(n.id);
+            }
+          }
+          frontier = next;
+        }
+        const descCount = descendants.size;
+        const typeLabel = target ? ({ input: '输入', parse: '解析', question: '问题', answer: '回答' } as const)[target.type] : '节点';
+        return (
+          <div
+            onClick={e => e.stopPropagation()}
+            className="mono"
+            style={{
+              position: 'fixed',
+              left: ctxMenu.x,
+              top: ctxMenu.y,
+              zIndex: 50,
+              background: 'var(--panel)',
+              border: '1px solid var(--ink2)',
+              boxShadow: '4px 4px 0 rgba(0,0,0,0.35)',
+              minWidth: 200,
+              fontSize: 12,
+              letterSpacing: 0.3,
+            }}
+          >
+            <div
+              style={{
+                padding: '6px 12px',
+                borderBottom: '1px solid var(--rule)',
+                color: 'var(--ink3)',
+                fontSize: 10,
+                letterSpacing: 1.1,
+                textTransform: 'uppercase',
+                background: 'var(--bg2)',
+              }}
+            >
+              {typeLabel} {ctxMenu.nodeId}
+            </div>
+            <button
+              onClick={() => {
+                const ok = descCount === 0
+                  ? window.confirm(`删除此${typeLabel}节点？不可撤销。`)
+                  : window.confirm(`删除此${typeLabel}节点及其 ${descCount} 个下游节点？不可撤销。`);
+                if (!ok) {
+                  setCtxMenu(null);
+                  return;
+                }
+                onDelete(ctxMenu.nodeId);
+                setCtxMenu(null);
+                setSelectedNode(null);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '8px 12px',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--red)',
+                cursor: 'pointer',
+                fontSize: 12,
+                letterSpacing: 0.3,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(201,74,26,0.08)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              × 删除节点{descCount > 0 ? `（含 ${descCount} 个下游）` : ''}
+            </button>
+            <button
+              onClick={() => setCtxMenu(null)}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '8px 12px',
+                background: 'transparent',
+                border: 'none',
+                borderTop: '1px solid var(--rule)',
+                color: 'var(--ink3)',
+                cursor: 'pointer',
+                fontSize: 12,
+                letterSpacing: 0.3,
+              }}
+            >
+              取消
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Zoom controls */}
       <div
@@ -703,6 +818,7 @@ function CanvasNode({
   onUnmark,
   onOpen,
   onSubmitInput,
+  onContextMenu,
 }: {
   node: PipelineNode;
   selected: boolean;
@@ -713,6 +829,7 @@ function CanvasNode({
   onUnmark: () => void;
   onOpen: () => void;
   onSubmitInput: (nodeId: string, urls: string[]) => void;
+  onContextMenu: (x: number, y: number) => void;
 }) {
   const [hovering, setHovering] = useState(false);
   const v = nodeVisuals(node, selected);
@@ -743,9 +860,12 @@ function CanvasNode({
       : ['（尚未粘贴链接，双击编辑）'];
   } else if (isParse) {
     const p = node.parseEntry;
+    const isErr = node.state === 'error';
     summaryLines = [
       p?.title || p?.url || '解析中…',
-      p?.narrative ? truncate(p.narrative, 110) : (p?.liveStatus || '排队中'),
+      isErr
+        ? (node.error || '解析失败')
+        : (p?.narrative ? truncate(p.narrative, 110) : (p?.liveStatus || '排队中')),
     ];
   }
 
@@ -775,6 +895,12 @@ function CanvasNode({
       onDoubleClick={e => {
         e.stopPropagation();
         onOpen();
+      }}
+      onContextMenu={e => {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect();
+        onContextMenu(e.clientX, e.clientY);
       }}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
@@ -933,7 +1059,7 @@ function CanvasNode({
               style={{
                 fontSize: 11,
                 lineHeight: 1.5,
-                color: 'var(--ink2)',
+                color: isParse && node.state === 'error' ? 'var(--red)' : 'var(--ink2)',
                 display: '-webkit-box',
                 WebkitLineClamp: 3,
                 WebkitBoxOrient: 'vertical',
@@ -2268,7 +2394,10 @@ function AskSheet({
     return [...ancestors, ...descendants];
   })();
 
-  const displayNodes = chain;
+  // AskSheet 只展示对话链（question/answer）；input/parse 属于画布主视图的上下文，不在此重复
+  const displayNodes = chain.filter(n => n.type === 'question' || n.type === 'answer');
+  // 本次追问锚定的解析节点（从 chain 里取最靠近 threadHead 的 parse 祖先）
+  const anchorParse = [...chain].reverse().find(n => n.type === 'parse' && n.parseEntry);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -2383,6 +2512,76 @@ function AskSheet({
             background: 'var(--bg)',
           }}
         >
+          {anchorParse?.parseEntry && (
+            <div
+              style={{
+                marginBottom: 20,
+                border: '1px solid var(--red)',
+                borderLeft: '3px solid var(--red)',
+                background: 'rgba(201,74,26,0.05)',
+                padding: '12px 16px',
+              }}
+            >
+              <div
+                className="mono"
+                style={{
+                  fontSize: 9,
+                  color: 'var(--red)',
+                  letterSpacing: 1.3,
+                  textTransform: 'uppercase',
+                  marginBottom: 6,
+                }}
+              >
+                ◎ 锚定解析 · {anchorParse.id}
+              </div>
+              <div
+                className="serif"
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                  letterSpacing: -0.2,
+                  lineHeight: 1.35,
+                  marginBottom: anchorParse.parseEntry.narrative || anchorParse.parseEntry.concepts?.length ? 8 : 0,
+                }}
+              >
+                {anchorParse.parseEntry.title || anchorParse.parseEntry.url}
+              </div>
+              {anchorParse.parseEntry.narrative && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--ink2)',
+                    lineHeight: 1.65,
+                    marginBottom: anchorParse.parseEntry.concepts?.length ? 8 : 0,
+                  }}
+                >
+                  <Narrative text={truncate(anchorParse.parseEntry.narrative, 220)} />
+                </div>
+              )}
+              {anchorParse.parseEntry.concepts && anchorParse.parseEntry.concepts.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {anchorParse.parseEntry.concepts.map((c, i) => (
+                    <span
+                      key={i}
+                      className="mono"
+                      style={{
+                        fontSize: 10,
+                        padding: '2px 6px',
+                        border: `1px solid ${c.role === 'subject' ? 'var(--red)' : 'var(--ink4)'}`,
+                        color: c.role === 'subject' ? 'var(--red)' : 'var(--ink2)',
+                        background: c.role === 'subject' ? 'rgba(201,74,26,0.06)' : 'transparent',
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {c.role === 'subject' ? '◆ ' : ''}{c.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {displayNodes.length === 0 && (
             <div
               className="mono"
@@ -2798,6 +2997,7 @@ export function PipelineView({ pipeline, onExit }: Props) {
             onUnmark={pipeline.unmarkNode}
             onOpen={nodeId => openSheet(nodeId)}
             onSubmitInput={(id, urls) => pipeline.submitInput(id, urls)}
+            onDelete={pipeline.deleteNode}
           />
         </div>
         <SedimentTray
@@ -2982,6 +3182,27 @@ function ParseDetailSheet({
           >
             {p.title}
           </h2>
+
+          {node.state === 'error' && node.error && (
+            <div
+              className="mono"
+              style={{
+                marginBottom: 18,
+                padding: '10px 14px',
+                border: '1px solid var(--red)',
+                background: 'rgba(201,74,26,0.08)',
+                color: 'var(--red)',
+                fontSize: 12,
+                lineHeight: 1.6,
+                letterSpacing: 0.2,
+              }}
+            >
+              <div style={{ fontSize: 9, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 6, opacity: 0.8 }}>
+                × 解析失败
+              </div>
+              {node.error}
+            </div>
+          )}
 
           {p.concepts && p.concepts.length > 0 && (
             <div style={{ marginBottom: 18 }}>

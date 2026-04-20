@@ -379,6 +379,7 @@ export function usePipeline() {
             parentId,
             question,
             branchLabel: opts?.branchLabel,
+            newBranch: !!opts?.isBranch,
             model,
             questionPos,
             answerPos,
@@ -574,6 +575,68 @@ export function usePipeline() {
     });
   }, [setSessionBoth]);
 
+  // 删除节点：级联删除其所有后代节点，同时清理指向这些节点的 sediment
+  // 若某分支（branchIdx）在删除后已无任何 question/answer 节点，该分支的 SDK session 一并作废
+  const deleteNode = useCallback(async (nodeId: string) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    // BFS 计算要删的 id 集合：目标 + 所有后代
+    const toDelete = new Set<string>([nodeId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const n of current.nodes) {
+        if (n.parent && toDelete.has(n.parent) && !toDelete.has(n.id)) {
+          toDelete.add(n.id);
+          grew = true;
+        }
+      }
+    }
+    const nextNodes = current.nodes.filter(n => !toDelete.has(n.id));
+    const nextSediment = current.sediment.filter(s => !toDelete.has(s.fromNode));
+
+    // 找出"删完后已无 Q/A 节点"的 branchIdx：这些分支的 SDK session 要清理
+    const activeBranchIdxs = new Set<number>();
+    for (const n of nextNodes) {
+      if (n.type === 'question' || n.type === 'answer') {
+        activeBranchIdxs.add(n.branchIdx ?? 0);
+      }
+    }
+    const knownBranchIdxs = new Set<number>();
+    if (current.branchSessionIds) {
+      for (const k of Object.keys(current.branchSessionIds)) knownBranchIdxs.add(Number(k));
+    }
+    if (current.sdkSessionId) knownBranchIdxs.add(0);
+    const clearBranchSessionIds = [...knownBranchIdxs].filter(i => !activeBranchIdxs.has(i));
+
+    // 前端状态也同步清孤儿 sid
+    const nextBranchSessionIds = current.branchSessionIds
+      ? Object.fromEntries(
+          Object.entries(current.branchSessionIds).filter(([k]) => activeBranchIdxs.has(Number(k))),
+        )
+      : undefined;
+    const nextSdkSessionId = clearBranchSessionIds.includes(0) ? undefined : current.sdkSessionId;
+
+    setSessionBoth({
+      ...current,
+      nodes: nextNodes,
+      sediment: nextSediment,
+      branchSessionIds: nextBranchSessionIds && Object.keys(nextBranchSessionIds).length > 0
+        ? nextBranchSessionIds
+        : undefined,
+      sdkSessionId: nextSdkSessionId,
+    });
+    await fetch(`/api/pipeline/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nodes: nextNodes,
+        sediment: nextSediment,
+        clearBranchSessionIds: clearBranchSessionIds.length > 0 ? clearBranchSessionIds : undefined,
+      }),
+    });
+  }, [setSessionBoth]);
+
   const removeSediment = useCallback(async (sedimentId: string) => {
     const current = sessionRef.current;
     if (!current) return;
@@ -610,6 +673,7 @@ export function usePipeline() {
     markNode,
     unmarkNode,
     removeSediment,
+    deleteNode,
     exit,
   };
 }

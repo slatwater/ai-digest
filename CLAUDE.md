@@ -62,3 +62,8 @@ Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 - 画布水平流：父节点右边中线 → 子节点左边中线 bezier；input→parse 虚线 + 中点标 liveStatus
 - SSE 统一用 buffer + `\n\n` 分割；narrative 标记 `[[技术名]]`
 - Triage batch 内 entry 匹配 PipelineNode 按 URL，不依赖后端 UUID
+
+## 可靠性红线
+- 解析落盘前必过 `validateSourceConsistency`：声明的 original URL 关键词必须在 scrape 原文里出现，否则降级 error 不得留幻觉
+- 追问每轮 prompt 必钉 parse 锚点 + "先读锚点→查 sources→WebSearch"三步，禁首次 WebSearch；X 推文必用 `mcp__aidigest__scrape_url`
+- SDK session 按 `branchIdx` 隔离（`branchSessionIds`）；派生分支开新 sid；删光分支 Q/A 时级联清孤儿 sid

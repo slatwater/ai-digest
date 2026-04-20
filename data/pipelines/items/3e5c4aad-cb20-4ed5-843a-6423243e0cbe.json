@@ -1,0 +1,90 @@
+{
+  "id": "3e5c4aad-cb20-4ed5-843a-6423243e0cbe",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "10:19:36",
+      "inputUrls": [
+        "https://x.com/AYi_AInotes/status/2045728357799571509"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://x.com/AYi_AInotes/status/2045728357799571509",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "10:20:32",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "fd589009-ec73-4064-ac05-496a00cb4dcc",
+        "batchId": "43c6e0fd-f420-4f2a-a08d-649c50206f58",
+        "url": "https://x.com/AYi_AInotes/status/2045728357799571509",
+        "title": "LLM Wiki 个人知识库自动构建模式",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "溯源搜索",
+          "读取来源"
+        ],
+        "verdict": "save",
+        "verdictReason": "具名主角 [[LLM Wiki]] 来自 Karpathy 原始 gist，提出了可查证的新知识管理架构，社区已有多个实现落地",
+        "narrative": "从 @AYi_AInotes 推文发现，一手来源是 Andrej Karpathy 于 2026 年 4 月在 GitHub Gist 上发布的「[[LLM Wiki]]」架构方案。\n\nKarpathy 给长期困扰知识管理工具「建了就荒废」的问题提出了一套新玩法：把文章、论文、图片等原始资料丢进「Raw Sources」目录，让 LLM 自己读完后整理成带实体页、概念页和交叉引用的 markdown wiki；下次有问题时直接翻 wiki 页面作答，不再每次现场扒原始文档。维护 wiki 的三个核心操作是：新资料入库（Ingest）、带引用地查问题（Query）、定期检查矛盾和孤立页面（Lint）。Karpathy 引用了 Vannevar Bush 在 1945 年提出的 Memex 概念来呼应这一思路。社区已在此基础上做出多个实现，其中 SamurAIGPT/llm-wiki-agent 支持与 Claude Code、Codex、Gemini CLI 配合使用，无需额外 API key，并自带交互式知识图谱可视化。",
+        "concepts": [
+          {
+            "name": "LLM Wiki",
+            "role": "subject",
+            "root": "Andrej Karpathy，2026 年 4 月，GitHub Gist → LLM 把原始文档「预编译」成带交叉引用的结构化 markdown wiki，查询时直接读 wiki 而非每次实时检索原始文档",
+            "whatItEnables": "让 LLM 替你持续维护个人知识库：丢进新资料就自动更新 wiki 页面，问问题时直接翻 wiki 作答",
+            "sourceUrl": "https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f",
+            "title": "LLM Wiki - Andrej Karpathy GitHub Gist",
+            "type": "original"
+          },
+          {
+            "url": "https://github.com/SamurAIGPT/llm-wiki-agent",
+            "title": "SamurAIGPT/llm-wiki-agent - A personal knowledge base that builds and maintains itself",
+            "type": "github"
+          },
+          {
+            "url": "https://github.com/luotwo/llm-wiki",
+            "title": "luotwo/llm-wiki - 用 LLM 构建持续积累的个人知识库",
+            "type": "related"
+          },
+          {
+            "url": "https://www.youtube.com/watch?v=y-PcaqUySXQ",
+            "title": "How to Set Up LLM Wiki + Your Hermes Agent in Obsidian - YouTube",
+            "type": "related"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "Karpathy 提出了用 LLM「预编译」知识的新范式，将传统 RAG 的查询期检索前移为摄入期整理，解决了个人知识库长期无人维护的痛点"
+        }
+      }
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-20T02:19:36.236Z",
+  "updatedAt": "2026-04-20T02:24:51.262Z"
+}

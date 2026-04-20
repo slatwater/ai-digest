@@ -615,7 +615,8 @@ export interface PipelineSession {
   sediment: SedimentPoint[];
   wikiCandidate?: PipelineWikiCandidate;
   draft?: PipelineDraft;
-  sdkSessionId?: string;                   // 共享的 Claude Agent SDK session
+  sdkSessionId?: string;                   // 旧字段：单一共享 SDK session（兼容老数据，作为 branchIdx=0 的兜底）
+  branchSessionIds?: Record<number, string>; // 每个分支独立的 SDK session；派生分支时新开，避免跨分支污染
   model?: TriageModel;
   savedWikiItemId?: string;                // 存入 wiki 后的条目 id
   createdAt: string;

@@ -1,0 +1,68 @@
+{
+  "id": "a334b5d8-3353-45c9-93f7-1d72aa006365",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "11:45:54",
+      "inputUrls": [
+        "https://x.com/AYi_AInotes/status/2045728357799571509"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "error",
+      "text": "https://x.com/AYi_AInotes/status/2045728357799571509",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "11:45:55",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "5cb5e7f4-e133-4052-826a-543766aaf99c",
+        "batchId": "a3015a91-e6bd-4425-b73e-1663036428cb",
+        "url": "https://x.com/AYi_AInotes/status/2045728357799571509",
+        "title": "Vibe Coding：AI 辅助游戏开发方法论",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "溯源搜索",
+          "读取来源"
+        ],
+        "liveStatus": "整理结果",
+        "verdict": "skip",
+        "verdictReason": "有具名方法论（Vibe Coding）和可查 GitHub 仓库，并以实际 3D 游戏项目演示了秒级迭代的开发工作流，有实质技术内容",
+        "concepts": [],
+        "sources": [],
+        "relatedEntries": [],
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 10,
+          "inputTokens": 886,
+          "outputTokens": 7333,
+          "cacheReadTokens": 56950,
+          "costUsd": 0.323319,
+          "durationMs": 152474
+        }
+      },
+      "error": "溯源失败：声明的 original https://github.com/EnzeD/vibe-coding 与原文无关键词重叠（原文未提到 enzed/vibe-coding），疑似幻觉"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-20T03:45:54.302Z",
+  "updatedAt": "2026-04-20T03:48:51.327Z"
+}

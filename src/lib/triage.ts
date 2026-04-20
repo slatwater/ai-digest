@@ -15,6 +15,67 @@ function extractUrls(content: string): string[] {
   return [...new Set(matches.map(u => u.replace(/[.,;:!?)}\]]+$/, '')))].slice(0, 5);
 }
 
+// 从一个 URL 提取可用作"溯源一致性校验"的关键词
+// 用于判断 agent 给出的 original URL 是否和 scrape 原文有关联
+function extractUrlKeywords(url: string): string[] {
+  const kws: string[] = [];
+  let m = url.match(/github\.com\/([^/]+)\/([^/?#]+)/i);
+  if (m) return [m[1], m[2]];
+  m = url.match(/gist\.github\.com\/([^/]+)\/?([^/?#]*)/i);
+  if (m) return [m[1], m[2]].filter(Boolean);
+  m = url.match(/(?:x|twitter)\.com\/([^/]+)(?:\/status\/(\d+))?/i);
+  if (m) {
+    const handle = m[1];
+    if (handle && !['i', 'home', 'search', 'explore'].includes(handle.toLowerCase())) kws.push(handle);
+    if (m[2]) kws.push(m[2]); // 推文 ID
+    return kws;
+  }
+  m = url.match(/arxiv\.org\/abs\/([\d.v]+)/i);
+  if (m) return [m[1]];
+  m = url.match(/huggingface\.co\/([^/]+)\/?([^/?#]*)/i);
+  if (m) return [m[1], m[2]].filter(Boolean);
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '');
+    const main = host.split('.').slice(0, -1).join('.');
+    if (main) kws.push(main);
+    const first = u.pathname.split('/').filter(Boolean)[0];
+    if (first && first.length > 2) kws.push(first);
+  } catch { /* ignore */ }
+  return kws;
+}
+
+// 校验 agent 声明的 original URL 是否与 scrape 原文关联
+// 通过三种方式任一即放行：原文提到了该 URL / 原文含 URL 的关键词 / agent 声明 verdict=skip
+function validateSourceConsistency(
+  result: { sources?: { url: string; type: string }[]; verdict: TriageVerdict },
+  scrapedContent: string,
+  extractedUrls: string[],
+): { ok: boolean; reason?: string } {
+  // verdict=skip 时 agent 没主张溯源成功，不校验
+  if (result.verdict === 'skip') return { ok: true };
+
+  const origSrc = (result.sources || []).find(s => s.type === 'original');
+  if (!origSrc?.url) {
+    return { ok: false, reason: 'verdict=save 但未声明 original 来源' };
+  }
+
+  const origUrl = origSrc.url.toLowerCase();
+  // 规则 1：original 就是输入 URL（一手来源本身）或在预提取的链接里（原文直接提到）
+  if (extractedUrls.some(u => u.toLowerCase() === origUrl)) return { ok: true };
+
+  // 规则 2：original URL 的关键词至少有一个出现在 scrape 原文里
+  const keywords = extractUrlKeywords(origUrl);
+  const hay = (scrapedContent || '').toLowerCase();
+  const hits = keywords.filter(k => k.length >= 3 && hay.includes(k.toLowerCase()));
+  if (hits.length > 0) return { ok: true };
+
+  return {
+    ok: false,
+    reason: `溯源失败：声明的 original ${origSrc.url} 与原文无关键词重叠（原文未提到 ${keywords.join('/') || '其域名'}），疑似幻觉`,
+  };
+}
+
 // 活跃的 batch + AbortController
 const activeBatches = new Map<string, TriageBatch>();
 const batchAborts = new Map<string, AbortController>();
@@ -60,11 +121,17 @@ function buildTriagePrompt(): string {
 - **二手转载**：转述/推广/评论他人成果的（推文介绍、博客搬运、新闻报道）
 
 **如果是二手转载：**
-1. 从文中提取关键词（项目名、作者名、论文标题等）
-2. 用 WebSearch 找到一手来源（GitHub 仓库、论文页、官方博客）
-3. 用 WebFetch 读取一手来源的内容（**仅此一次 WebFetch**）
-4. **后续所有分析基于一手来源**，二手原文不再参考
+1. 从原文提取**具体锚点**（按线索强度排序）：
+   - ✅ 最强：@用户名、URL、t.co 短链、引用推文里出现的作者/推文
+   - ✅ 次强：具体人名 + 作品名（"某某人的某项目"）、明确的项目/论文/模型名
+   - ❌ 不算：泛化主题词（如"vibe coding"、"RAG"、"agent workflow"）——这是话题，不是锚点
+2. 用锚点 WebSearch / WebFetch 找到一手来源
+3. **选定 original 前必须做锚定校验**：
+   - 反问自己：我选的这个 URL 里的 owner / repo / handle / 作者名，**能在原文里找到字面痕迹吗？**
+   - 找不到 → 不得把它当 original。要么换方向继续搜，要么承认线索不足、verdict=skip
+4. **严禁主题相近就拉郎配**：例如原文只讲"vibe coding"这个概念，但没提具体谁做的，就不能把任意一个叫 vibe-coding 的 repo 塞进 original
 5. sources 中标记一手来源为 type="original"
+6. **后续所有分析基于一手来源**，二手原文不再参考
 
 **如果是一手来源：**
 直接基于文章内容分析，无需额外溯源。
@@ -365,21 +432,26 @@ ${entry.url}
 ## URL
 ${entry.url}
 
-## 二手推文摘要（仅用于提取关键词，严禁分析推文本身的任何数据）
-${(scrapeResult.content || '').slice(0, 600)}
+## 二手推文原文（用于提取溯源线索；禁止分析推文本身的社交数据）
+${(scrapeResult.content || '').slice(0, isThread ? 12000 : 6000)}
 ${urlsSection}
 
 ## 强制执行步骤
-1. 从上面的摘要中提取：项目名/论文名/作者名（仅此而已）
-2. 立刻用 WebSearch 搜索一手来源（GitHub 仓库、论文页、官方博客）
-3. 用 WebFetch 读取一手来源的完整内容
-4. 基于一手来源的内容完成所有分析
+1. 从原文中找一手来源的线索。一手来源**不一定是具名项目**，可能是：
+   - 被转述的原始推文（看 @用户名、引用推文、t.co 短链）
+   - 被翻译/搬运的博客/论文/视频（看标题、作者名）
+   - 被介绍的具名项目/模型/API（看 GitHub / arXiv / 官方文档链接）
+   - 某个具体事件/演示/发布（看日期、人物、现场细节）
+2. 用 WebSearch / WebFetch 找到一手来源的原始发布地址并读取其内容
+3. 基于一手来源的内容完成分析
 
-## 绝对禁止
-- 禁止在 narrative 中提及推文的点赞、转发、收藏、评论等社交数据
-- 禁止在 narrative 中描述推文截图、群聊截图、用户使用案例展示
-- 禁止用推文博主作为 narrative 第二段的主语
-- 如果你的输出包含任何社交媒体数据，这次分析就是失败的`
+## 硬约束（违反则本次分析失败）
+- **锚定校验**：type="original" 的 URL 里的 owner / repo / handle / 作者名，必须能在上面的推文原文里找到字面痕迹（@ 用户名、人名、项目名、链接均可）
+- 找不到字面痕迹 → 不得选它当 original。继续换锚点搜索，或承认线索不足、verdict=skip
+- **禁止用主题词拉郎配**：推文只讲概念（如"vibe coding"），没指名道姓 → 不得把任意同名 repo 当 original
+- 不得把当前热门但与推文无关的链接当成 original（例如推文讲 A，却把流行项目 B 当 original）
+- narrative 禁止提及推文的点赞、转发、收藏、评论等社交数据
+- narrative 禁止用推文博主作为第二段的主语（除非原推文就是一手来源）`
         : `请分析这个链接：
 
 ## URL
@@ -519,7 +591,21 @@ ${urlsSection}
         };
       }
 
-      entry.status = 'done';
+      // 溯源一致性校验：声明的 original URL 必须和 scrape 原文有关联
+      const check = validateSourceConsistency(result, scrapeResult.content || '', extractedUrls);
+      if (check.ok) {
+        entry.status = 'done';
+      } else {
+        console.warn(`[triage] ${entry.url} 溯源校验失败: ${check.reason}`);
+        entry.status = 'error';
+        entry.error = check.reason || '溯源校验未通过';
+        entry.verdict = 'skip';
+        // 清空可能是幻觉的分析字段，避免误导
+        entry.narrative = undefined;
+        entry.concepts = [];
+        entry.sources = [];
+        entry.delta = undefined;
+      }
     } else {
       // 已中止则跳过重试
       if (batchAbort.signal.aborted) {
@@ -574,8 +660,20 @@ ${urlsSection}
           entry.verdictReason = retryResult.verdictReason;
           entry.relatedEntries = retryResult.relatedEntries || [];
 
-          entry.status = 'done';
-          console.log(`[triage] ${entry.url} 重试成功`);
+          const retryCheck = validateSourceConsistency(retryResult, scrapeResult.content || '', extractedUrls);
+          if (retryCheck.ok) {
+            entry.status = 'done';
+            console.log(`[triage] ${entry.url} 重试成功`);
+          } else {
+            console.warn(`[triage] ${entry.url} 重试后溯源校验失败: ${retryCheck.reason}`);
+            entry.status = 'error';
+            entry.error = retryCheck.reason || '溯源校验未通过';
+            entry.verdict = 'skip';
+            entry.narrative = undefined;
+            entry.concepts = [];
+            entry.sources = [];
+            entry.delta = undefined;
+          }
         } else {
           entry.status = 'error';
           entry.error = '无法解析研判结果（重试后仍失败）';

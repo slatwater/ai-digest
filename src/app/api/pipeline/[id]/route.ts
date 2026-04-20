@@ -37,6 +37,9 @@ interface PatchBody {
   sedimentPatch?: { id: string; patch: Partial<SedimentPoint> };
   wikiCandidate?: PipelineWikiCandidate;
   draft?: PipelineDraft;
+  // 清理某些分支的孤儿 SDK session（删光了某分支所有 Q/A 后调用）
+  // 传入要清除的 branchIdx 数组；若含 0，同步清 sdkSessionId
+  clearBranchSessionIds?: number[];
 }
 
 export async function PATCH(
@@ -85,6 +88,20 @@ export async function PATCH(
   }
   if (body.draft) {
     session.draft = body.draft;
+  }
+  if (body.clearBranchSessionIds && body.clearBranchSessionIds.length > 0) {
+    if (session.branchSessionIds) {
+      for (const idx of body.clearBranchSessionIds) {
+        delete session.branchSessionIds[idx];
+      }
+      if (Object.keys(session.branchSessionIds).length === 0) {
+        session.branchSessionIds = undefined;
+      }
+    }
+    // 主分支 sdkSessionId 同步
+    if (body.clearBranchSessionIds.includes(0)) {
+      session.sdkSessionId = undefined;
+    }
   }
 
   await savePipelineSession(session as PipelineSession);

@@ -5,10 +5,12 @@
 //   - 问题 + 回答分别作为 PipelineNode 持久化；回答节点按 state=streaming → done 流转
 //   - 持久化发生在节点创建（入库问题/占位答复）与最终 done（落定答复正文）两处
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
 import { TriageModel, PipelineSession, PipelineNode, TriageConcept, SourceInfo, resolveModelId } from './types';
 import { reportFromSDKMessage } from './token-report';
 import { savePipelineSession } from './storage';
+import { safeScrape } from './agent';
 
 interface AskContextSnapshot {
   title: string;
@@ -23,21 +25,53 @@ type EventSender = (type: string, data: unknown) => void;
 const SYSTEM_PROMPT = `你是一个技术深度研究助手，正在一个「分支式追问」画布上陪用户深挖。
 
 ## 画布规则
-- 每轮 user prompt 里会用 \`[[parent context: nX]]\` 标出本次追问挂在哪个父节点下；
-- 其下会列出该父节点至根节点的完整问答链路（祖先上下文），按时间顺序；
+- 每轮 user prompt 开头会有 \`## 本轮锚定的解析节点\`，列出本次追问上游 parse 节点的 title / narrative / concepts / sources——**你的回答必须锚定在这份解析里，不得脱离它做泛化讨论**；
+- 随后用 \`[[parent context: nX]]\` 标出本次追问挂在哪个父节点下，并列出从根到父节点的完整问答链路；
 - 你的回答只针对当前这一次问题，但应基于它所在的这条分支上下文来作答；
 - 不同分支之间不要串线——如果当前问题的父节点不是上一条问答，请忽略其他分支的细节。
 
-## 工具使用
-- 上下文里会给一手来源 URL，必要时用 WebFetch 读取最相关的 1-2 个来源；
-- 如果来源不够，用 WebSearch 补充搜索（最多 1 次）；
-- 工具调用控制在 2-3 次以内。
+## 锚点约束（强）
+- 即使问题措辞宽泛（如"还有别的方法吗"、"详细讲讲"），也**只能在锚定解析的主题内展开**，不得借题发挥扯到无关的流行话题；
+- 若当前问题偏离了锚定主题，先在回答开头一句话拉回："这条分支锚定在 [parse 标题]，我按这个边界回答"，再给出作答。
+
+## 作答顺序（严格三步，不得跳步）
+**第 1 步 · 先读锚点**：仔细读 \`## 本轮锚定的解析节点\` 里的 narrative 和 concepts。如果它们已经能回答当前问题，**直接作答，不用任何工具**。
+
+**第 2 步 · 再查解析已给的链接**：如果锚点信息不够，**只能 WebFetch 锚点 sources 里列出的 URL**（优先 type=original / github / paper）。禁止此时就 WebSearch。
+
+**第 3 步 · 最后才外部搜**：只有当锚点 + sources 内容都不够支撑回答时，才允许 WebSearch 外部（最多 1 次）。
+
+## 工具使用硬规则
+- **禁止首次 tool call 就是 WebSearch**——这几乎总是偷懒的表现，说明你跳过了第 1、2 步；
+- 每次 WebFetch / WebSearch / scrape_url 之前，在回答开头先用一句话说明"锚点 / 已给 sources 为什么不够，所以去取 X"；
+- **抓 X / Twitter 推文链接一律用 mcp__aidigest__scrape_url 工具**（带登录态 Camoufox），**不要用 WebFetch**——WebFetch 对这类 URL 会 402；
+- 普通网页（GitHub、arXiv、官方博客等）优先 WebFetch，失败或显示为登录墙时改用 mcp__aidigest__scrape_url；
+- 工具调用总次数 ≤ 3 次。
 
 ## 输出要求
 - 中文 markdown，单次回答 250-500 字，紧凑不灌水；
 - 只回答当前这一问，不要在结尾列后续方向或延伸阅读；
 - 如果题面是在之前回答的基础上做细化，直接深入、不要重复铺垫；
 - 内联来源用 \`[[n]]\` 角标，例如 \`[[1]] PR #121845\`，同时把具体链接/文件名写进正文。`;
+
+// 自定义工具：包装 safeScrape（Camoufox + 登录态 cookie），走本地 Python 脚本
+// 解决 WebFetch 对 X 推文会 402 的问题；普通网页也能走（scrape.py 对非 Twitter 域名用 Fetcher）
+const aidigestMcpServer = createSdkMcpServer({
+  name: 'aidigest',
+  version: '0.1.0',
+  tools: [
+    tool(
+      'scrape_url',
+      '用本地 Camoufox 浏览器抓取网页内容（带登录态），对 X/Twitter 推文特别有效，解决 WebFetch 无法读取的 402/403 场景。返回 JSON 字符串，含 title/content/author/threadSize 等字段。',
+      { url: z.string().describe('要抓取的完整 URL') },
+      async ({ url }) => {
+        const raw = await safeScrape(url);
+        return { content: [{ type: 'text' as const, text: raw }] };
+      },
+    ),
+  ],
+});
+const SCRAPE_TOOL_NAME = 'mcp__aidigest__scrape_url';
 
 // ── 内存中的活跃会话缓存：pipeline.id → { lastAccess }
 // SDK session 已经持久化到 pipeline.sdkSessionId，这里只做节流、不做唯一来源
@@ -170,6 +204,7 @@ export interface AskArgs {
   question: string;
   model?: TriageModel;
   branchLabel?: string;        // 新开分支的标签（可选）
+  newBranch?: boolean;         // 派生新分支：强制开新 SDK session，切断跨分支记忆
   questionPos?: { x: number; y: number; w?: number };
   answerPos?: { x: number; y: number; w?: number };
 }
@@ -189,7 +224,11 @@ export async function runPipelineAsk(
 
   // ── 1. 分配 id + 建节点
   const parentNode = parentId ? session.nodes.find(n => n.id === parentId) : null;
-  const branchIdx = parentNode?.branchIdx ?? 0;
+  const newBranch = !!args.newBranch;
+  // 派生分支：分配新的 branchIdx（max + 1），触发画布视觉派生 + 独立 SDK session
+  const branchIdx = newBranch
+    ? session.nodes.reduce((m, n) => Math.max(m, n.branchIdx ?? 0), 0) + 1
+    : (parentNode?.branchIdx ?? 0);
   const questionId = nextNodeId(session);
   const questionNode: PipelineNode = {
     id: questionId,
@@ -226,31 +265,30 @@ export async function runPipelineAsk(
   send('nodes_created', { question: questionNode, answer: answerNode });
 
   // ── 2. 组 prompt
+  // 每轮都注入 parse 锚点，避免多轮后 drift、或切到不同 parse 节点时上下文缺失
   const parentContext = renderParentContext(session, parentId);
-  const isFirstTurn = !session.sdkSessionId;
-  let userPrompt: string;
-  if (isFirstTurn) {
-    userPrompt = [
-      '## 初步解析',
-      buildInitialContext(session, parentId),
-      '',
-      parentContext || '（这是这一 session 的第一个问题，没有父节点）',
-      '',
-      `Q[${questionId}]: ${question.trim()}`,
-    ].join('\n');
-  } else {
-    userPrompt = [
-      parentContext || `[[parent context: none]] 这是挂在画布根上的新问题。`,
-      '',
-      `Q[${questionId}]: ${question.trim()}`,
-    ].join('\n');
-  }
+  const parseAnchor = buildInitialContext(session, parentId);
+  // 当前分支的 SDK session：派生分支强制不 resume；否则优先取分支 sid，回退到老 sdkSessionId（兼容历史数据）
+  const branchSid = newBranch
+    ? undefined
+    : (session.branchSessionIds?.[branchIdx] ?? (branchIdx === 0 ? session.sdkSessionId : undefined));
+  const isFirstTurn = !branchSid;
+  const userPrompt = [
+    '## 本轮锚定的解析节点（你的回答必须在这份解析的主题范围内展开）',
+    parseAnchor,
+    '',
+    parentContext || (isFirstTurn
+      ? '（这是这一 session 的第一个问题，没有父节点）'
+      : `[[parent context: none]] 这是挂在画布根上的新问题。`),
+    '',
+    `Q[${questionId}]: ${question.trim()}`,
+  ].join('\n');
 
   // ── 3. 跑 agent
   const abortController = new AbortController();
   const t0 = Date.now();
   let lastText = '';
-  let capturedSdkId: string | null = session.sdkSessionId || null;
+  let capturedSdkId: string | null = branchSid || null;
   let turnCount = 0;
   let totalOutputTokens = 0;
 
@@ -259,16 +297,17 @@ export async function runPipelineAsk(
       systemPrompt: SYSTEM_PROMPT,
       model: resolveModelId(model),
       cwd: process.cwd(),
-      allowedTools: ['WebFetch', 'WebSearch'],
+      allowedTools: ['WebFetch', 'WebSearch', SCRAPE_TOOL_NAME],
       disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
+      mcpServers: { aidigest: aidigestMcpServer },
       permissionMode: 'bypassPermissions' as const,
       allowDangerouslySkipPermissions: true,
       maxTurns: 8,
       abortController,
       persistSession: true,
     };
-    if (session.sdkSessionId) {
-      queryOptions.resume = session.sdkSessionId;
+    if (branchSid) {
+      queryOptions.resume = branchSid;
     }
 
     console.log(`[pipeline-log] ask pipeline=${session.id} parent=${parentId ?? 'root'} resume=${!isFirstTurn} model=${resolveModelId(model)} prompt_chars=${userPrompt.length}`);
@@ -286,8 +325,11 @@ export async function runPipelineAsk(
         const sid = (message as { session_id?: string }).session_id;
         if (sid) {
           capturedSdkId = sid;
-          session.sdkSessionId = sid;
-          send('session_id', { sdkSessionId: sid });
+          if (!session.branchSessionIds) session.branchSessionIds = {};
+          session.branchSessionIds[branchIdx] = sid;
+          // 保持 sdkSessionId 作为主分支（0）的镜像，便于老代码路径兜底
+          if (branchIdx === 0) session.sdkSessionId = sid;
+          send('session_id', { sdkSessionId: sid, branchIdx });
         }
       }
 
@@ -310,6 +352,7 @@ export async function runPipelineAsk(
                 const labels: Record<string, string> = {
                   WebSearch: '正在搜索...',
                   WebFetch: '正在抓取...',
+                  [SCRAPE_TOOL_NAME]: '正在登录抓取...',
                 };
                 if (labels[block.name]) {
                   send('tool_status', { nodeId: answerId, label: labels[block.name] });

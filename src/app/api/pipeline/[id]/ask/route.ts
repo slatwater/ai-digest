@@ -10,6 +10,7 @@ interface AskBody {
   parentId: string | null;
   question: string;
   branchLabel?: string;
+  newBranch?: boolean;
   model?: TriageModel;
   questionPos?: { x: number; y: number; w?: number };
   answerPos?: { x: number; y: number; w?: number };
@@ -56,6 +57,7 @@ export async function POST(
             parentId: body.parentId ?? null,
             question: body.question,
             branchLabel: body.branchLabel,
+            newBranch: body.newBranch,
             model: body.model,
             questionPos: body.questionPos,
             answerPos: body.answerPos,

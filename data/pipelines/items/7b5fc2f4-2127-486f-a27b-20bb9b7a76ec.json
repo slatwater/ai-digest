@@ -1,0 +1,123 @@
+{
+  "id": "7b5fc2f4-2127-486f-a27b-20bb9b7a76ec",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "13:01:41",
+      "inputUrls": [
+        "https://x.com/NicolasZu/status/2044289108739076513"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://x.com/NicolasZu/status/2044289108739076513",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "13:01:43",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "38c34f54-dc5a-4e5e-b172-0344589876b3",
+        "batchId": "e5e44205-ccb1-4bab-a916-0af020dde310",
+        "url": "https://x.com/NicolasZu/status/2044289108739076513",
+        "title": "使用 OpenAI Codex 纯 Web 开发工厂肉鸽游戏的工作流",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "读取来源",
+          "溯源搜索"
+        ],
+        "verdict": "skip",
+        "verdictReason": "内容为作者个人使用 Codex 开发游戏的工作流心得与泛化建议，无具名新技术、新数据或新机制，属于观点/经验分享",
+        "narrative": "一手来源，作者/推文主是 @NicolasZu（Nicolas Zullo）本人。\n\n@NicolasZu 用纯 Web 技术（无引擎）+ [[Codex]] 独立开发一款工厂肉鸽游戏（代号 ZPM，Steam 已达 500 个愿望单）。他的工作流是：需要什么功能就让 [[Codex]] 生成一个对应的「工具」（如程序化树木工具、岩石工具），直接在游戏里实时调参，全程热更新、无需重载。他声称每小时可以在游戏运行中完成 5–10 项新功能或修复，并使用 GPT-5.4 模型处理游戏逻辑。",
+        "concepts": [
+          {
+            "name": "Codex",
+            "role": "subject",
+            "root": "OpenAI 推出的代码生成 AI 智能体 → 在对话中生成、修改并执行代码",
+            "whatItEnables": "在游戏开发中逐功能生成程序化生成工具、物品系统、自动化配方等，无需重新加载游戏",
+            "sourceUrl": "https://x.com/NicolasZu/status/2044289108739076513"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://x.com/NicolasZu/status/2044289108739076513",
+            "title": "Nicolas Zullo 推文：用 Codex 做游戏开发",
+            "type": "original"
+          },
+          {
+            "url": "https://x.com/NicolasZu/status/2042887558795800711",
+            "title": "Nicolas Zullo：工厂肉鸽游戏 ZPM 达到 500 个 Steam 愿望单",
+            "type": "related"
+          },
+          {
+            "url": "https://x.com/NicolasZu/status/2013725848818376955",
+            "title": "Nicolas Zullo：11 个 React Three Fiber 技能文件（供 Claude Code 和 Codex 使用）",
+            "type": "related"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "分享了「在 Codex 内为游戏即时构建定制工具」的实战流程，属于个人经验帖，无新技术或新数据披露"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 5,
+          "inputTokens": 8,
+          "outputTokens": 5698,
+          "cacheReadTokens": 29848,
+          "costUsd": 0.17831990000000003,
+          "durationMs": 111330
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "他具体如何做的",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": 768,
+      "y": 80,
+      "w": 280,
+      "createdAt": "13:12:31",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "以下是 @NicolasZu 工作流的具体细节——\n\n## 核心思路：AI 是执行层，人是架构层\n\n他把 Codex CLI（GPT-5.4 high tier，约 $20/月）和 Claude Code（Opus 4.7）都跑在 VSCode 终端里，两者可互换。关键原则：**AI 只负责按指令生成代码，不负责做决策**，所有架构判断由开发者手动规划。[[1]](https://github.com/EnzeD/vibe-coding)\n\n## 项目结构：memory-bank 文件夹\n\n每个项目在根目录维护一个 `memory-bank/`，包含：\n- **Game Design Document**（游戏设计文档）\n- **Tech Stack 说明**（React Three Fiber + 纯 Web，无引擎）\n- **Implementation Plan**（拆成若干可独立测试的小步骤）\n- **Architecture 文档**（每次大功能完成后更新）\n\n每次向 Codex 下指令的标准句式是：\n> *\"读取所有 memory-bank 文件，执行 Step X，测试通过前不要继续。\"*\n\n## 「工具」生成的热更新循环\n\n他在原推里提到的**每功能一个「工具」**，对应的是在游戏运行态里生成可交互的调参面板（如程序化树木工具、岩石生成工具）——让他不用重载页面就能实时改参数。整个流程：\n\n1. 向 Codex 描述要新增的功能（如「程序化树」）\n2. Codex 生成对应组件 + 内联控制面板\n3. 热更新（HMR）直接在游戏运行中注入\n4. 本轮完成后 `git commit`，**关掉对话窗口开新会话**（清空上下文防止 AI 被历史代码淹没）\n\n这就是他说的「每小时 5–10 个功能」的来源——每个 feature 对应一个短会话，不拖泥带水。\n\n## Skills 文件加速上下文注入\n\n他在 `npx add-skill EnzeD/r3f-skills` 里打包了 11 个 React Three Fiber 技能文件（动画、Shader、物理、后处理等），给 Claude Code 和 Codex 使用。[[2]](https://x.com/NicolasZu/status/2013725848818376955) 这相当于把常用的技术规范直接塞进 AI 的上下文，避免每次重复解释 R3F 的惯用法。\n\n## 错误恢复机制\n\n- Claude Code 的 `/rewind` 回滚失败的迭代\n- 所有步骤有 Git commit 兜底，可随时 reset\n- 复杂 bug 用 RepoPrompt 把整个仓库压缩成一个提示词给 AI troubleshoot\n\nSources:\n- [EnzeD/vibe-coding](https://github.com/EnzeD/vibe-coding)\n- [Nicolas Zullo R3F Skills Tweet](https://x.com/NicolasZu/status/2013725848818376955)",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": 1112,
+      "y": 80,
+      "w": 280,
+      "createdAt": "13:12:31",
+      "model": "sonnet",
+      "duration": "67.7s",
+      "tokens": 177
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-20T05:01:41.533Z",
+  "updatedAt": "2026-04-20T05:13:39.280Z",
+  "sdkSessionId": "246f9374-8f87-418d-bd65-6f4b29c6feac"
+}

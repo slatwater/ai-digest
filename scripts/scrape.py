@@ -75,14 +75,24 @@ def scrape_twitter(url: str) -> dict:
                     # 精确提取推文正文，排除点赞/转发/时间等噪音
                     tweet_el = article.query_selector('[data-testid="tweetText"]')
                     text = (tweet_el.inner_text() or '').strip() if tweet_el else ''
-                    # 引用推文内容一并提取
-                    quote_el = article.query_selector('[data-testid="quoteTweet"]')
-                    if quote_el:
-                        qt_el = quote_el.query_selector('[data-testid="tweetText"]')
-                        qt_user = quote_el.query_selector('[data-testid="User-Name"]')
-                        if qt_el:
-                            qt_name = (qt_user.inner_text() or '').split('\n')[0] if qt_user else ''
-                            text += f'\n[引用 {qt_name}] ' + (qt_el.inner_text() or '').strip()
+                    # 引用推文：X 已弃用 [data-testid="quoteTweet"]，现用 div[role="link"][tabindex="0"]
+                    # 作者 handle 从 [data-testid^="UserAvatar-Container-XXX"] 解析，第一个是主作者，其余为引用作者
+                    quote_link = article.query_selector('div[role="link"][tabindex="0"]')
+                    if quote_link:
+                        qt_text = (quote_link.inner_text() or '').strip()
+                        if qt_text and len(qt_text) > 20:
+                            qt_handle = ''
+                            try:
+                                avatars = article.query_selector_all('[data-testid^="UserAvatar-Container-"]')
+                                for av in avatars[1:]:  # 跳过主作者
+                                    tid = av.get_attribute('data-testid') or ''
+                                    qt_handle = tid.replace('UserAvatar-Container-', '')
+                                    if qt_handle:
+                                        break
+                            except Exception:
+                                pass
+                            prefix = f'[引用 @{qt_handle}]' if qt_handle else '[引用]'
+                            text += f'\n{prefix} {qt_text}'
                 except Exception:
                     continue
                 if not text or len(text) < 10:
