@@ -315,6 +315,7 @@ function Canvas({
     { startX: number; startY: number; viewX: number; viewY: number } | null
   >(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+  const [confirmDel, setConfirmDel] = useState<{ nodeId: string; typeLabel: string; descCount: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   // 点画布任意位置关闭菜单
@@ -604,16 +605,8 @@ function Canvas({
             </div>
             <button
               onClick={() => {
-                const ok = descCount === 0
-                  ? window.confirm(`删除此${typeLabel}节点？不可撤销。`)
-                  : window.confirm(`删除此${typeLabel}节点及其 ${descCount} 个下游节点？不可撤销。`);
-                if (!ok) {
-                  setCtxMenu(null);
-                  return;
-                }
-                onDelete(ctxMenu.nodeId);
+                setConfirmDel({ nodeId: ctxMenu.nodeId, typeLabel, descCount });
                 setCtxMenu(null);
-                setSelectedNode(null);
               }}
               style={{
                 display: 'block',
@@ -653,6 +646,118 @@ function Canvas({
           </div>
         );
       })()}
+
+      {confirmDel && (
+        <div
+          onClick={() => setConfirmDel(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 60,
+            background: 'rgba(20,17,13,0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            animation: 'pipelineFadeIn 0.15s',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: 420,
+              maxWidth: '90vw',
+              background: 'var(--panel)',
+              border: '1px solid var(--red)',
+              boxShadow: '0 0 0 1px var(--bg), 6px 6px 0 rgba(0,0,0,0.5)',
+            }}
+          >
+            <div
+              className="mono"
+              style={{
+                padding: '10px 16px',
+                borderBottom: '1px solid var(--rule)',
+                background: 'rgba(201,74,26,0.08)',
+                fontSize: 10,
+                color: 'var(--red)',
+                letterSpacing: 1.3,
+                textTransform: 'uppercase',
+              }}
+            >
+              × 确认删除 · {confirmDel.typeLabel} {confirmDel.nodeId}
+            </div>
+            <div
+              style={{
+                padding: '18px 20px',
+                fontSize: 13,
+                color: 'var(--ink)',
+                lineHeight: 1.65,
+              }}
+            >
+              {confirmDel.descCount === 0
+                ? `即将删除此${confirmDel.typeLabel}节点。`
+                : `即将删除此${confirmDel.typeLabel}节点及其 ${confirmDel.descCount} 个下游节点。`}
+              <div
+                className="mono"
+                style={{
+                  marginTop: 10,
+                  fontSize: 11,
+                  color: 'var(--ink3)',
+                  letterSpacing: 0.2,
+                }}
+              >
+                不可撤销。若该分支被删光，对应的 SDK session 也会清理。
+              </div>
+            </div>
+            <div
+              style={{
+                padding: '10px 14px',
+                borderTop: '1px solid var(--rule)',
+                background: 'var(--bg2)',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 10,
+              }}
+            >
+              <button
+                onClick={() => setConfirmDel(null)}
+                className="mono"
+                style={{
+                  padding: '6px 16px',
+                  fontSize: 12,
+                  letterSpacing: 0.4,
+                  background: 'transparent',
+                  color: 'var(--ink2)',
+                  border: '1px solid var(--rule)',
+                  cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  onDelete(confirmDel.nodeId);
+                  setSelectedNode(null);
+                  setConfirmDel(null);
+                }}
+                className="mono"
+                style={{
+                  padding: '6px 16px',
+                  fontSize: 12,
+                  letterSpacing: 0.4,
+                  fontWeight: 600,
+                  background: 'var(--red)',
+                  color: 'var(--bg)',
+                  border: '1px solid var(--red)',
+                  boxShadow: '2px 2px 0 rgba(0,0,0,0.4)',
+                  cursor: 'pointer',
+                }}
+              >
+                × 确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Zoom controls */}
       <div

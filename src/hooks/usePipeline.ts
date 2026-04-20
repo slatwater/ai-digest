@@ -19,7 +19,7 @@ export const NODE_H = 160;
 const COL_GAP = 64;      // 同一流水平列间距
 const ROW_GAP = 40;      // 同流内 parse 子行间距
 const BRANCH_DY = NODE_H + ROW_GAP; // 分支上下偏移
-const FLOW_ROW = NODE_H * 5 + 160;  // 每条流占据的纵向带宽
+const FLOW_ROW = NODE_H + 80;       // 每条流占据的纵向带宽（紧凑：一屏能看到多条流）
 const FLOW_Y_BASE = 80;
 const TRUNK_X = 80;
 
