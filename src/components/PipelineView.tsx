@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, type MouseEvent as ReactMouseEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type {
   PipelineSession,
   PipelineNode,
   SedimentPoint,
   SedimentMode,
   TriageModel,
+  CozeRun,
 } from '@/lib/types';
 import type { usePipeline } from '@/hooks/usePipeline';
 
@@ -33,6 +36,21 @@ function truncate(text: string, max: number): string {
   return plain.length > max ? plain.slice(0, max) + '…' : plain;
 }
 
+/* overlay 关闭：仅当 mousedown 与 click 都发生在遮罩本身才关闭，
+   防止 resize 拖拽时鼠标滑到遮罩上触发误关 */
+function useOverlayClose(onClose: () => void) {
+  const downOnOverlay = useRef(false);
+  return {
+    onMouseDown: (e: ReactMouseEvent<HTMLDivElement>) => {
+      downOnOverlay.current = e.target === e.currentTarget;
+    },
+    onClick: (e: ReactMouseEvent<HTMLDivElement>) => {
+      if (downOnOverlay.current && e.target === e.currentTarget) onClose();
+      downOnOverlay.current = false;
+    },
+  };
+}
+
 /* ──────────────────────────────────────────────────────────
    Narrative — markdown-ish inline renderer
    ────────────────────────────────────────────────────────── */
@@ -41,20 +59,21 @@ type NarrativeSize = 'small' | 'normal' | 'large';
 function Narrative({ text, small, size }: { text: string; small?: boolean; size?: NarrativeSize }) {
   if (!text) return null;
   const resolved: NarrativeSize = size ?? (small ? 'small' : 'normal');
-  const fontSize = resolved === 'large' ? 16 : resolved === 'small' ? 12 : 13;
-  const codeFontSize = resolved === 'large' ? 14 : resolved === 'small' ? 11 : 12;
-  const lineHeight = resolved === 'large' ? 1.85 : 1.65;
-  const color = resolved === 'large' ? 'var(--ink)' : 'var(--ink2)';
+  const fontSize = resolved === 'large' ? 20 : resolved === 'small' ? 14 : 18;
+  const codeFontSize = resolved === 'large' ? 17 : resolved === 'small' ? 12 : 15;
+  const lineHeight = resolved === 'large' ? 1.9 : 1.8;
+  const color = resolved === 'small' ? 'var(--ink2)' : 'var(--ink)';
   const parts = text.split(/(\*\*[^*]+\*\*|\[\[[^\]]+\]\]|`[^`]+`)/g);
+  const fontWeight = resolved === 'large' ? 450 : 420;
   return (
     <span
-      className={resolved === 'large' ? 'serif' : undefined}
       style={{
         fontSize,
         lineHeight,
         color,
+        fontWeight,
         whiteSpace: 'pre-wrap',
-        letterSpacing: resolved === 'large' ? 0.1 : 0,
+        letterSpacing: resolved === 'large' ? 0.15 : 0.1,
       }}
     >
       {parts.map((p, i) => {
@@ -297,6 +316,7 @@ function Canvas({
   onUnmark,
   onOpen,
   onSubmitInput,
+  onStartExperiment,
   onDelete,
 }: {
   nodes: PipelineNode[];
@@ -307,10 +327,11 @@ function Canvas({
   onMark: (id: string) => void;
   onUnmark: (id: string) => void;
   onOpen: (nodeId: string) => void;
-  onSubmitInput: (nodeId: string, urls: string[]) => void;
+  onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
+  onStartExperiment: (answerNodeId: string) => void;
   onDelete: (nodeId: string) => void;
 }) {
-  const [view, setView] = useState({ x: 40, y: 20, zoom: 0.9 });
+  const [view, setView] = useState({ x: 40, y: 20, zoom: 1.6 });
   const [panning, setPanning] = useState<
     { startX: number; startY: number; viewX: number; viewY: number } | null
   >(null);
@@ -551,6 +572,7 @@ function Canvas({
             onUnmark={() => onUnmark(n.id)}
             onOpen={() => onOpen(n.id)}
             onSubmitInput={onSubmitInput}
+            onStartExperiment={onStartExperiment}
             onContextMenu={(x, y) => setCtxMenu({ x, y, nodeId: n.id })}
           />
         ))}
@@ -572,7 +594,7 @@ function Canvas({
           frontier = next;
         }
         const descCount = descendants.size;
-        const typeLabel = target ? ({ input: '输入', parse: '解析', question: '问题', answer: '回答' } as const)[target.type] : '节点';
+        const typeLabel = target ? ({ input: '输入', parse: '解析', question: '问题', answer: '回答', experiment: '实验' } as const)[target.type] : '节点';
         return (
           <div
             onClick={e => e.stopPropagation()}
@@ -805,7 +827,7 @@ function Canvas({
         <div style={{ height: 1, background: 'var(--rule)', margin: '2px 0' }} />
         <button
           className="mono tool-btn"
-          onClick={() => setView({ x: 40, y: 20, zoom: 0.9 })}
+          onClick={() => setView({ x: 40, y: 20, zoom: 1.6 })}
           style={{ width: 28, height: 28, fontSize: 10 }}
         >
           ⊡
@@ -884,11 +906,11 @@ function nodeVisuals(node: PipelineNode, selected: boolean): {
     case 'parse':
       return {
         bg: 'var(--panel)',
-        headerBg: 'rgba(201,74,26,0.08)',
-        leftBar: 'var(--red)',
-        label: '◎ 解析',
-        labelColor: 'var(--red)',
-        clickTitle: '双击查看完整解析',
+        headerBg: node.parseEntry?.direct ? 'rgba(201,146,26,0.1)' : 'rgba(201,74,26,0.08)',
+        leftBar: node.parseEntry?.direct ? 'var(--amber)' : 'var(--red)',
+        label: node.parseEntry?.direct ? '⚡ 直接深入' : '◎ 解析',
+        labelColor: node.parseEntry?.direct ? 'var(--amber)' : 'var(--red)',
+        clickTitle: node.parseEntry?.direct ? '双击查看原文摘要' : '双击查看完整解析',
       };
     case 'question':
       return {
@@ -898,6 +920,15 @@ function nodeVisuals(node: PipelineNode, selected: boolean): {
         label: '→ 你问',
         labelColor: 'var(--amber)',
         clickTitle: '双击展开对话详情',
+      };
+    case 'experiment':
+      return {
+        bg: 'var(--panel)',
+        headerBg: 'rgba(232,162,76,0.08)',
+        leftBar: 'var(--amber)',
+        label: '❦ 实验',
+        labelColor: 'var(--amber)',
+        clickTitle: '双击展开实验对话',
       };
     default: // answer
       return {
@@ -923,6 +954,7 @@ function CanvasNode({
   onUnmark,
   onOpen,
   onSubmitInput,
+  onStartExperiment,
   onContextMenu,
 }: {
   node: PipelineNode;
@@ -933,7 +965,8 @@ function CanvasNode({
   onMark: () => void;
   onUnmark: () => void;
   onOpen: () => void;
-  onSubmitInput: (nodeId: string, urls: string[]) => void;
+  onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
+  onStartExperiment: (answerNodeId: string) => void;
   onContextMenu: (x: number, y: number) => void;
 }) {
   const [hovering, setHovering] = useState(false);
@@ -942,10 +975,11 @@ function CanvasNode({
   const isAnswer = node.type === 'answer';
   const isInput = node.type === 'input';
   const isParse = node.type === 'parse';
+  const isExperiment = node.type === 'experiment';
   const isStreaming = node.state === 'streaming' || streaming;
 
   const stateLabel = isStreaming
-    ? (isParse ? '● 解析中' : '● 正在写')
+    ? (isParse ? '● 解析中' : isExperiment ? '● 对话中' : '● 正在写')
     : node.state === 'error'
       ? '× 失败'
       : node.state === 'pending'
@@ -966,15 +1000,26 @@ function CanvasNode({
   } else if (isParse) {
     const p = node.parseEntry;
     const isErr = node.state === 'error';
+    const isPaste = p?.url?.startsWith('paste://');
+    let secondLine: string;
+    if (isErr) {
+      secondLine = node.error || '解析失败';
+    } else if (isPaste && p?.narrative) {
+      // 原文粘贴：不回显原文，显示字数 + 追问提示
+      const chars = p.narrative.length;
+      secondLine = `📋 已收录原文 · ${chars} 字 · 右键追问`;
+    } else if (p?.narrative) {
+      secondLine = truncate(p.narrative, 110);
+    } else {
+      secondLine = p?.liveStatus || '排队中';
+    }
     summaryLines = [
-      p?.title || p?.url || '解析中…',
-      isErr
-        ? (node.error || '解析失败')
-        : (p?.narrative ? truncate(p.narrative, 110) : (p?.liveStatus || '排队中')),
+      p?.title || (isPaste ? '📋 原文粘贴' : (p?.url || '解析中…')),
+      secondLine,
     ];
   }
 
-  const summaryText = !isInput && !isParse
+  const summaryText = !isInput && !isParse && !isExperiment
     ? (isQ
         ? truncate(node.text, 90)
         : node.text
@@ -983,6 +1028,27 @@ function CanvasNode({
             ? '正在生成…'
             : '')
     : '';
+
+  // experiment 节点：标题（seedTitle）+ 摘要（对话轮数 · coze 次数 · 最新 AI 回复首行）
+  let experimentLines: string[] = [];
+  if (isExperiment) {
+    const ep = node.experimentPayload;
+    const roundCount = Math.ceil(((ep?.messages?.length) ?? 0) / 2);
+    const cozeTotal = ep?.cozeRuns?.length ?? 0;
+    const cozeOk = ep?.cozeRuns?.filter(r => r.status === 'success').length ?? 0;
+    const lastAssistant = [...(ep?.messages ?? [])].reverse().find(m => m.role === 'assistant');
+    const firstLine = lastAssistant
+      ? (lastAssistant.content.split('\n').map(l => l.trim()).find(Boolean) || '').replace(/^#+\s*/, '')
+      : '';
+    const stats = roundCount === 0
+      ? '尚未开始对话 · 双击进入'
+      : `${roundCount} 轮${cozeTotal ? ` · coze ${cozeOk}/${cozeTotal}` : ''}${ep?.savedExperienceId ? ' · 已存经验' : ''}`;
+    experimentLines = [
+      ep?.seedTitle || node.text || '实验',
+      firstLine ? truncate(firstLine, 90) : stats,
+      firstLine ? stats : '',
+    ].filter(Boolean);
+  }
 
   const borderColor = selected
     ? 'var(--amber)'
@@ -1138,7 +1204,7 @@ function CanvasNode({
         {isInput && (
           <InputNodeBody
             node={node}
-            onSubmit={urls => onSubmitInput(node.id, urls)}
+            onSubmit={(urls, opts) => onSubmitInput(node.id, urls, opts)}
           />
         )}
 
@@ -1176,7 +1242,7 @@ function CanvasNode({
           </>
         )}
 
-        {!isInput && !isParse && (
+        {!isInput && !isParse && !isExperiment && (
           <div
             className={isQ ? 'serif' : undefined}
             style={{
@@ -1196,7 +1262,51 @@ function CanvasNode({
           </div>
         )}
 
-        {isStreaming && isAnswer && (
+        {isExperiment && (
+          <>
+            <div
+              className="serif"
+              style={{
+                fontSize: 13,
+                lineHeight: 1.35,
+                color: 'var(--ink)',
+                fontWeight: 600,
+                letterSpacing: -0.2,
+                display: '-webkit-box',
+                WebkitLineClamp: 1,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {experimentLines[0]}
+            </div>
+            {experimentLines[1] && (
+              <div
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.5,
+                  color: 'var(--ink2)',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {experimentLines[1]}
+              </div>
+            )}
+            {experimentLines[2] && (
+              <div
+                className="mono"
+                style={{ fontSize: 10, color: 'var(--ink3)', marginTop: 'auto' }}
+              >
+                {experimentLines[2]}
+              </div>
+            )}
+          </>
+        )}
+
+        {isStreaming && (isAnswer || isExperiment) && (
           <div
             style={{
               display: 'flex',
@@ -1291,6 +1401,27 @@ function CanvasNode({
             ◈ 标记
           </button>
         )}
+        {isAnswer && node.state === 'done' && (
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              onStartExperiment(node.id);
+            }}
+            className="mono"
+            title="以此回答为起点开启实验节点"
+            style={{
+              fontSize: 9,
+              color: 'var(--amber)',
+              border: '1px solid var(--amber)',
+              padding: '2px 6px',
+              letterSpacing: 0.3,
+              opacity: hovering || selected ? 1 : 0.55,
+              transition: 'opacity 0.15s',
+            }}
+          >
+            ❦ 实验
+          </button>
+        )}
         {isAnswer && node.marked && (
           <button
             onClick={e => {
@@ -1324,21 +1455,32 @@ function CanvasNode({
   );
 }
 
-// InputNodeBody — 输入卡主体（粘贴 URL，回车提交）
+// InputNodeBody — 输入卡主体（粘贴 URL 或粘贴原文，回车提交）
 function InputNodeBody({
   node,
   onSubmit,
 }: {
   node: PipelineNode;
-  onSubmit: (urls: string[]) => void;
+  onSubmit: (urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
 }) {
+  // mode: url=粘贴链接（走解析或直接深入）；text=粘贴原文（只走直接深入，跳过 scrape）
+  const [mode, setMode] = useState<'url' | 'text'>('url');
   const [value, setValue] = useState(node.inputUrls?.join('\n') || '');
+  const [pasteText, setPasteText] = useState('');
   const urls = value
     .split(/\r?\n|\s+/)
     .map(s => s.trim())
     .filter(Boolean);
   const valid = urls.filter(validUrl);
   const submitted = (node.inputUrls?.length ?? 0) > 0;
+  const trimmedText = pasteText.trim();
+  const textReady = trimmedText.length >= 20; // 至少 20 字才算有效原文
+
+  const submitText = () => {
+    if (!textReady) return;
+    const pseudoUrl = `paste://${Date.now()}`;
+    onSubmit([pseudoUrl], { direct: true, texts: { [pseudoUrl]: trimmedText } });
+  };
 
   if (submitted) {
     return (
@@ -1369,7 +1511,7 @@ function InputNodeBody({
               whiteSpace: 'nowrap',
             }}
           >
-            {u}
+            {u.startsWith('paste://') ? '📋 原文粘贴' : u}
           </div>
         ))}
         {node.inputUrls && node.inputUrls.length > 3 && (
@@ -1387,7 +1529,8 @@ function InputNodeBody({
       onDoubleClick={e => e.stopPropagation()}
       onSubmit={e => {
         e.preventDefault();
-        if (valid.length) onSubmit(valid);
+        if (mode === 'url' && valid.length) onSubmit(valid);
+        else if (mode === 'text') submitText();
       }}
       style={{
         flex: 1,
@@ -1396,53 +1539,149 @@ function InputNodeBody({
         gap: 4,
       }}
     >
-      <textarea
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        onKeyDown={e => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-            if (valid.length) onSubmit(valid);
-          }
-        }}
-        placeholder="粘贴 http(s) 链接，每行一个"
-        className="mono"
-        style={{
-          flex: 1,
-          resize: 'none',
-          background: 'var(--bg)',
-          color: 'var(--ink)',
-          border: '1px solid var(--rule)',
-          padding: '6px 8px',
-          fontSize: 10,
-          lineHeight: 1.45,
-          outline: 'none',
-        }}
-      />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span
-          className="mono"
-          style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 0.3 }}
-        >
-          {valid.length}/{urls.length} 有效
-        </span>
-        <span style={{ flex: 1 }} />
-        <button
-          type="submit"
-          disabled={!valid.length}
+      {/* mode tab */}
+      <div style={{ display: 'flex', gap: 4 }}>
+        {(['url', 'text'] as const).map(m => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className="mono"
+            style={{
+              fontSize: 9,
+              padding: '1px 6px',
+              letterSpacing: 0.3,
+              color: mode === m ? 'var(--bg)' : 'var(--ink3)',
+              background: mode === m ? 'var(--ink)' : 'transparent',
+              border: `1px solid ${mode === m ? 'var(--ink)' : 'var(--rule)'}`,
+              cursor: 'pointer',
+            }}
+          >
+            {m === 'url' ? '🔗 链接' : '📋 原文'}
+          </button>
+        ))}
+      </div>
+      {mode === 'url' ? (
+        <textarea
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              if (valid.length) onSubmit(valid);
+            }
+          }}
+          placeholder="粘贴 http(s) 链接，每行一个"
           className="mono"
           style={{
+            flex: 1,
+            resize: 'none',
+            background: 'var(--bg)',
+            color: 'var(--ink)',
+            border: '1px solid var(--rule)',
+            padding: '6px 8px',
             fontSize: 10,
-            padding: '2px 8px',
-            letterSpacing: 0.3,
-            color: valid.length ? 'var(--bg)' : 'var(--ink4)',
-            background: valid.length ? 'var(--red)' : 'transparent',
-            border: `1px solid ${valid.length ? 'var(--red)' : 'var(--rule)'}`,
-            fontWeight: 600,
-            cursor: valid.length ? 'pointer' : 'not-allowed',
+            lineHeight: 1.45,
+            outline: 'none',
           }}
-        >
-          ⌘↵ 开始解析
-        </button>
+        />
+      ) : (
+        <textarea
+          value={pasteText}
+          onChange={e => setPasteText(e.target.value)}
+          onKeyDown={e => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submitText();
+          }}
+          placeholder="粘贴文章原文（≥20 字）。直接成为追问锚点，跳过解析 agent"
+          className="mono"
+          style={{
+            flex: 1,
+            resize: 'none',
+            background: 'var(--bg)',
+            color: 'var(--ink)',
+            border: '1px solid var(--rule)',
+            padding: '6px 8px',
+            fontSize: 10,
+            lineHeight: 1.45,
+            outline: 'none',
+          }}
+        />
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {mode === 'url' ? (
+          <>
+            <span
+              className="mono"
+              style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 0.3 }}
+            >
+              {valid.length}/{urls.length} 有效
+            </span>
+            <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              disabled={!valid.length}
+              onClick={() => valid.length && onSubmit(valid, { direct: true })}
+              title="跳过解析，直接抓取原文后进入追问。适合你已经确认这是一手来源（论文、项目、官方博客）"
+              className="mono"
+              style={{
+                fontSize: 10,
+                padding: '2px 8px',
+                letterSpacing: 0.3,
+                color: valid.length ? 'var(--amber)' : 'var(--ink4)',
+                background: 'transparent',
+                border: `1px solid ${valid.length ? 'var(--amber)' : 'var(--rule)'}`,
+                fontWeight: 600,
+                cursor: valid.length ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ⚡ 直接深入
+            </button>
+            <button
+              type="submit"
+              disabled={!valid.length}
+              className="mono"
+              style={{
+                fontSize: 10,
+                padding: '2px 8px',
+                letterSpacing: 0.3,
+                color: valid.length ? 'var(--bg)' : 'var(--ink4)',
+                background: valid.length ? 'var(--red)' : 'transparent',
+                border: `1px solid ${valid.length ? 'var(--red)' : 'var(--rule)'}`,
+                fontWeight: 600,
+                cursor: valid.length ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ⌘↵ 开始解析
+            </button>
+          </>
+        ) : (
+          <>
+            <span
+              className="mono"
+              style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 0.3 }}
+            >
+              {trimmedText.length} 字{textReady ? '' : '（≥20）'}
+            </span>
+            <span style={{ flex: 1 }} />
+            <button
+              type="submit"
+              disabled={!textReady}
+              title="把粘贴的原文作为锚点，跳过解析 agent 直接进入追问"
+              className="mono"
+              style={{
+                fontSize: 10,
+                padding: '2px 8px',
+                letterSpacing: 0.3,
+                color: textReady ? 'var(--bg)' : 'var(--ink4)',
+                background: textReady ? 'var(--amber)' : 'transparent',
+                border: `1px solid ${textReady ? 'var(--amber)' : 'var(--rule)'}`,
+                fontWeight: 600,
+                cursor: textReady ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ⚡ 直接深入
+            </button>
+          </>
+        )}
       </div>
     </form>
   );
@@ -2529,9 +2768,11 @@ function AskSheet({
       ? '开启第一条链'
       : '新主干';
 
+  const overlayHandlers = useOverlayClose(onClose);
+
   return (
     <div
-      onClick={onClose}
+      {...overlayHandlers}
       style={{
         position: 'fixed',
         inset: 0,
@@ -2544,13 +2785,16 @@ function AskSheet({
       }}
     >
       <div
-        className="pipeline-deep"
+        className="pipeline-deep pipeline-sheet-resizable"
         onClick={e => e.stopPropagation()}
         style={{
-          width: 760,
-          maxWidth: '92vw',
-          height: '82vh',
-          maxHeight: 720,
+          width: 'min(1200px, 94vw)',
+          height: 'auto',
+          minWidth: 560,
+          minHeight: 320,
+          maxWidth: '98vw',
+          maxHeight: '96vh',
+          resize: 'both',
           background: 'var(--panel)',
           border: '1px solid var(--amber)',
           boxShadow: '0 0 0 1px var(--bg), 8px 8px 0 rgba(0,0,0,0.5)',
@@ -2562,7 +2806,7 @@ function AskSheet({
         {/* Header */}
         <div
           style={{
-            padding: '12px 18px',
+            padding: '9px 16px',
             borderBottom: '1px solid var(--rule)',
             background: 'rgba(232,162,76,0.06)',
             display: 'flex',
@@ -2576,7 +2820,7 @@ function AskSheet({
             <span
               className="mono"
               style={{
-                fontSize: 10,
+                fontSize: 14,
                 color: 'var(--amber)',
                 letterSpacing: 1.4,
                 textTransform: 'uppercase',
@@ -2587,7 +2831,7 @@ function AskSheet({
             <span
               className="mono"
               style={{
-                fontSize: 10,
+                fontSize: 14,
                 color: 'var(--ink3)',
                 letterSpacing: 0.3,
                 overflow: 'hidden',
@@ -2601,7 +2845,7 @@ function AskSheet({
           <button
             onClick={onClose}
             className="mono"
-            style={{ fontSize: 12, color: 'var(--ink3)', letterSpacing: 0.3 }}
+            style={{ fontSize: 16, color: 'var(--ink3)', letterSpacing: 0.3 }}
           >
             × 关闭
           </button>
@@ -2613,7 +2857,7 @@ function AskSheet({
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '18px 22px',
+            padding: '9px 16px',
             background: 'var(--bg)',
           }}
         >
@@ -2630,7 +2874,7 @@ function AskSheet({
               <div
                 className="mono"
                 style={{
-                  fontSize: 9,
+                  fontSize: 13,
                   color: 'var(--red)',
                   letterSpacing: 1.3,
                   textTransform: 'uppercase',
@@ -2642,7 +2886,7 @@ function AskSheet({
               <div
                 className="serif"
                 style={{
-                  fontSize: 15,
+                  fontSize: 19,
                   fontWeight: 600,
                   color: 'var(--ink)',
                   letterSpacing: -0.2,
@@ -2655,7 +2899,7 @@ function AskSheet({
               {anchorParse.parseEntry.narrative && (
                 <div
                   style={{
-                    fontSize: 12,
+                    fontSize: 16,
                     color: 'var(--ink2)',
                     lineHeight: 1.65,
                     marginBottom: anchorParse.parseEntry.concepts?.length ? 8 : 0,
@@ -2671,7 +2915,7 @@ function AskSheet({
                       key={i}
                       className="mono"
                       style={{
-                        fontSize: 10,
+                        fontSize: 14,
                         padding: '2px 6px',
                         border: `1px solid ${c.role === 'subject' ? 'var(--red)' : 'var(--ink4)'}`,
                         color: c.role === 'subject' ? 'var(--red)' : 'var(--ink2)',
@@ -2691,10 +2935,10 @@ function AskSheet({
             <div
               className="mono"
               style={{
-                fontSize: 11,
+                fontSize: 15,
                 color: 'var(--ink3)',
                 textAlign: 'center',
-                padding: 40,
+                padding: 24,
                 border: '1px dashed var(--rule)',
                 lineHeight: 1.8,
               }}
@@ -2723,7 +2967,7 @@ function AskSheet({
                 <span
                   className="mono"
                   style={{
-                    fontSize: 9,
+                    fontSize: 13,
                     letterSpacing: 0.8,
                     textTransform: 'uppercase',
                     color: isQ ? 'var(--amber)' : 'var(--ink3)',
@@ -2740,20 +2984,19 @@ function AskSheet({
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
-                    className={isQ ? 'serif' : undefined}
                     style={{
-                      fontSize: isQ ? 14 : 13,
-                      lineHeight: 1.65,
-                      color: isQ ? 'var(--ink)' : 'var(--ink2)',
-                      fontWeight: isQ ? 500 : 400,
-                      letterSpacing: isQ ? -0.1 : 0,
+                      fontSize: 20,
+                      lineHeight: 1.9,
+                      color: 'var(--ink)',
+                      fontWeight: isQ ? 550 : 450,
+                      letterSpacing: 0.15,
                       whiteSpace: 'pre-wrap',
                     }}
                   >
                     {n.text ? (
-                      isQ ? n.text : <Narrative text={n.text} />
+                      isQ ? n.text : <Narrative text={n.text} size="large" />
                     ) : (
-                      <span className="mono" style={{ color: 'var(--ink4)', fontSize: 11 }}>
+                      <span className="mono" style={{ color: 'var(--ink3)', fontSize: 15 }}>
                         {isNodeStreaming ? '正在生成…' : '（空）'}
                       </span>
                     )}
@@ -2783,7 +3026,7 @@ function AskSheet({
                         <span
                           className="mono"
                           style={{
-                            fontSize: 9,
+                            fontSize: 13,
                             color: 'var(--red)',
                             marginLeft: 4,
                           }}
@@ -2804,7 +3047,7 @@ function AskSheet({
                     >
                       <span
                         className="mono"
-                        style={{ fontSize: 9, color: 'var(--ink3)' }}
+                        style={{ fontSize: 13, color: 'var(--ink3)' }}
                       >
                         {n.duration ?? ''}
                         {n.duration && n.tokens ? ' · ' : ''}
@@ -2816,7 +3059,7 @@ function AskSheet({
                           onClick={() => onMark(n.id)}
                           className="mono"
                           style={{
-                            fontSize: 10,
+                            fontSize: 14,
                             color: 'var(--amber)',
                             border: '1px solid var(--amber)',
                             padding: '2px 8px',
@@ -2830,7 +3073,7 @@ function AskSheet({
                           onClick={() => onUnmark(n.id)}
                           className="mono"
                           style={{
-                            fontSize: 10,
+                            fontSize: 14,
                             color: 'var(--bg)',
                             background: 'var(--amber)',
                             padding: '2px 8px',
@@ -2876,7 +3119,7 @@ function AskSheet({
               onClick={() => setIsBranch(false)}
               className="mono"
               style={{
-                fontSize: 10,
+                fontSize: 14,
                 padding: '3px 8px',
                 border: '1px solid ' + (!isBranch ? 'var(--amber)' : 'var(--rule)'),
                 color: !isBranch ? 'var(--amber)' : 'var(--ink3)',
@@ -2891,7 +3134,7 @@ function AskSheet({
               onClick={() => setIsBranch(true)}
               className="mono"
               style={{
-                fontSize: 10,
+                fontSize: 14,
                 padding: '3px 8px',
                 border: '1px solid ' + (isBranch ? 'var(--branch)' : 'var(--rule)'),
                 color: isBranch ? 'var(--branch)' : 'var(--ink3)',
@@ -2909,7 +3152,7 @@ function AskSheet({
                 className="mono"
                 style={{
                   flex: 1,
-                  fontSize: 10,
+                  fontSize: 14,
                   padding: '3px 8px',
                   background: 'var(--bg)',
                   border: '1px solid var(--branch)',
@@ -2922,7 +3165,7 @@ function AskSheet({
             <span
               className="mono"
               style={{
-                fontSize: 9,
+                fontSize: 13,
                 color: canAsk ? 'var(--ink3)' : 'var(--red)',
                 letterSpacing: 0.3,
               }}
@@ -2945,7 +3188,7 @@ function AskSheet({
               className="mono"
               style={{
                 color: canAsk ? 'var(--amber)' : 'var(--ink4)',
-                fontSize: 12,
+                fontSize: 16,
               }}
             >
               {canAsk ? '>' : '…'}
@@ -2962,10 +3205,11 @@ function AskSheet({
                   : '生成中，请稍候...'
               }
               disabled={!canAsk}
-              className="mono"
               style={{
                 flex: 1,
-                fontSize: 13,
+                fontSize: 18,
+                fontWeight: 450,
+                letterSpacing: 0.1,
                 color: 'var(--ink)',
                 background: 'transparent',
                 border: 'none',
@@ -2979,7 +3223,7 @@ function AskSheet({
               style={{
                 color:
                   inputValue.trim() && canAsk ? 'var(--amber)' : 'var(--ink4)',
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 600,
                 letterSpacing: 0.5,
                 cursor: inputValue.trim() && canAsk ? 'pointer' : 'not-allowed',
@@ -3004,6 +3248,7 @@ export function PipelineView({ pipeline, onExit }: Props) {
   const [askTarget, setAskTarget] = useState<AskTarget | null>(null);
   const [markTarget, setMarkTarget] = useState<string | null>(null);
   const [parseTarget, setParseTarget] = useState<string | null>(null);
+  const [experimentTarget, setExperimentTarget] = useState<string | null>(null);
 
   // 首次 mount：确保存在 session + 至少一张 input 节点
   useEffect(() => {
@@ -3058,6 +3303,10 @@ export function PipelineView({ pipeline, onExit }: Props) {
       setParseTarget(nodeId);
       return;
     }
+    if (n.type === 'experiment') {
+      setExperimentTarget(nodeId);
+      return;
+    }
     setAskTarget({ parentId: nodeId, focusId: nodeId });
   };
 
@@ -3101,7 +3350,14 @@ export function PipelineView({ pipeline, onExit }: Props) {
             onMark={(id: string) => setMarkTarget(id)}
             onUnmark={pipeline.unmarkNode}
             onOpen={nodeId => openSheet(nodeId)}
-            onSubmitInput={(id, urls) => pipeline.submitInput(id, urls)}
+            onSubmitInput={(id, urls, opts) => pipeline.submitInput(id, urls, undefined, opts)}
+            onStartExperiment={async (answerId: string) => {
+              const newId = await pipeline.startExperiment(answerId);
+              if (newId) {
+                setSelectedNode(newId);
+                setExperimentTarget(newId);
+              }
+            }}
             onDelete={pipeline.deleteNode}
           />
         </div>
@@ -3125,6 +3381,15 @@ export function PipelineView({ pipeline, onExit }: Props) {
             setParseTarget(null);
             setAskTarget({ parentId: nodeId, focusId: nodeId });
           }}
+        />
+      )}
+
+      {experimentTarget && (
+        <ExperimentSheet
+          session={session}
+          pipeline={pipeline}
+          nodeId={experimentTarget}
+          onClose={() => setExperimentTarget(null)}
         />
       )}
 
@@ -3183,12 +3448,13 @@ function ParseDetailSheet({
 }) {
   const node = session.nodes.find(n => n.id === nodeId);
   const p = node?.parseEntry;
+  const overlayHandlers = useOverlayClose(onClose);
 
   if (!node || !p) return null;
 
   return (
     <div
-      onClick={onClose}
+      {...overlayHandlers}
       style={{
         position: 'fixed',
         inset: 0,
@@ -3201,13 +3467,16 @@ function ParseDetailSheet({
       }}
     >
       <div
-        className="pipeline-deep"
+        className="pipeline-deep pipeline-sheet-resizable"
         onClick={e => e.stopPropagation()}
         style={{
-          width: 820,
-          maxWidth: '94vw',
-          height: '84vh',
-          maxHeight: 760,
+          width: 'min(1200px, 94vw)',
+          height: 'auto',
+          minWidth: 560,
+          minHeight: 320,
+          maxWidth: '98vw',
+          maxHeight: '96vh',
+          resize: 'both',
           background: 'var(--panel)',
           border: '1px solid var(--red)',
           boxShadow: '0 0 0 1px var(--bg), 8px 8px 0 rgba(0,0,0,0.5)',
@@ -3219,7 +3488,7 @@ function ParseDetailSheet({
         {/* Header */}
         <div
           style={{
-            padding: '14px 20px',
+            padding: '10px 18px',
             borderBottom: '1px solid var(--rule)',
             background: 'rgba(201,74,26,0.06)',
             display: 'flex',
@@ -3231,20 +3500,20 @@ function ParseDetailSheet({
           <span
             className="mono"
             style={{
-              fontSize: 10,
-              color: 'var(--red)',
+              fontSize: 14,
+              color: p.direct ? 'var(--amber)' : 'var(--red)',
               letterSpacing: 1.4,
               textTransform: 'uppercase',
-              border: '1px solid var(--red)',
+              border: `1px solid ${p.direct ? 'var(--amber)' : 'var(--red)'}`,
               padding: '2px 6px',
             }}
           >
-            ◎ 解析详情
+            {p.direct ? '⚡ 直接深入' : '◎ 解析详情'}
           </span>
           <span
             className="mono"
             style={{
-              fontSize: 10,
+              fontSize: 14,
               color: 'var(--ink3)',
               letterSpacing: 0.3,
               overflow: 'hidden',
@@ -3253,12 +3522,12 @@ function ParseDetailSheet({
               flex: 1,
             }}
           >
-            {p.url}
+            {p.url.startsWith('paste://') ? '📋 原文粘贴（无外部链接）' : p.url}
           </span>
           <button
             onClick={onClose}
             className="mono"
-            style={{ fontSize: 12, color: 'var(--ink3)', letterSpacing: 0.3 }}
+            style={{ fontSize: 16, color: 'var(--ink3)', letterSpacing: 0.3 }}
           >
             × 关闭
           </button>
@@ -3270,14 +3539,14 @@ function ParseDetailSheet({
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '22px 26px',
+            padding: '14px 22px',
             background: 'var(--bg)',
           }}
         >
           <h2
             className="serif"
             style={{
-              fontSize: 22,
+              fontSize: 28,
               fontWeight: 600,
               color: 'var(--ink)',
               letterSpacing: -0.4,
@@ -3297,12 +3566,12 @@ function ParseDetailSheet({
                 border: '1px solid var(--red)',
                 background: 'rgba(201,74,26,0.08)',
                 color: 'var(--red)',
-                fontSize: 12,
+                fontSize: 16,
                 lineHeight: 1.6,
                 letterSpacing: 0.2,
               }}
             >
-              <div style={{ fontSize: 9, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 6, opacity: 0.8 }}>
+              <div style={{ fontSize: 13, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 6, opacity: 0.8 }}>
                 × 解析失败
               </div>
               {node.error}
@@ -3314,7 +3583,7 @@ function ParseDetailSheet({
               <div
                 className="mono"
                 style={{
-                  fontSize: 9,
+                  fontSize: 13,
                   color: 'var(--red)',
                   letterSpacing: 1.2,
                   textTransform: 'uppercase',
@@ -3329,7 +3598,7 @@ function ParseDetailSheet({
                     key={i}
                     className="mono"
                     style={{
-                      fontSize: 11,
+                      fontSize: 15,
                       padding: '3px 8px',
                       border: `1px solid ${c.role === 'subject' ? 'var(--red)' : 'var(--ink4)'}`,
                       color: c.role === 'subject' ? 'var(--red)' : 'var(--ink2)',
@@ -3349,14 +3618,18 @@ function ParseDetailSheet({
               <div
                 className="mono"
                 style={{
-                  fontSize: 9,
+                  fontSize: 13,
                   color: 'var(--ink3)',
                   letterSpacing: 1.2,
                   textTransform: 'uppercase',
                   marginBottom: 10,
                 }}
               >
-                ── 解析叙述
+                {p.url?.startsWith('paste://')
+                  ? '── 你粘贴的原文（追问时作为锚点）'
+                  : p.direct
+                    ? '── 原文摘要（未经 agent 分析）'
+                    : '── 解析叙述'}
               </div>
               {p.narrative.split(/\n\n+/).map((para, i) => (
                 <p key={i} style={{ marginBottom: 14 }}>
@@ -3371,7 +3644,7 @@ function ParseDetailSheet({
               <div
                 className="mono"
                 style={{
-                  fontSize: 9,
+                  fontSize: 13,
                   color: 'var(--ink3)',
                   letterSpacing: 1.2,
                   textTransform: 'uppercase',
@@ -3389,7 +3662,7 @@ function ParseDetailSheet({
                     rel="noreferrer"
                     className="mono"
                     style={{
-                      fontSize: 11,
+                      fontSize: 15,
                       color: 'var(--ink2)',
                       textDecoration: 'none',
                       borderBottom: '1px dashed var(--rule)',
@@ -3419,7 +3692,7 @@ function ParseDetailSheet({
         >
           <span
             className="mono"
-            style={{ fontSize: 10, color: 'var(--ink3)', letterSpacing: 0.3, flex: 1 }}
+            style={{ fontSize: 14, color: 'var(--ink3)', letterSpacing: 0.3, flex: 1 }}
           >
             节点 {node.id} · 深入追问将以该解析为上下文派生新问题
           </span>
@@ -3427,8 +3700,8 @@ function ParseDetailSheet({
             onClick={() => onDeepDive(node.id)}
             className="mono"
             style={{
-              padding: '8px 18px',
-              fontSize: 12,
+              padding: '6px 14px',
+              fontSize: 16,
               letterSpacing: 0.5,
               fontWeight: 600,
               background: 'var(--amber)',
@@ -3911,6 +4184,584 @@ function MarkSheet({
               ◈ 保存要点 →
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+   ExperimentSheet — 画布内实验对话弹窗
+   以 answer 节点文本为种子，直接进入对话 + coze 验证
+   ────────────────────────────────────────────────────────── */
+function ExperimentSheet({
+  session,
+  pipeline,
+  nodeId,
+  onClose,
+}: {
+  session: PipelineSession;
+  pipeline: PipelineCtx;
+  nodeId: string;
+  onClose: () => void;
+}) {
+  const node = session.nodes.find(n => n.id === nodeId);
+  const payload = node?.experimentPayload;
+
+  const [input, setInput] = useState('');
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [seedOpen, setSeedOpen] = useState(false);
+  const [cozeOpen, setCozeOpen] = useState(true);
+  const [traceOpen, setTraceOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const isStreamingHere = pipeline.streamingNodeId === nodeId;
+  const streamingText = isStreamingHere ? pipeline.experimentStreamingText : '';
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [payload?.messages.length, streamingText]);
+
+  useEffect(() => {
+    if (!isStreamingHere) inputRef.current?.focus();
+  }, [isStreamingHere]);
+
+  const overlayHandlers = useOverlayClose(onClose);
+
+  if (!node || !payload) return null;
+
+  const lastAssistant = [...payload.messages].reverse().find(m => m.role === 'assistant');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isStreamingHere) return;
+    pipeline.sendExperimentMessage(nodeId, input);
+    setInput('');
+  };
+
+  return (
+    <div
+      {...overlayHandlers}
+      className="pipeline-deep"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        background: 'rgba(20,17,13,0.72)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        animation: 'pipelineFadeIn 0.15s',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="pipeline-sheet-resizable"
+        style={{
+          width: 'min(1200px, 94vw)',
+          height: 'auto',
+          minWidth: 560,
+          minHeight: 320,
+          maxWidth: '98vw',
+          maxHeight: '96vh',
+          resize: 'both',
+          background: 'var(--panel)',
+          border: '1px solid var(--ink2)',
+          boxShadow: '0 0 0 1px var(--bg), 6px 6px 0 rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '8px 14px',
+            borderBottom: '1px solid var(--rule)',
+            background: 'rgba(232,162,76,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span className="mono" style={{ fontSize: 14, color: 'var(--amber)', letterSpacing: 1.3, fontWeight: 600, textTransform: 'uppercase' }}>
+            ❦ 实验
+          </span>
+          <span className="mono" style={{ fontSize: 14, color: 'var(--ink4)' }}>
+            {node.id} · 源自 {payload.sourceNodeId}
+          </span>
+          {payload.resolvedModel && (
+            <span className="mono" style={{ fontSize: 13, color: 'var(--ink3)' }}>
+              {payload.resolvedModel}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          {lastAssistant && (
+            <button
+              onClick={() => setSaveOpen(true)}
+              className="mono"
+              style={{
+                fontSize: 15,
+                color: 'var(--amber)',
+                border: '1px solid var(--amber)',
+                padding: '3px 10px',
+                letterSpacing: 0.4,
+                background: 'transparent',
+                cursor: 'pointer',
+              }}
+            >
+              ◈ 保存为经验
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="mono"
+            style={{ fontSize: 15, color: 'var(--ink3)', letterSpacing: 0.4, background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            × 关闭
+          </button>
+        </div>
+
+        {/* Seed 折叠区 */}
+        <div style={{ padding: '6px 14px', borderBottom: '1px solid var(--rule)', background: 'var(--bg2)' }}>
+          <button
+            onClick={() => setSeedOpen(v => !v)}
+            className="mono"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--ink3)',
+              fontSize: 14,
+              letterSpacing: 0.8,
+              cursor: 'pointer',
+              padding: 0,
+              textTransform: 'uppercase',
+            }}
+          >
+            <span style={{ transform: seedOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▸</span>
+            实验起点 · {payload.seedText.length} 字
+            {payload.seedTitle ? ` · ${truncate(payload.seedTitle, 40)}` : ''}
+          </button>
+          {seedOpen && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 10,
+                background: 'var(--bg)',
+                border: '1px solid var(--rule)',
+                fontSize: 16,
+                lineHeight: 1.6,
+                color: 'var(--ink2)',
+                maxHeight: 240,
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {payload.seedText}
+            </div>
+          )}
+        </div>
+
+        {/* Messages */}
+        <div
+          ref={scrollRef}
+          style={{
+            flex: 1,
+            minHeight: 260,
+            maxHeight: 'calc(100vh - 340px)',
+            overflowY: 'auto',
+            padding: '11px 18px',
+          }}
+        >
+          {payload.messages.length === 0 && !isStreamingHere && (
+            <div className="mono" style={{ color: 'var(--ink3)', fontSize: 16, lineHeight: 1.8, letterSpacing: 0.3 }}>
+              从这段结论出发，提一个要验证的问题开始对话。<br />
+              agent 会按需调 coze CLI 实际跑一下。
+            </div>
+          )}
+          {payload.messages.map((m, i) => (
+            <div key={i} style={{ marginBottom: 18 }}>
+              {m.role === 'user' ? (
+                <p className="serif" style={{ fontSize: 18, color: 'var(--ink)', fontWeight: 500, margin: 0, lineHeight: 1.6 }}>
+                  {m.content}
+                </p>
+              ) : (
+                <div
+                  className="experiment-markdown"
+                  style={{
+                    fontSize: 17,
+                    color: 'var(--ink2)',
+                    paddingLeft: 12,
+                    borderLeft: '1px solid var(--rule)',
+                    lineHeight: 1.7,
+                  }}
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                </div>
+              )}
+            </div>
+          ))}
+          {isStreamingHere && streamingText && (
+            <div
+              className="experiment-markdown"
+              style={{
+                fontSize: 17,
+                color: 'var(--ink2)',
+                paddingLeft: 12,
+                borderLeft: '1px solid var(--amber)',
+                lineHeight: 1.7,
+                marginBottom: 18,
+              }}
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+            </div>
+          )}
+          {isStreamingHere && !streamingText && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0' }}>
+              {[0, 1, 2].map(i => (
+                <span
+                  key={i}
+                  style={{
+                    width: 4,
+                    height: 4,
+                    borderRadius: '50%',
+                    background: 'var(--red)',
+                    animation: `pipelineTypingDot 1s infinite ${i * 0.15}s`,
+                  }}
+                />
+              ))}
+              {pipeline.toolStatus && (
+                <span className="mono" style={{ fontSize: 14, color: 'var(--red)', marginLeft: 6 }}>
+                  {pipeline.toolStatus}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Coze runs panel */}
+        {payload.cozeRuns.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--rule)', padding: '6px 14px' }}>
+            <button
+              onClick={() => setCozeOpen(v => !v)}
+              className="mono"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--ink2)',
+                fontSize: 14,
+                letterSpacing: 0.8,
+                cursor: 'pointer',
+                padding: 0,
+                textTransform: 'uppercase',
+              }}
+            >
+              <span style={{ transform: cozeOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▸</span>
+              Coze 运行 ({payload.cozeRuns.length}) ·{' '}
+              <span style={{ color: 'var(--ink3)' }}>
+                {payload.cozeRuns.filter(r => r.status === 'success').length} 成功 ·{' '}
+                {payload.cozeRuns.filter(r => r.status === 'failed').length} 失败 ·{' '}
+                {payload.cozeRuns.filter(r => r.status === 'running').length} 运行中
+              </span>
+            </button>
+            {cozeOpen && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {payload.cozeRuns.map(run => <CozeRunRow key={run.id} run={run} />)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tool traces */}
+        {payload.toolTraces && payload.toolTraces.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--rule)', padding: '6px 16px', background: 'var(--bg2)' }}>
+            <button
+              onClick={() => setTraceOpen(v => !v)}
+              className="mono"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--ink3)',
+                fontSize: 14,
+                letterSpacing: 0.6,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              <span style={{ transform: traceOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▸</span>
+              工具轨迹 ({payload.toolTraces.length})
+            </button>
+            {traceOpen && (
+              <div style={{ marginTop: 6, maxHeight: 180, overflowY: 'auto' }}>
+                {payload.toolTraces.map((t, i) => (
+                  <div key={i} className="mono" style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink3)', padding: '2px 0' }}>
+                    <span style={{ color: 'var(--amber)', fontWeight: 500 }}>{t.tool}</span>{' '}
+                    <span style={{ wordBreak: 'break-all' }}>
+                      {t.detail.replace(/^\/.*?\/aidigest-experiment-[^/]+\//, '')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Input */}
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '8px 14px',
+            borderTop: '1px solid var(--rule)',
+            background: 'var(--bg2)',
+          }}
+        >
+          <span className="mono" style={{ color: isStreamingHere ? 'var(--ink4)' : 'var(--amber)', fontSize: 17 }}>
+            {isStreamingHere ? '…' : '>'}
+          </span>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={isStreamingHere ? '正在生成，请稍候…' : '提一个要验证的问题，或让 agent 跑 coze…'}
+            disabled={isStreamingHere}
+            className="mono"
+            style={{
+              flex: 1,
+              fontSize: 17,
+              color: 'var(--ink)',
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+            }}
+          />
+          {isStreamingHere ? (
+            <button
+              type="button"
+              onClick={() => pipeline.abortExperiment(nodeId)}
+              className="mono"
+              style={{
+                padding: '5px 12px',
+                fontSize: 16,
+                letterSpacing: 0.4,
+                background: 'var(--red)',
+                color: 'var(--bg)',
+                border: '1px solid var(--red)',
+                cursor: 'pointer',
+              }}
+            >
+              × 中止
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="mono"
+              style={{
+                padding: '5px 12px',
+                fontSize: 16,
+                letterSpacing: 0.4,
+                color: input.trim() ? 'var(--amber)' : 'var(--ink4)',
+                background: 'transparent',
+                border: `1px solid ${input.trim() ? 'var(--amber)' : 'var(--rule)'}`,
+                cursor: input.trim() ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ⌘↵ 发送
+            </button>
+          )}
+        </form>
+      </div>
+
+      {saveOpen && lastAssistant && (
+        <SaveExperienceInline
+          defaultContent={lastAssistant.content}
+          onClose={() => setSaveOpen(false)}
+          onSave={async (body) => pipeline.saveExperimentAsExperience(nodeId, body)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CozeRunRow({ run }: { run: CozeRun }) {
+  const [open, setOpen] = useState(false);
+  const duration = run.endedAt ? ((run.endedAt - run.startedAt) / 1000).toFixed(1) : null;
+  const statusColor = run.status === 'running' ? 'var(--amber)' : run.status === 'success' ? 'var(--ink2)' : 'var(--red)';
+  const label = run.status === 'running' ? '运行中' : run.status === 'success' ? '完成' : '失败';
+
+  return (
+    <div style={{ border: '1px solid var(--rule)', background: 'var(--bg)' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        disabled={run.status === 'running'}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          width: '100%',
+          textAlign: 'left',
+          padding: '6px 10px',
+          background: 'transparent',
+          border: 'none',
+          cursor: run.status === 'running' ? 'default' : 'pointer',
+        }}
+      >
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: statusColor,
+            animation: run.status === 'running' ? 'pipelineTypingDot 1s infinite' : undefined,
+          }}
+        />
+        <span className="mono" style={{ fontSize: 10, color: statusColor, letterSpacing: 0.4, fontWeight: 500 }}>
+          {label}
+        </span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--ink2)', flex: 1, minWidth: 0, wordBreak: 'break-all' }}>
+          {run.command.length > 160 ? run.command.slice(0, 160) + '…' : run.command}
+        </span>
+        {duration && (
+          <span className="mono" style={{ fontSize: 10, color: 'var(--ink3)' }}>
+            {duration}s
+          </span>
+        )}
+      </button>
+      {open && run.stdout && (
+        <pre
+          className="mono"
+          style={{
+            fontSize: 10,
+            color: 'var(--ink3)',
+            lineHeight: 1.5,
+            padding: '0 12px 8px',
+            margin: 0,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {run.stdout}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function SaveExperienceInline({
+  defaultContent,
+  onClose,
+  onSave,
+}: {
+  defaultContent: string;
+  onClose: () => void;
+  onSave: (body: { title: string; summary: string; content: string }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+}) {
+  const firstLine = defaultContent.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '').slice(0, 60) || '';
+  const [title, setTitle] = useState(firstLine);
+  const [summary, setSummary] = useState('');
+  const [content, setContent] = useState(defaultContent);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!title.trim()) { setError('请填写标题'); return; }
+    setSaving(true);
+    setError(null);
+    const res = await onSave({ title: title.trim(), summary: summary.trim(), content });
+    setSaving(false);
+    if (!res.ok) setError(res.error || '保存失败');
+    else onClose();
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 70,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 560,
+          maxWidth: '92vw',
+          background: 'var(--panel)',
+          border: '1px solid var(--amber)',
+          padding: 20,
+        }}
+      >
+        <h3 className="mono" style={{ fontSize: 11, color: 'var(--amber)', letterSpacing: 1.3, textTransform: 'uppercase', margin: 0, marginBottom: 14 }}>
+          ◈ 保存为经验
+        </h3>
+        <label className="mono" style={{ fontSize: 10, color: 'var(--ink3)', letterSpacing: 0.5 }}>标题</label>
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          className="mono"
+          style={{ width: '100%', marginTop: 4, marginBottom: 10, padding: '6px 8px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg2)', border: '1px solid var(--rule)', outline: 'none' }}
+        />
+        <label className="mono" style={{ fontSize: 10, color: 'var(--ink3)', letterSpacing: 0.5 }}>一句话概要</label>
+        <input
+          value={summary}
+          onChange={e => setSummary(e.target.value)}
+          placeholder="解决什么问题 / 验证了什么"
+          className="mono"
+          style={{ width: '100%', marginTop: 4, marginBottom: 10, padding: '6px 8px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg2)', border: '1px solid var(--rule)', outline: 'none' }}
+        />
+        <label className="mono" style={{ fontSize: 10, color: 'var(--ink3)', letterSpacing: 0.5 }}>内容 Markdown</label>
+        <textarea
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          rows={10}
+          className="mono"
+          style={{ width: '100%', marginTop: 4, padding: '8px 10px', fontSize: 12, color: 'var(--ink)', background: 'var(--bg2)', border: '1px solid var(--rule)', outline: 'none', resize: 'vertical', lineHeight: 1.55 }}
+        />
+        {error && <div className="mono" style={{ marginTop: 8, fontSize: 11, color: 'var(--red)' }}>{error}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+          <button
+            onClick={onClose}
+            className="mono"
+            style={{ padding: '5px 12px', fontSize: 12, color: 'var(--ink2)', background: 'transparent', border: '1px solid var(--rule)', cursor: 'pointer' }}
+          >
+            取消
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving || !title.trim()}
+            className="mono"
+            style={{
+              padding: '5px 14px',
+              fontSize: 12,
+              background: saving || !title.trim() ? 'var(--bg2)' : 'var(--amber)',
+              color: saving || !title.trim() ? 'var(--ink4)' : 'var(--bg)',
+              border: '1px solid var(--amber)',
+              cursor: saving || !title.trim() ? 'not-allowed' : 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            {saving ? '保存中…' : '◈ 保存'}
+          </button>
         </div>
       </div>
     </div>

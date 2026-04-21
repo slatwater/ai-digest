@@ -10,6 +10,10 @@ import type {
   TriageEntry,
   TriageModel,
   TriageBatch,
+  ExperimentNodePayload,
+  ExperimentToolTrace,
+  ChatMessage,
+  CozeRun,
 } from '@/lib/types';
 
 // ── 画布布局常量 ──
@@ -22,6 +26,8 @@ const BRANCH_DY = NODE_H + ROW_GAP; // 分支上下偏移
 const FLOW_ROW = NODE_H + 80;       // 每条流占据的纵向带宽（紧凑：一屏能看到多条流）
 const FLOW_Y_BASE = 80;
 const TRUNK_X = 80;
+
+const LS_LAST_SESSION = 'aidigest.lastPipelineId';
 
 function nowClock() {
   return new Date().toTimeString().slice(0, 8);
@@ -84,6 +90,7 @@ export function usePipeline() {
   const [session, setSession] = useState<PipelineSession | null>(null);
   const [streamingNodeId, setStreamingNodeId] = useState<string | null>(null);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
+  const [experimentStreamingText, setExperimentStreamingText] = useState<string>('');
   const [model, setModelState] = useState<TriageModel>('sonnet');
   const sessionRef = useRef<PipelineSession | null>(null);
   // batchId -> { inputNodeId, urlToNode（按 URL 匹配后端真实 entryId） }
@@ -96,11 +103,38 @@ export function usePipeline() {
   const setSessionBoth = useCallback((next: PipelineSession | null) => {
     sessionRef.current = next;
     setSession(next);
+    if (typeof window !== 'undefined') {
+      if (next?.id) {
+        try { localStorage.setItem(LS_LAST_SESSION, next.id); } catch { /* quota */ }
+      } else {
+        try { localStorage.removeItem(LS_LAST_SESSION); } catch { /* ignore */ }
+      }
+    }
   }, []);
 
-  // 确保存在 session：首次进入画布时调用，创建空 session
+  // 确保存在 session：首次进入画布时调用
+  //   - 先尝试恢复 localStorage 里记录的上次 session（刷新后继续）
+  //   - 找不到或已被删除时再创建新 session
   const ensureSession = useCallback(async () => {
     if (sessionRef.current) return sessionRef.current;
+
+    if (typeof window !== 'undefined') {
+      let lastId: string | null = null;
+      try { lastId = localStorage.getItem(LS_LAST_SESSION); } catch { /* ignore */ }
+      if (lastId) {
+        try {
+          const r = await fetch(`/api/pipeline/${lastId}`);
+          if (r.ok) {
+            const j = await r.json();
+            if (j.session) {
+              setSessionBoth(j.session);
+              return j.session as PipelineSession;
+            }
+          }
+        } catch { /* fall through to new session */ }
+      }
+    }
+
     const res = await fetch('/api/pipeline', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -171,10 +205,12 @@ export function usePipeline() {
   }, [ensureSession, model, setSessionBoth]);
 
   // ── 提交 input 节点的 URL 列表：创建解析 batch + 并列 parse 占位节点 ──
+  //   texts: 可选，url → 原文（原文粘贴模式）。命中时走 direct 分支 + 后端跳过 scrape
   const submitInput = useCallback(async (
     inputNodeId: string,
     urls: string[],
     submitModel?: TriageModel,
+    opts?: { direct?: boolean; texts?: Record<string, string> },
   ) => {
     const current = sessionRef.current;
     if (!current) return;
@@ -182,6 +218,9 @@ export function usePipeline() {
     if (!input || !urls.length) return;
 
     const useModel = submitModel || input.inputModel || model;
+    const texts = opts?.texts;
+    const hasTexts = texts && Object.keys(texts).length > 0;
+    const direct = !!opts?.direct || !!hasTexts;
 
     // 1. 提交 triage batch
     let batchId: string | null = null;
@@ -189,7 +228,7 @@ export function usePipeline() {
       const res = await fetch('/api/triage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls, model: useModel }),
+        body: JSON.stringify({ urls, model: useModel, direct, texts }),
       });
       if (!res.ok) throw new Error((await res.json()).error || '提交失败');
       batchId = (await res.json()).batchId as string;
@@ -205,11 +244,16 @@ export function usePipeline() {
       const parseX = (input.x ?? TRUNK_X) + NODE_W + COL_GAP;
       const parseY = (input.y ?? FLOW_Y_BASE) + i * (NODE_H + ROW_GAP);
       const id = nextNodeId(draftSession);
+      // 原文粘贴：title 用原文首行而非伪 URL
+      const isPaste = url.startsWith('paste://') && texts?.[url];
+      const pasteTitle = isPaste
+        ? (texts![url].split(/\r?\n/).map(s => s.trim()).find(Boolean) || '原文粘贴').slice(0, 40)
+        : url;
       const node: PipelineNode = {
         id,
         type: 'parse',
         state: 'streaming',
-        text: url,
+        text: isPaste ? pasteTitle : url,
         parent: inputNodeId,
         branchIdx: i,
         flowIdx: input.flowIdx,
@@ -222,9 +266,9 @@ export function usePipeline() {
           entryId: '',           // 真实 id 在轮询到后端后回填
           batchId: batchId!,
           url,
-          title: url,
+          title: pasteTitle,
           livePhases: [],
-          liveStatus: '排队中',
+          liveStatus: isPaste ? '⚡ 读取原文' : (direct ? '⚡ 直接抓取中' : '排队中'),
         },
       };
       draftSession.nodes.push(node);
@@ -268,6 +312,7 @@ export function usePipeline() {
       delta: entry.delta,
       livePhases: entry.livePhases,
       liveStatus: entry.status === 'done' ? undefined : entry.liveStatus,
+      direct: entry.direct,
       tokenUsage: entry.tokenUsage,
     };
     const nextState: PipelineNode['state'] =
@@ -637,6 +682,320 @@ export function usePipeline() {
     });
   }, [setSessionBoth]);
 
+  // ── 实验节点：挂在 answer 节点右侧 ──
+  // 素材只取 answer 文本，不再选 Wiki；节点内对话封闭，不展开成 Q/A
+  const startExperiment = useCallback(async (answerNodeId: string): Promise<string | null> => {
+    const current = sessionRef.current;
+    if (!current) return null;
+    const answer = current.nodes.find(n => n.id === answerNodeId);
+    if (!answer || answer.type !== 'answer') return null;
+    // 同一 answer 已起过实验：复用
+    const existing = current.nodes.find(n => n.parent === answerNodeId && n.type === 'experiment');
+    if (existing) return existing.id;
+
+    const seedTitle = answer.markedAs || answer.text.split('\n').find(l => l.trim())?.slice(0, 60) || '';
+    const payload: ExperimentNodePayload = {
+      sourceNodeId: answerNodeId,
+      seedTitle,
+      seedText: answer.text,
+      sdkSessionId: null,
+      model,
+      messages: [],
+      cozeRuns: [],
+      toolTraces: [],
+    };
+    const parseX = (answer.x ?? TRUNK_X) + NODE_W + COL_GAP;
+    const parseY = answer.y ?? FLOW_Y_BASE;
+    const node: PipelineNode = {
+      id: nextNodeId(current),
+      type: 'experiment',
+      state: 'done',
+      text: seedTitle,
+      parent: answerNodeId,
+      branchIdx: answer.branchIdx,
+      flowIdx: answer.flowIdx,
+      x: parseX,
+      y: parseY,
+      w: NODE_W,
+      createdAt: nowClock(),
+      model,
+      experimentPayload: payload,
+    };
+    setSessionBoth({ ...current, nodes: [...current.nodes, node] });
+    await fetch(`/api/pipeline/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodeAdd: node }),
+    }).catch(() => {});
+    return node.id;
+  }, [model, setSessionBoth]);
+
+  // experiment 节点的进行中运行引用（用于中止）
+  const experimentAbortRef = useRef<Map<string, AbortController>>(new Map());
+
+  const patchExperimentPayload = useCallback(async (nodeId: string, patch: Partial<ExperimentNodePayload>) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.experimentPayload) return;
+    const merged: ExperimentNodePayload = { ...node.experimentPayload, ...patch };
+    const nextNodes = current.nodes.map(n => n.id === nodeId ? { ...n, experimentPayload: merged } : n);
+    setSessionBoth({ ...current, nodes: nextNodes });
+    await fetch(`/api/pipeline/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodePatch: { id: nodeId, patch: { experimentPayload: merged } } }),
+    }).catch(() => {});
+  }, [setSessionBoth]);
+
+  const sendExperimentMessage = useCallback(async (nodeId: string, message: string) => {
+    if (!message.trim()) return;
+    const current = sessionRef.current;
+    if (!current) return;
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.experimentPayload) return;
+
+    const userMsg: ChatMessage = { role: 'user', content: message.trim(), timestamp: Date.now() };
+    const history = node.experimentPayload.messages;
+    const startSessionId = node.experimentPayload.sdkSessionId ?? null;
+    const runModel = node.experimentPayload.model ?? model;
+
+    // 先把 user 消息推入 payload + 节点进入 streaming
+    const payloadAfterUser: ExperimentNodePayload = {
+      ...node.experimentPayload,
+      messages: [...history, userMsg],
+    };
+    setSessionBoth({
+      ...current,
+      nodes: current.nodes.map(n => n.id === nodeId
+        ? { ...n, state: 'streaming', experimentPayload: payloadAfterUser }
+        : n),
+    });
+    setStreamingNodeId(nodeId);
+    setToolStatus(null);
+
+    const abort = new AbortController();
+    experimentAbortRef.current.set(nodeId, abort);
+
+    // 流内累积（不落库，结束时一次性落库）
+    let streamingSessionId: string | null = startSessionId;
+    let resolvedModel: string | undefined;
+    let assistantText = '';
+    const cozeRuns: CozeRun[] = [...(node.experimentPayload.cozeRuns || [])];
+    const toolTraces: ExperimentToolTrace[] = [...(node.experimentPayload.toolTraces || [])];
+    const pushCozeStart = (run: CozeRun) => {
+      cozeRuns.push(run);
+      // 实时刷新到 payload 以便 Sheet 可见
+      const s = sessionRef.current;
+      if (!s) return;
+      setSessionBoth({
+        ...s,
+        nodes: s.nodes.map(n => n.id === nodeId && n.experimentPayload
+          ? { ...n, experimentPayload: { ...n.experimentPayload, cozeRuns: [...cozeRuns] } }
+          : n),
+      });
+    };
+    const patchCoze = (id: string, patch: Partial<CozeRun>) => {
+      const idx = cozeRuns.findIndex(r => r.id === id);
+      if (idx >= 0) cozeRuns[idx] = { ...cozeRuns[idx], ...patch };
+      const s = sessionRef.current;
+      if (!s) return;
+      setSessionBoth({
+        ...s,
+        nodes: s.nodes.map(n => n.id === nodeId && n.experimentPayload
+          ? { ...n, experimentPayload: { ...n.experimentPayload, cozeRuns: [...cozeRuns] } }
+          : n),
+      });
+    };
+
+    try {
+      const res = await fetch('/api/experiment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seedText: node.experimentPayload.seedText,
+          seedTitle: node.experimentPayload.seedTitle,
+          message: message.trim(),
+          history,
+          sessionId: startSessionId,
+          model: runModel,
+        }),
+        signal: abort.signal,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('no stream');
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const parseEvent = (line: string) => {
+        if (!line.startsWith('data: ')) return;
+        let event: { type: string; data: Record<string, unknown> };
+        try { event = JSON.parse(line.slice(6)); } catch { return; }
+        const data = event.data || {};
+        switch (event.type) {
+          case 'session':
+            if (typeof data.sessionId === 'string') streamingSessionId = data.sessionId;
+            break;
+          case 'resolved_model':
+            if (typeof data.model === 'string') resolvedModel = data.model;
+            break;
+          case 'text':
+            if (typeof data.content === 'string') {
+              assistantText += data.content;
+              setExperimentStreamingText(assistantText);
+              setToolStatus(null);
+            }
+            break;
+          case 'tool_status':
+            if (typeof data.label === 'string') setToolStatus(data.label);
+            break;
+          case 'tool_trace':
+            toolTraces.push({
+              tool: String(data.tool || ''),
+              detail: String(data.detail || ''),
+              timestamp: Number(data.timestamp || Date.now()),
+            });
+            break;
+          case 'coze_run_start':
+            pushCozeStart({
+              id: String(data.id),
+              command: String(data.command || ''),
+              status: 'running',
+              startedAt: Number(data.startedAt || Date.now()),
+              stdout: '',
+              stderr: '',
+            });
+            setToolStatus('coze 运行中...');
+            break;
+          case 'coze_run_end':
+            patchCoze(String(data.id), {
+              status: data.status === 'failed' ? 'failed' : 'success',
+              endedAt: Number(data.endedAt || Date.now()),
+              stdout: typeof data.output === 'string' ? data.output : '',
+            });
+            setToolStatus(null);
+            break;
+          case 'aborted':
+            // 把 running 的 coze 标 failed
+            cozeRuns.forEach((r, i) => {
+              if (r.status === 'running') cozeRuns[i] = { ...r, status: 'failed', endedAt: Date.now() };
+            });
+            break;
+          case 'error':
+            throw new Error(String(data.message || 'experiment error'));
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (buffer.trim()) parseEvent(buffer.trim());
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) parseEvent(line);
+      }
+
+      // 落库：assistant 消息 + coze + traces + sdkSessionId
+      const finalMessages = assistantText
+        ? [...payloadAfterUser.messages, { role: 'assistant' as const, content: assistantText, timestamp: Date.now() }]
+        : payloadAfterUser.messages;
+      await patchExperimentPayload(nodeId, {
+        messages: finalMessages,
+        cozeRuns,
+        toolTraces,
+        sdkSessionId: streamingSessionId,
+        resolvedModel,
+      });
+      // 恢复 state
+      const s = sessionRef.current;
+      if (s) {
+        setSessionBoth({
+          ...s,
+          nodes: s.nodes.map(n => n.id === nodeId ? { ...n, state: 'done' } : n),
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // 部分回复也存下来
+      const finalMessages = assistantText
+        ? [...payloadAfterUser.messages, { role: 'assistant' as const, content: assistantText + '\n\n_（中断）_', timestamp: Date.now() }]
+        : payloadAfterUser.messages;
+      await patchExperimentPayload(nodeId, {
+        messages: finalMessages,
+        cozeRuns,
+        toolTraces,
+        sdkSessionId: streamingSessionId,
+        resolvedModel,
+      });
+      const s = sessionRef.current;
+      if (s) {
+        setSessionBoth({
+          ...s,
+          nodes: s.nodes.map(n => n.id === nodeId
+            ? { ...n, state: (abort.signal.aborted ? 'done' : 'error'), error: abort.signal.aborted ? undefined : msg }
+            : n),
+        });
+      }
+    } finally {
+      experimentAbortRef.current.delete(nodeId);
+      setStreamingNodeId(cur => (cur === nodeId ? null : cur));
+      setToolStatus(null);
+      setExperimentStreamingText('');
+    }
+  }, [model, patchExperimentPayload, setSessionBoth]);
+
+  const abortExperiment = useCallback(async (nodeId: string) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    const node = current.nodes.find(n => n.id === nodeId);
+    const sid = node?.experimentPayload?.sdkSessionId;
+    if (sid) {
+      fetch('/api/experiment', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid }),
+      }).catch(() => {});
+    }
+    experimentAbortRef.current.get(nodeId)?.abort();
+  }, []);
+
+  const saveExperimentAsExperience = useCallback(async (
+    nodeId: string,
+    payload: { title: string; summary: string; content: string },
+  ): Promise<{ ok: boolean; id?: string; error?: string }> => {
+    const current = sessionRef.current;
+    if (!current) return { ok: false, error: '无 session' };
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.experimentPayload) return { ok: false, error: '无实验节点' };
+    try {
+      const res = await fetch('/api/experiences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: payload.title,
+          summary: payload.summary,
+          content: payload.content,
+          wikiItemIds: [],
+          wikiItemNames: node.experimentPayload.seedTitle ? [node.experimentPayload.seedTitle] : [],
+          cozeRuns: node.experimentPayload.cozeRuns,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error || '保存失败' };
+      await patchExperimentPayload(nodeId, { savedExperienceId: data.id });
+      return { ok: true, id: data.id };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, [patchExperimentPayload]);
+
   const removeSediment = useCallback(async (sedimentId: string) => {
     const current = sessionRef.current;
     if (!current) return;
@@ -663,6 +1022,7 @@ export function usePipeline() {
     active: session !== null,
     streamingNodeId,
     toolStatus,
+    experimentStreamingText,
     model,
     setModel,
     ensureSession,
@@ -674,6 +1034,10 @@ export function usePipeline() {
     unmarkNode,
     removeSediment,
     deleteNode,
+    startExperiment,
+    sendExperimentMessage,
+    abortExperiment,
+    saveExperimentAsExperience,
     exit,
   };
 }

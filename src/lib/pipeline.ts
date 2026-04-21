@@ -31,8 +31,7 @@ const SYSTEM_PROMPT = `你是一个技术深度研究助手，正在一个「分
 - 不同分支之间不要串线——如果当前问题的父节点不是上一条问答，请忽略其他分支的细节。
 
 ## 锚点约束（强）
-- 即使问题措辞宽泛（如"还有别的方法吗"、"详细讲讲"），也**只能在锚定解析的主题内展开**，不得借题发挥扯到无关的流行话题；
-- 若当前问题偏离了锚定主题，先在回答开头一句话拉回："这条分支锚定在 [parse 标题]，我按这个边界回答"，再给出作答。
+- 即使问题措辞宽泛（如"还有别的方法吗"、"详细讲讲"），也**只能在锚定解析的主题内展开**，不得借题发挥扯到无关的流行话题。
 
 ## 作答顺序（严格三步，不得跳步）
 **第 1 步 · 先读锚点**：仔细读 \`## 本轮锚定的解析节点\` 里的 narrative 和 concepts。如果它们已经能回答当前问题，**直接作答，不用任何工具**。
@@ -128,7 +127,12 @@ function buildInitialContext(session: PipelineSession, parentId: string | null):
   const parts: string[] = [];
   parts.push('## 来源文章');
   parts.push(`标题: ${snap.title}`);
-  parts.push(`URL: ${snap.url}`);
+  // paste:// 是用户粘贴原文的伪 URL，不提供给 agent 做抓取锚点
+  if (snap.url.startsWith('paste://')) {
+    parts.push('来源: 用户直接粘贴的原文（无外部链接；原文内容见下方"解析叙述"）');
+  } else {
+    parts.push(`URL: ${snap.url}`);
+  }
   if (snap.narrative) parts.push(`\n解析叙述:\n${snap.narrative}`);
   if (snap.concepts?.length) {
     parts.push('\n识别到的技术:');

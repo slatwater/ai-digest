@@ -738,6 +738,107 @@ export function createBatch(urls: string[], model?: TriageModel): TriageBatch {
   return batch;
 }
 
+// 从原文首行/首 30 字抽一个标题（用户粘贴模式）
+function deriveTitleFromText(text: string): string {
+  const firstLine = text.split(/\r?\n/).map(s => s.trim()).find(Boolean) || '';
+  const clipped = firstLine.replace(/^[#>*\-\d.\s]+/, '').slice(0, 40);
+  return clipped || '原文粘贴';
+}
+
+// 直接深入模式：跳过 agent，只抓 scrape，把原文填进 entry 作为深入追问的锚点
+// 适用场景：用户知道这个 URL 本身就是一手来源（论文页、项目 README、官方博客），不需要溯源
+//   rawText 非空时：直接使用用户粘贴的原文，跳过 scrape（URL 为 paste://<ts> 伪占位）
+async function processDirectEntry(entry: TriageEntry, rawText?: string): Promise<void> {
+  entry.status = 'processing';
+  entry.direct = true;
+  entry.livePhases = [];
+
+  // 用户粘贴原文：跳过 scrape
+  if (rawText && rawText.trim()) {
+    setPhase(entry, '读取原文');
+    const text = rawText.trim();
+    entry.title = deriveTitleFromText(text);
+    entry.scrapedContent = text;
+    entry.narrative = text.slice(0, 2000);
+    entry.sources = []; // 用户粘贴无一手 URL
+    entry.concepts = [];
+    entry.verdict = 'save';
+    entry.verdictReason = '直接深入模式（用户粘贴原文，未跑解析 agent）';
+    entry.status = 'done';
+    return;
+  }
+
+  setPhase(entry, '采集页面');
+  try {
+    const raw = await safeScrape(entry.url);
+    const r = safeParseJSON<{ content?: string; title?: string; status?: string; error?: string; httpStatus?: number; fetcher?: string }>(raw, 'scrape') || {};
+    const scrapeFailed = r.status === 'error' || !r.content || r.content.length < 100;
+    if (scrapeFailed) {
+      // direct 模式允许抓取失败：建立"空壳锚点"，让追问 agent 用 scrape_url / WebFetch 工具按需读取
+      const reason = r.error || (r.httpStatus ? `HTTP ${r.httpStatus}` : '内容为空');
+      entry.title = r.title || entry.url;
+      entry.narrative = `⚠️ 自动抓取未能获取页面正文（${reason}）。\n\n这可能是 Canvas/WebGL 单页应用、严格反爬的站点，或内容依赖登录/交互才能加载。\n\n你可以直接在下方追问你想了解的问题——追问时 agent 会用 WebFetch 或 scrape_url 工具按需读取此 URL，如果这些工具也抓不到，你也可以把页面核心信息粘贴到问题里作为上下文。`;
+      entry.sources = [{ url: entry.url, title: r.title || entry.url, type: 'original' }];
+      entry.concepts = [];
+      entry.verdict = 'save';
+      entry.verdictReason = `直接深入模式（抓取失败但保留空壳锚点）：${reason}`;
+      entry.status = 'done';
+      return;
+    }
+    entry.title = r.title || entry.url;
+    const content = r.content || '';
+    entry.scrapedContent = content;
+    // narrative 给追问锚点用：取前 2000 字，供模型了解页面主题；正文完整存在 scrapedContent 里供 scrape_url 或 WebFetch 重新读取
+    entry.narrative = content.slice(0, 2000);
+    entry.sources = [{ url: entry.url, title: r.title || entry.url, type: 'original' }];
+    entry.concepts = [];
+    entry.verdict = 'save';
+    entry.verdictReason = '直接深入模式（用户标记为一手来源，未跑解析 agent）';
+    entry.status = 'done';
+  } catch (err) {
+    entry.status = 'error';
+    entry.error = err instanceof Error ? err.message : String(err);
+  }
+}
+
+async function processDirectBatch(
+  batch: TriageBatch,
+  texts?: Record<string, string>,
+): Promise<void> {
+  // 并行 scrape（不跑 agent，I/O 为主）
+  await Promise.all(batch.entries.map(e => processDirectEntry(e, texts?.[e.url])));
+  batch.status = 'done';
+  await saveTriageBatch(batch);
+}
+
+// 创建"直接深入" batch：不跑 triage agent，只抓取原文作为锚点
+//   urls: 每个 entry 的 URL；若为原文粘贴模式，传伪 URL（如 paste://<ts>）并在 texts 中提供对应原文
+//   texts: 可选，url → 原文。命中的 entry 跳过 scrape，直接用原文建锚点
+export function createDirectBatch(
+  urls: string[],
+  model?: TriageModel,
+  texts?: Record<string, string>,
+): TriageBatch {
+  const batch: TriageBatch = {
+    id: uuidv4(),
+    createdAt: new Date().toISOString(),
+    status: 'processing',
+    model,
+    entries: urls.map(url => ({
+      id: uuidv4(),
+      url,
+      title: url,
+      status: 'pending' as const,
+    })),
+  };
+  activeBatches.set(batch.id, batch);
+  processDirectBatch(batch, texts).catch(err => {
+    console.error(`[triage] direct batch ${batch.id} 处理失败:`, err);
+    batch.status = 'done';
+  });
+  return batch;
+}
+
 // 获取 batch
 export function getBatch(batchId: string): TriageBatch | null {
   return activeBatches.get(batchId) ?? null;

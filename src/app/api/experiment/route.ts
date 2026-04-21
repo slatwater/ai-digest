@@ -5,10 +5,21 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  const { itemIds, message, history = [], sessionId = null, model = 'sonnet' } = await req.json();
+  const {
+    itemIds,
+    message,
+    history = [],
+    sessionId = null,
+    model = 'sonnet',
+    seedText,
+    seedTitle,
+  } = await req.json();
 
-  if (!itemIds?.length || !message) {
-    return Response.json({ error: '缺少 itemIds 或 message' }, { status: 400 });
+  // 两种素材来源：itemIds（从 wiki 挑条目，老模式）或 seedText（从画布 answer 节点直接起，新模式）
+  const hasItems = Array.isArray(itemIds) && itemIds.length > 0;
+  const hasSeed = typeof seedText === 'string' && seedText.trim().length > 0;
+  if ((!hasItems && !hasSeed) || !message) {
+    return Response.json({ error: '缺少 itemIds/seedText 或 message' }, { status: 400 });
   }
 
   const encoder = new TextEncoder();
@@ -30,7 +41,14 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await runExperiment(itemIds, message, history, sessionId, model, send);
+        await runExperiment(
+          { itemIds: hasItems ? itemIds : undefined, seedText: hasSeed ? seedText : undefined, seedTitle },
+          message,
+          history,
+          sessionId,
+          model,
+          send,
+        );
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : 'Unknown error' });
       } finally {

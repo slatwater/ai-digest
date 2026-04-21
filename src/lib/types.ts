@@ -379,6 +379,7 @@ export interface TriageEntry {
   title: string;
   status: 'pending' | 'processing' | 'done' | 'error';
   error?: string;
+  direct?: boolean;                  // 直接深入模式（跳过 triage agent）
   livePhases?: string[];             // 已完成阶段（按时间顺序）
   liveStatus?: string;               // 当前进行中的阶段
   // 以下字段在 status=done 时填充
@@ -513,9 +514,29 @@ export interface ExperienceSummary {
 
 // === 深入追问 Pipeline（分支画布 + 沉淀区） ===
 
-// 节点类型：input=URL 输入卡；parse=解析结果卡；question/answer=追问链
-export type PipelineNodeType = 'input' | 'parse' | 'question' | 'answer';
+// 节点类型：input=URL 输入卡；parse=解析结果卡；question/answer=追问链；experiment=以某个 answer 为种子的实验节点
+export type PipelineNodeType = 'input' | 'parse' | 'question' | 'answer' | 'experiment';
 export type PipelineNodeState = 'pending' | 'streaming' | 'done' | 'error';
+
+// 实验节点内嵌：对话 + coze 运行记录（刷新/重启后从此恢复）
+export interface ExperimentToolTrace {
+  tool: string;
+  detail: string;
+  timestamp: number;
+}
+
+export interface ExperimentNodePayload {
+  sourceNodeId: string;            // 发起实验的 answer 节点 id
+  seedTitle?: string;              // 节点卡标题（answer.markedAs / 首行）
+  seedText: string;                // 冻结的 answer 文本（实验起点快照）
+  sdkSessionId?: string | null;    // 后端 experiment 会话 id（resume 用）
+  model?: TriageModel;
+  resolvedModel?: string;
+  messages: ChatMessage[];         // 对话历史（真相源）
+  cozeRuns: CozeRun[];             // coze 运行记录
+  toolTraces?: ExperimentToolTrace[];
+  savedExperienceId?: string;      // 存为经验后的 id
+}
 
 // Parse 节点内嵌的 triage entry 快照
 export interface ParseNodePayload {
@@ -532,6 +553,7 @@ export interface ParseNodePayload {
   delta?: TriageDelta;
   livePhases?: string[];
   liveStatus?: string;
+  direct?: boolean;                // 直接深入模式：只抓原文不跑 agent，narrative 是页面正文摘要
   tokenUsage?: TriageEntry['tokenUsage'];
 }
 
@@ -561,6 +583,8 @@ export interface PipelineNode {
   inputModel?: TriageModel;      // 提交时使用的模型
   // parse 节点字段
   parseEntry?: ParseNodePayload; // 解析完成后填充
+  // experiment 节点字段
+  experimentPayload?: ExperimentNodePayload; // 实验节点持久化（对话+coze）
 }
 
 export type SedimentMode = 'full' | 'custom';

@@ -476,6 +476,40 @@ input:focus, input:focus-visible {
 }
 .pipeline-deep a { color: inherit; }
 
+/* Sheet 手动调节：右下角角标提示 + 弹窗内配色柔化 */
+.pipeline-sheet-resizable {
+  position: relative;
+  --bg: #1a1612;
+  --bg2: #221d16;
+  --panel: #24201a;
+  --ink: #f6efe2;
+  --ink2: #e6dec8;
+  --ink3: #b8ae98;
+  --ink4: #8c806c;
+  --rule: #4a4233;
+}
+.pipeline-sheet-resizable,
+.pipeline-sheet-resizable * {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+.pipeline-sheet-resizable::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(135deg, transparent 0 7px, var(--ink3) 7px 8px, transparent 8px 10px, var(--ink3) 10px 11px, transparent 11px 13px, var(--ink3) 13px 14px);
+  opacity: 0.7;
+}
+.pipeline-sheet-resizable::-webkit-resizer {
+  background: transparent;
+}
+
 @keyframes pipelineScanBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 @keyframes pipelineTypingDot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.3; } 30% { transform: translateY(-3px); opacity: 1; } }
 @keyframes pipelineFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }

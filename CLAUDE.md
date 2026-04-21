@@ -33,7 +33,7 @@ src/
 │   ├── sandbox.ts            # Skill 沙盒运行时
 │   ├── experiment.ts         # 实验运行时（仅读 wiki 源链接 + WebFetch + Bash coze）
 │   ├── storage.ts            # 数据读写 + 老数据迁移（entrySnapshot 可空）
-│   └── types.ts              # PipelineNode.type = input|parse|question|answer
+│   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment
 ├── components/
 │   ├── PipelineView.tsx      # 统一画布：input→parse→Q→A 水平流 + 多条并排 + ParseDetailSheet
 │   ├── TriageCard.tsx        # 解析卡片（保留为弹窗内的渲染片段，主视图已下线）
@@ -49,11 +49,12 @@ scripts/scrape.py             # Scrapling 抓取
 ## 产品流程
 ```
 统一画布（默认进入，无需切视图）：
-  [input 卡] 粘贴 URL → [parse 卡] × N（同 batch 并列，左边条朱砂红）
-         连线上实时显示 liveStatus（capture/trace/…）
+  [input 卡] 粘贴 URL / 勾「直接深入」/ 粘原文（paste://）→ [parse 卡] × N（同 batch 并列，左边条朱砂红）
+         连线上实时显示 liveStatus（capture/trace/…）；direct 模式跳过 triage agent 只抓锚点
   双击 parse 卡 → ParseDetailSheet（完整 narrative + 概念 + 溯源） → [深入追问]
   [question]→[answer] 向右延伸；派生分支上下偏移；多条流用「+ 新流程」上下并排
   标记要点（answer 卡）→ 右侧 SedimentTray → 「整理 → 存入 Wiki」
+  answer 卡「❦ 实验」→ 画布挂一个 experiment 节点（双击进 ExperimentSheet 聊天+coze，可存经验）
 Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 ```
 ## 代码规范
@@ -67,3 +68,4 @@ Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 - 解析落盘前必过 `validateSourceConsistency`：声明的 original URL 关键词必须在 scrape 原文里出现，否则降级 error 不得留幻觉
 - 追问每轮 prompt 必钉 parse 锚点 + "先读锚点→查 sources→WebSearch"三步，禁首次 WebSearch；X 推文必用 `mcp__aidigest__scrape_url`
 - SDK session 按 `branchIdx` 隔离（`branchSessionIds`）；派生分支开新 sid；删光分支 Q/A 时级联清孤儿 sid
+- 前端 `localStorage[aidigest.lastPipelineId]` 记上次 session；画布 mount 时先 GET 恢复，失败才新建（刷新不丢）

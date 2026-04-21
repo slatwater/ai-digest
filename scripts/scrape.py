@@ -188,13 +188,107 @@ def scrape_twitter(url: str) -> dict:
     return result
 
 
+def scrape_general_stealth(url: str) -> dict:
+    """反爬 fallback：用 StealthyFetcher（Camoufox）抓普通网页，用浏览器 JS 取正文"""
+    from scrapling.fetchers import StealthyFetcher
+    box = {"title": "", "content": "", "description": "", "links": []}
+
+    def action(page):
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(1500)
+        try:
+            box["title"] = page.title() or ""
+        except Exception:
+            pass
+        # 主内容选择器优先级
+        content = ""
+        for sel in ["article", "main", "[role='main']", ".post-content", ".article-content", ".entry-content", "#content"]:
+            try:
+                el = page.query_selector(sel)
+                if el:
+                    t = (el.inner_text() or "").strip()
+                    if t:
+                        content = t
+                        break
+            except Exception:
+                continue
+        if not content:
+            try:
+                body = page.query_selector("body")
+                if body:
+                    content = (body.inner_text() or "").strip()
+            except Exception:
+                pass
+        box["content"] = content[:15000]
+        # meta
+        try:
+            desc_el = page.query_selector('meta[name="description"]') or page.query_selector('meta[property="og:description"]')
+            if desc_el:
+                box["description"] = desc_el.get_attribute("content") or ""
+        except Exception:
+            pass
+        # 链接
+        try:
+            links = []
+            for a in (page.query_selector_all('a[href]') or [])[:50]:
+                href = a.get_attribute('href') or ''
+                text = (a.inner_text() or '').strip()
+                if href.startswith('http') and text:
+                    links.append({"url": href, "text": text[:100]})
+            box["links"] = links
+        except Exception:
+            pass
+        return page
+
+    try:
+        StealthyFetcher.fetch(url, headless=True, network_idle=True, wait=1000, timeout=45000, page_action=action)
+    except Exception as e:
+        return {"url": url, "error": f"stealth 抓取异常: {e}", "status": "error"}
+    if not box["content"] or len(box["content"]) < 100:
+        return {"url": url, "error": "stealth 抓取后内容仍为空（可能被反爬拦住或页面渲染依赖交互）", "status": "error"}
+    # 可读性检测：WebGL / Canvas / 加密内容会让 innerText 变二进制乱码
+    # 统计"正常字符"占比：ASCII 可打印 + 中日韩 + 中英标点；过低 → 判定为不可读
+    def _looks_readable(s: str) -> bool:
+        if not s:
+            return False
+        good = 0
+        for c in s:
+            cp = ord(c)
+            if c.isspace() or (0x20 <= cp <= 0x7e) or (0x4e00 <= cp <= 0x9fff) or (0x3000 <= cp <= 0x303f) or (0xff00 <= cp <= 0xffef) or (0x3040 <= cp <= 0x30ff) or (0xac00 <= cp <= 0xd7af):
+                good += 1
+        return good / len(s) > 0.85
+    if not _looks_readable(box["content"]):
+        return {
+            "url": url,
+            "error": "抓取内容不可读（可能是 Canvas/WebGL 页、加密脚本或动态 SPA；建议人工确认后手动追问）",
+            "status": "error",
+        }
+    return {
+        "url": url,
+        "title": box["title"],
+        "description": box["description"],
+        "content": box["content"],
+        "links": box["links"],
+        "status": "ok",
+        "fetcher": "stealth",
+    }
+
+
 def scrape_general(url: str) -> dict:
-    """用 Fetcher 抓取普通网页"""
+    """用 Fetcher 抓取普通网页；403/401/429/内容过短时自动 fallback 到 StealthyFetcher"""
     fetcher = Fetcher(auto_match=False)
-    page = fetcher.get(url, timeout=30)
+    try:
+        page = fetcher.get(url, timeout=30)
+    except Exception as e:
+        # Fetcher 直接崩溃，直接走 stealth
+        stealth = scrape_general_stealth(url)
+        if stealth.get("status") == "ok":
+            return stealth
+        return {"url": url, "error": f"Fetcher 异常: {e}；{stealth.get('error', '')}", "status": "error"}
+
+    http_status = getattr(page, "status", None)
 
     # Scrapling >=0.2: .text 只返回直接文本节点，get_all_text() 递归获取子元素文本
-    # <title> 是直接文本节点，用 .text；内容元素用 get_all_text()
     title = ""
     title_el = page.css_first("title")
     if title_el:
@@ -210,19 +304,31 @@ def scrape_general(url: str) -> dict:
                 content = t
                 break
 
-    # 兜底：取 body 文本
     if not content:
         body = page.css_first("body")
         if body:
             content = str(body.get_all_text()).strip()
 
-    # 提取 meta 信息
+    # fallback 触发条件：反爬状态码 或 内容过短（< 200 字，可能是 Cloudflare 挑战页）
+    need_stealth = (http_status in (401, 403, 429, 451)) or (len(content) < 200)
+    if need_stealth:
+        stealth = scrape_general_stealth(url)
+        if stealth.get("status") == "ok":
+            return stealth
+        # stealth 也失败，返回详细错误（带 HTTP 状态码）
+        return {
+            "url": url,
+            "error": f"HTTP {http_status or '?'} + stealth fallback 失败: {stealth.get('error', '未知')}",
+            "status": "error",
+            "httpStatus": http_status,
+        }
+
+    # meta
     description = ""
     desc_el = page.css_first('meta[name="description"]') or page.css_first('meta[property="og:description"]')
     if desc_el:
         description = desc_el.attrib.get("content", "")
 
-    # 提取所有链接（用于溯源）
     links = []
     for a in page.css("a[href]")[:50]:
         href = a.attrib.get("href", "")
@@ -236,7 +342,8 @@ def scrape_general(url: str) -> dict:
         "description": description,
         "content": content[:15000],
         "links": links,
-        "status": "ok"
+        "status": "ok",
+        "httpStatus": http_status,
     }
 
 
