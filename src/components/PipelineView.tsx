@@ -28,10 +28,19 @@ interface Props {
   onExit?: () => void;            // 可选：外部导航（如返回 wiki 等其它视图）
 }
 
-// 卡片固定尺寸
+// 卡片固定尺寸（与 usePipeline.ts 一致）
 const NODE_W = 280;
 const NODE_H = 160;
-const COL_GAP = 64; // 与 usePipeline.ts 一致；用于合并卡后续节点视觉左移
+const COL_GAP = 64;      // 合并卡后续节点视觉左移单位
+const FLOW_Y_BASE = 80;  // 每条流 y baseline 起点
+const FLOW_ROW = 240;    // 每条流占据的纵向带宽（= NODE_H + 80）
+
+// ReactMarkdown 组件覆写：所有 <a> 都新开标签页
+const MD_COMPONENTS = {
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+  ),
+};
 
 function validUrl(u: string): boolean {
   const t = u.trim();
@@ -72,8 +81,31 @@ function Narrative({ text, small, size }: { text: string; small?: boolean; size?
   const codeFontSize = resolved === 'large' ? 17 : resolved === 'small' ? 12 : 15;
   const lineHeight = resolved === 'large' ? 1.9 : 1.8;
   const color = resolved === 'small' ? 'var(--ink2)' : 'var(--ink)';
-  const parts = text.split(/(\*\*[^*]+\*\*|\[\[[^\]]+\]\]|`[^`]+`)/g);
   const fontWeight = resolved === 'large' ? 450 : 420;
+
+  // 检测 markdown 表格（至少有一行 | … | 和一行分隔 |---|）
+  // 若命中，整段交给 ReactMarkdown + remarkGfm 渲染（复用 .prose 表格样式），
+  // 否则继续走轻量 regex parser（保留 [[技术名]] 等自定义样式）
+  const hasTable =
+    /^\s*\|[^\n]+\|\s*$/m.test(text) && /^\s*\|\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|\s*$/m.test(text);
+  if (hasTable) {
+    return (
+      <div
+        className="aidigest-md"
+        style={{
+          fontSize,
+          lineHeight,
+          color,
+          fontWeight,
+          letterSpacing: resolved === 'large' ? 0.15 : 0.1,
+        }}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{text}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  const parts = text.split(/(\*\*[^*]+\*\*|\[\[[^\]]+\]\]|`[^`]+`)/g);
   return (
     <span
       style={{
@@ -496,7 +528,23 @@ const Canvas = forwardRef<CanvasHandle, {
     return result;
   }, [nodes, hiddenIds]);
 
+  // 删除中间流后上移下方：按存活 flowIdx 压缩到连续行号
+  const effectiveY = useMemo(() => {
+    const result = new Map<string, number>();
+    const flowIdxs = Array.from(new Set(nodes.map(n => n.flowIdx ?? 0))).sort((a, b) => a - b);
+    const shiftByFlow = new Map<number, number>();
+    flowIdxs.forEach((fi, newRow) => {
+      shiftByFlow.set(fi, (newRow - fi) * FLOW_ROW);
+    });
+    for (const n of nodes) {
+      const dy = shiftByFlow.get(n.flowIdx ?? 0) ?? 0;
+      result.set(n.id, (n.y ?? FLOW_Y_BASE) + dy);
+    }
+    return result;
+  }, [nodes]);
+
   const getX = (n: PipelineNode) => effectiveX.get(n.id) ?? (n.x ?? 0);
+  const getY = (n: PipelineNode) => effectiveY.get(n.id) ?? (n.y ?? 0);
 
   // 对外暴露命令式 API：聚焦某节点 / 平移到世界坐标
   useImperativeHandle(forwardedRef, () => ({
@@ -517,14 +565,14 @@ const Canvas = forwardRef<CanvasHandle, {
       const n = nodesRef.current.find(x => x.id === targetId);
       if (!n) return;
       const cx = (effectiveX.get(targetId) ?? (n.x ?? 0)) + (n.w ?? NODE_W) / 2;
-      const cy = (n.y ?? 0) + NODE_H / 2;
+      const cy = (effectiveY.get(targetId) ?? (n.y ?? 0)) + NODE_H / 2;
       setView(v => ({
         ...v,
         x: rect.w / 2 - cx * v.zoom,
         y: rect.h / 2 - cy * v.zoom,
       }));
     },
-  }), [view, rect, hiddenIds, questionByAId, effectiveX]);
+  }), [view, rect, hiddenIds, questionByAId, effectiveX, effectiveY]);
 
   const edges = nodes
     .filter(n => n.parent)
@@ -546,7 +594,7 @@ const Canvas = forwardRef<CanvasHandle, {
     nodes.forEach(n => {
       if (hiddenIds.has(n.id)) return; // 被合并的 answer 不参与 bbox，避免空白拉大画布
       const x = effectiveX.get(n.id) ?? (n.x ?? 0);
-      const y = n.y ?? 0;
+      const y = effectiveY.get(n.id) ?? (n.y ?? 0);
       const w = n.w ?? NODE_W;
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
@@ -554,7 +602,7 @@ const Canvas = forwardRef<CanvasHandle, {
       maxY = Math.max(maxY, y + NODE_H);
     });
     return { minX: minX - 40, minY: minY - 40, maxX: maxX + 40, maxY: maxY + 40 };
-  }, [nodes, hiddenIds, effectiveX]);
+  }, [nodes, hiddenIds, effectiveX, effectiveY]);
 
   return (
     <div
@@ -626,9 +674,9 @@ const Canvas = forwardRef<CanvasHandle, {
               ? (questionByAId.get(e.from.id) ?? e.from)
               : e.from;
             const fromX = getX(fromNode) - bounds.minX + (fromNode.w ?? NODE_W);
-            const fromY = (fromNode.y ?? 0) - bounds.minY + NODE_H / 2;
+            const fromY = getY(fromNode) - bounds.minY + NODE_H / 2;
             const toX = getX(e.to) - bounds.minX;
-            const toY = (e.to.y ?? 0) - bounds.minY + NODE_H / 2;
+            const toY = getY(e.to) - bounds.minY + NODE_H / 2;
             const isBranch = e.from.branchIdx !== e.to.branchIdx && e.from.type !== 'input';
             const isParseEdge = e.from.type === 'input' && e.to.type === 'parse';
             const stroke = isBranch
@@ -708,7 +756,7 @@ const Canvas = forwardRef<CanvasHandle, {
         {nodes.map(n => {
           if (hiddenIds.has(n.id)) return null;
           const mergedAnswer = mergedByQId.get(n.id);
-          const nShown = { ...n, x: getX(n) };
+          const nShown = { ...n, x: getX(n), y: getY(n) };
           if (mergedAnswer) {
             const aSelected = selectedNode === n.id || selectedNode === mergedAnswer.id;
             return (
@@ -1097,7 +1145,7 @@ function Minimap({
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Q/A 视觉合并 + effectiveX 左移（与 Canvas 内逻辑保持一致）
-  const { mergedByQId, hiddenIds, effectiveX } = useMemo(() => {
+  const { mergedByQId, hiddenIds, effectiveX, effectiveY } = useMemo(() => {
     const m = new Map<string, PipelineNode>();
     const h = new Set<string>();
     for (const n of nodes) {
@@ -1109,7 +1157,7 @@ function Minimap({
         }
       }
     }
-    const result = new Map<string, number>();
+    const xMap = new Map<string, number>();
     const byId = new Map(nodes.map(n => [n.id, n]));
     const childrenBy = new Map<string, string[]>();
     for (const n of nodes) {
@@ -1123,15 +1171,29 @@ function Minimap({
     const visit = (id: string, shift: number) => {
       const nn = byId.get(id);
       if (!nn) return;
-      result.set(id, (nn.x ?? 0) + shift);
+      xMap.set(id, (nn.x ?? 0) + shift);
       const nextShift = h.has(id) ? shift - SHIFT : shift;
       for (const cid of childrenBy.get(id) ?? []) visit(cid, nextShift);
     };
     for (const r of nodes.filter(n => !n.parent)) visit(r.id, 0);
-    return { mergedByQId: m, hiddenIds: h, effectiveX: result };
+
+    // y 压紧：按存活 flowIdx 连续编号，让中间流被删后下方自动上移
+    const yMap = new Map<string, number>();
+    const flowIdxs = Array.from(new Set(nodes.map(n => n.flowIdx ?? 0))).sort((a, b) => a - b);
+    const shiftByFlow = new Map<number, number>();
+    flowIdxs.forEach((fi, newRow) => {
+      shiftByFlow.set(fi, (newRow - fi) * FLOW_ROW);
+    });
+    for (const n of nodes) {
+      const dy = shiftByFlow.get(n.flowIdx ?? 0) ?? 0;
+      yMap.set(n.id, (n.y ?? FLOW_Y_BASE) + dy);
+    }
+
+    return { mergedByQId: m, hiddenIds: h, effectiveX: xMap, effectiveY: yMap };
   }, [nodes]);
 
   const getX = (n: PipelineNode) => effectiveX.get(n.id) ?? (n.x ?? 0);
+  const getY = (n: PipelineNode) => effectiveY.get(n.id) ?? (n.y ?? 0);
 
   // 当前在跑的节点数：SSE streaming + 任意节点 state='streaming'（parse 并发解析）
   const activeCount = useMemo(
@@ -1151,7 +1213,7 @@ function Minimap({
     nodes.forEach(n => {
       if (hiddenIds.has(n.id)) return;
       const x = effectiveX.get(n.id) ?? (n.x ?? 0);
-      const y = n.y ?? 0;
+      const y = effectiveY.get(n.id) ?? (n.y ?? 0);
       const w = n.w ?? NODE_W;
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
@@ -1160,7 +1222,7 @@ function Minimap({
     });
     const pad = 120;
     return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
-  }, [nodes, hiddenIds, effectiveX]);
+  }, [nodes, hiddenIds, effectiveX, effectiveY]);
 
   const innerW = MINI_W - MINI_PAD * 2;
   const innerH = MINI_H - MINI_PAD * 2;
@@ -1206,11 +1268,11 @@ function Minimap({
   const handleClick = (e: React.MouseEvent<SVGSVGElement>) => {
     const pt = clientToWorld(e.clientX, e.clientY);
     if (!pt) return;
-    // 合并卡用单卡宽度命中；隐藏 answer 不参与；hit-test 用 effective x
+    // 合并卡用单卡宽度命中；隐藏 answer 不参与；hit-test 用 effective x/y
     const hit = nodes.find(n => {
       if (hiddenIds.has(n.id)) return false;
       const x = getX(n);
-      const y = n.y ?? 0;
+      const y = getY(n);
       const w = n.w ?? NODE_W;
       return pt.wx >= x && pt.wx <= x + w && pt.wy >= y && pt.wy <= y + NODE_H;
     });
@@ -1334,7 +1396,7 @@ function Minimap({
           if (hiddenIds.has(n.id)) return null;
           const merged = mergedByQId.get(n.id);
           const x = getX(n);
-          const y = n.y ?? 0;
+          const y = getY(n);
           // 合并卡在缩略图里也只占单卡宽度
           const w = n.w ?? NODE_W;
           const mp = toMini(x, y);
@@ -5292,7 +5354,7 @@ function ExperimentSheet({
                 </p>
               ) : (
                 <div
-                  className="experiment-markdown"
+                  className="experiment-markdown aidigest-md"
                   style={{
                     fontSize: 17,
                     color: 'var(--ink2)',
@@ -5301,14 +5363,14 @@ function ExperimentSheet({
                     lineHeight: 1.7,
                   }}
                 >
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content}</ReactMarkdown>
                 </div>
               )}
             </div>
           ))}
           {isStreamingHere && streamingText && (
             <div
-              className="experiment-markdown"
+              className="experiment-markdown aidigest-md"
               style={{
                 fontSize: 17,
                 color: 'var(--ink2)',
@@ -5318,7 +5380,7 @@ function ExperimentSheet({
                 marginBottom: 18,
               }}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{streamingText}</ReactMarkdown>
             </div>
           )}
           {isStreamingHere && !streamingText && (

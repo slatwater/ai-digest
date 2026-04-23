@@ -502,33 +502,45 @@ export function usePipeline() {
       }
       case 'done': {
         const nodeId = data.nodeId as string;
+        const nodePatch = {
+          text: (data.text as string) || undefined,
+          state: 'done' as const,
+          duration: data.duration as string | undefined,
+          tokens: data.tokens as number | undefined,
+        };
         setSessionBoth({
           ...current,
           nodes: current.nodes.map(n =>
             n.id === nodeId
-              ? {
-                  ...n,
-                  text: data.text || n.text,
-                  state: 'done',
-                  duration: data.duration,
-                  tokens: data.tokens,
-                }
+              ? { ...n, ...nodePatch, text: nodePatch.text ?? n.text }
               : n,
           ),
         });
         setStreamingNodeId(null);
         setToolStatus(null);
+        // 同步落盘：state='done' + 元数据，避免刷新后残留 'streaming' 显示"正在生成"
+        fetch(`/api/pipeline/${current.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodePatch: { id: nodeId, patch: nodePatch } }),
+        }).catch(() => {});
         break;
       }
       case 'error': {
         const nodeId = data.nodeId as string;
         if (nodeId) {
+          const patch = { state: 'error' as const, error: data.message as string | undefined };
           setSessionBoth({
             ...current,
             nodes: current.nodes.map(n =>
-              n.id === nodeId ? { ...n, state: 'error', error: data.message } : n,
+              n.id === nodeId ? { ...n, ...patch } : n,
             ),
           });
+          fetch(`/api/pipeline/${current.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nodePatch: { id: nodeId, patch } }),
+          }).catch(() => {});
         }
         setStreamingNodeId(null);
         setToolStatus(null);
@@ -913,13 +925,18 @@ export function usePipeline() {
         sdkSessionId: streamingSessionId,
         resolvedModel,
       });
-      // 恢复 state
+      // 恢复 state（内存 + 磁盘一起改，否则刷新后 state='streaming' 残留会一直显示"● 对话中"）
       const s = sessionRef.current;
       if (s) {
         setSessionBoth({
           ...s,
           nodes: s.nodes.map(n => n.id === nodeId ? { ...n, state: 'done' } : n),
         });
+        await fetch(`/api/pipeline/${s.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodePatch: { id: nodeId, patch: { state: 'done' } } }),
+        }).catch(() => {});
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -936,12 +953,18 @@ export function usePipeline() {
       });
       const s = sessionRef.current;
       if (s) {
+        const finalState: PipelineNode['state'] = abort.signal.aborted ? 'done' : 'error';
         setSessionBoth({
           ...s,
           nodes: s.nodes.map(n => n.id === nodeId
-            ? { ...n, state: (abort.signal.aborted ? 'done' : 'error'), error: abort.signal.aborted ? undefined : msg }
+            ? { ...n, state: finalState, error: finalState === 'error' ? msg : undefined }
             : n),
         });
+        await fetch(`/api/pipeline/${s.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodePatch: { id: nodeId, patch: { state: finalState, error: finalState === 'error' ? msg : undefined } } }),
+        }).catch(() => {});
       }
     } finally {
       experimentAbortRef.current.delete(nodeId);

@@ -60,7 +60,8 @@ Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 ## 代码规范
 - 中文注释，英文变量名；色彩 OKLCH；方向 B 视觉：#f4ede0 纸底 + #c94a1a 朱砂红 + #1a1713 墨线 + Fraunces 衬线 + 硬阴影
 - 节点左边条区分类型：input=墨黑 / parse=朱砂红 / question=琥珀 / experiment=青绿 / answer=墨灰
-- 合并卡下游节点渲染用 `effectiveX` DFS 累积左移（每遇 hidden answer 减 NODE_W+COL_GAP），Minimap 同步
+- 渲染层压紧坐标：`effectiveX` DFS 累积左移（每遇 hidden answer 减 NODE_W+COL_GAP）；`effectiveY` 按存活 flowIdx 连续编号（删除中间流下方自动上移），Minimap 同步
+- Narrative 检测到 md 表格时整段走 ReactMarkdown + remarkGfm + `.aidigest-md` 暗底样式，否则用轻量 regex parser；所有 md `<a>` 统一 `target="_blank"`
 - 画布水平流：父节点右边中线 → 子节点左边中线 bezier；input→parse 虚线 + 中点标 liveStatus
 - SSE 统一用 buffer + `\n\n` 分割；narrative 标记 `[[技术名]]`
 - Triage batch 内 entry 匹配 PipelineNode 按 URL，不依赖后端 UUID
@@ -72,3 +73,4 @@ Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 - 前端 `localStorage[aidigest.lastPipelineId]` 记上次 session；画布 mount 时先 GET 恢复，失败才新建（刷新不丢）
 - flex-column 弹窗必须固定高度（非 auto），内部 flex:1 子区要 `minHeight:0`；长列表默认折叠或限高 + overflowY，避免撑破父布局把输入框挤出视口
 - 实验弹窗流式 token 只在「用户粘底」时才 scrollTo，否则保持当前位置让用户可上翻查看历史
+- SSE 完成/错误分支必须把节点 `state` PATCH 落盘（仅改内存会导致刷新后残留 `streaming`，画布/缩略图持续显示"正在生成/对话中"）
