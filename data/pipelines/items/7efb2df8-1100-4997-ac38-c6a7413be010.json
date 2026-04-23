@@ -1,0 +1,50 @@
+{
+  "id": "7efb2df8-1100-4997-ac38-c6a7413be010",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "17:53:03",
+      "inputUrls": [
+        "https://www.shadertoy.com/view/ltffzl"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "error",
+      "text": "https://www.shadertoy.com/view/ltffzl",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "17:53:20",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "ff04e3b3-419d-4537-8ca3-358ca199d8c2",
+        "batchId": "c292af88-7db1-4ab3-bcbe-5ece6fd3254a",
+        "url": "https://www.shadertoy.com/view/ltffzl",
+        "title": "https://www.shadertoy.com/view/ltffzl",
+        "livePhases": [],
+        "liveStatus": "采集页面",
+        "direct": true
+      },
+      "error": "抓取失败：HTTP 403 + stealth fallback 失败: 抓取内容不可读（可能是 Canvas/WebGL 页、加密脚本或动态 SPA；建议人工确认后手动追问）"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-20T09:46:22.499Z",
+  "updatedAt": "2026-04-20T09:53:28.534Z"
+}

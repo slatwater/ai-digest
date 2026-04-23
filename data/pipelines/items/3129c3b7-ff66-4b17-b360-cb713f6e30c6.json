@@ -1,0 +1,120 @@
+{
+  "id": "3129c3b7-ff66-4b17-b360-cb713f6e30c6",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "13:39:17",
+      "inputUrls": [
+        "https://www.aibase.com/zh/news/27286"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://www.aibase.com/zh/news/27286",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "21:46:11",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "c1af34af-88d4-48de-ac37-427aef9b2f33",
+        "batchId": "8fd7c102-c733-4d97-84b1-9a00f9b1ae55",
+        "url": "https://www.aibase.com/zh/news/27286",
+        "title": "Chronicle（Codex 屏幕感知记忆功能）",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "溯源搜索",
+          "读取来源"
+        ],
+        "verdict": "save",
+        "verdictReason": "具名功能 Chronicle 有官方文档支撑，披露了截图处理流程、本地存储路径、数据共享范围等可查证的技术实现细节",
+        "narrative": "从 AIbase 转载文章发现，一手来源是 OpenAI 官方 Codex 开发者文档中的 Chronicle 专页。\n\nOpenAI 为 Codex app 推出了 [[Chronicle]]：它在后台定期截屏，本地启动沙盒 agent 把截图转成 Markdown 记忆文件（存于 `~/.codex/memories_extensions/chronicle/`），帮 Codex 自动知道你在看什么、用什么工具，省去反复粘贴上下文的麻烦。截图本身只在本地临时保存、6 小时后自动删除；仅部分帧、OCR 文字和本地路径会上传 OpenAI 服务器用于生成摘要。官方同时提示三项风险：消耗速率配额快、记忆文件本地明文存储、以及浏览恶意页面时有提示词注入风险。目前仅对 macOS 平台 ChatGPT Pro 用户开放预览，欧盟/英国/瑞士暂不可用。",
+        "concepts": [
+          {
+            "name": "Chronicle",
+            "role": "subject",
+            "root": "OpenAI Codex 官方文档 → 后台定期截屏，在本地沙盒 agent 中将截图转化为结构化记忆文件，自动补充 Codex 的上下文",
+            "whatItEnables": "让 Codex 自动感知用户当前正在做什么，无需用户每次手动说明背景",
+            "sourceUrl": "https://developers.openai.com/codex/memories/chronicle"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://developers.openai.com/codex/memories/chronicle",
+            "title": "Chronicle – Codex | OpenAI Developers",
+            "type": "original"
+          },
+          {
+            "url": "https://www.aibase.com/zh/news/27286",
+            "title": "王炸更新！OpenAI Codex 推出\"数字记忆\"功能，屏幕录制成核心生产力",
+            "type": "related"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "官方文档首次披露 Chronicle 的本地沙盒 agent 运行机制、截图存储路径与数据传输边界等实现细节"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 4,
+          "inputTokens": 8,
+          "outputTokens": 1778,
+          "cacheReadTokens": 28010,
+          "costUsd": 0.12582425000000003,
+          "durationMs": 49733
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "有什么用",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": 768,
+      "y": 80,
+      "w": 280,
+      "createdAt": "21:48:37",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "## Chronicle 解决的核心痛点\n\n### 省掉\"手动喂上下文\"的重复劳动\n\n传统用 Codex 的流程是：你在 IDE 看到报错 → 截图或复制粘贴 → 切到 Codex 窗口 → 手动描述\"我在做 X，用的是 Y 工具，刚才出现了 Z 问题\"。这一段\"搬运上下文\"的动作每次都要做，枯燥且易遗漏细节。\n\nChronicle 的价值就在于**把这段搬运自动化**：\n\n| 场景 | 没有 Chronicle | 有 Chronicle |\n|---|---|---|\n| 调试 bug | 截图/复制报错 → 粘贴到 Codex | Codex 自己已知你在哪个文件、报什么错 |\n| 切换任务 | 重新描述新任务背景 | 记忆文件已记录你刚关掉了什么、打开了什么 |\n| 多工具协作 | 每次说\"我在用 Docker/Vim/…\" | Codex 从截图 OCR 里已经识别出来 |\n\n### 具体带来的改变\n\n1. **连续性**：多轮对话之间不会\"失忆\"，Codex 能基于你最近几小时的操作历史给出更贴合当前状态的建议；\n2. **减少重复提示**：不用每次新开会话都铺一遍项目背景；\n3. **被动感知**：你无需主动触发，Chronicle 在后台静默运行，只在你问 Codex 时它的记忆文件已经就位。\n\n### 适用人群\n\n主要对**长时间在多个工具间切换的开发者**最有价值——比如同时开着终端、浏览器文档、IDE，上下文碎片化严重的场景。对于单一工具、任务简单的用例，收益会小很多，但代价（消耗速率配额较快）照样存在。",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": 1112,
+      "y": 80,
+      "w": 280,
+      "createdAt": "21:48:37",
+      "model": "sonnet",
+      "duration": "18.0s"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-21T05:39:17.574Z",
+  "updatedAt": "2026-04-21T13:48:55.470Z",
+  "branchSessionIds": {
+    "0": "be390135-4679-4280-871f-912d415ae0c5"
+  },
+  "sdkSessionId": "be390135-4679-4280-871f-912d415ae0c5"
+}

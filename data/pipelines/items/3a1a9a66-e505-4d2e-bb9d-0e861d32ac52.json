@@ -1,0 +1,115 @@
+{
+  "id": "3a1a9a66-e505-4d2e-bb9d-0e861d32ac52",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:28:15",
+      "inputUrls": [
+        "https://x.com/vista8/status/2046254553151262822"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://x.com/vista8/status/2046254553151262822",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:28:19",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "43fef4d4-185b-4436-bfc4-aaae4ab27bf9",
+        "batchId": "23ba2b7c-43a9-4a6c-a1ad-a8d2c7f54078",
+        "url": "https://x.com/vista8/status/2046254553151262822",
+        "title": "Adam's Law：文本词频定律与大语言模型",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "读取来源"
+        ],
+        "verdict": "save",
+        "verdictReason": "具名技术 Adam's Law 有 arXiv 论文支撑，实验规模大、结论清晰，对 prompt 工程实践有直接指导价值",
+        "narrative": "推文中直接给出了 arXiv 链接 arxiv.org/pdf/2604.02176，一手来源即该论文本身，作者是 Hongyuan Adam Lu 等人，已被 ACL 2026 主会议收录。\n\nHongyuan Adam Lu 等人发现并命名了 [[Adam's Law]]：给 LLM 输入同义但词频更高的 prompt，效果稳定优于低频版本。他们为此构建了文本频率配对数据集（TFPD），覆盖数学推理、机器翻译、常识推理和智能体工具调用四类任务；在 100 多种语言的翻译实验中，词频与效果提升的相关系数为 1.0。论文还配套提出了三个工程化组件：用于改写输入的「文本频率定律（TFL）」、用于扩充数据的「文本频率蒸馏（TFD）」，以及按词频递增顺序微调模型的「课程文本频率训练（CTFT）」。",
+        "concepts": [
+          {
+            "name": "Adam's Law",
+            "role": "subject",
+            "root": "Hongyuan Adam Lu 等人，ACL 2026 → 同义句中，选词频更高的那个版本作为 prompt 输入 LLM，效果系统性优于低频版本；该规律在翻译、推理、工具调用等任务中均成立",
+            "whatItEnables": "通过把 prompt 改写成更高词频的同义表达，无需改模型、无需额外训练，直接提升 LLM 在多类任务上的输出质量",
+            "sourceUrl": "https://arxiv.org/abs/2604.02176"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://arxiv.org/abs/2604.02176",
+            "title": "Adam's Law: Textual Frequency Law on Large Language Models",
+            "type": "original"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "首次以实证方式确立词频与 LLM 输出质量之间的系统性定律，并提供可直接工程落地的配套方法"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 3,
+          "inputTokens": 7,
+          "outputTokens": 2019,
+          "cacheReadTokens": 23348,
+          "costUsd": 0.0567769,
+          "durationMs": 49448
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "用于改写输入的「文本频率定律（TFL）」、用于扩充数据的「文本频率蒸馏（TFD）」，以及按词频递增顺序微调模型的「课程文本频率训练（CTFT）」。这三个都是基于什么原理",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": 768,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:47:09",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "基于 arXiv HTML 全文[[1]]，三个组件的原理如下：\n\n---\n\n## 统一理论基础：Zipf's Law\n\n三者共享同一个数学根基——**Zipf 定律**（词频与词排名成反比）。论文证明：\n\n1. Token 的边际概率服从 Zipfian 分布；\n2. 训练充分的 LLM 对高频 token 的预测误差更小（\"rank-dependent approximation error\"更低）；\n3. 句子级 loss 可以分解为各 token 边际损失之和 + 上下文相关偏差项。\n\n因此，**输入词频越高 → 各 token 预测误差越小 → 整句效果越好**，这是三个组件的共同动机。\n\n---\n\n## TFL（文本频率定律）——改写输入\n\n**原理**：用\"词频的归一化乘积的倒数\"来估计句子级频率，即把句子里每个 token 的词频相乘（取对数和），作为整句频率代理。  \n**做法**：给定一个输入 prompt，通过 paraphraser 枚举同义改写候选，选频率最高的版本送给 LLM。推理时用高频 prompt，微调时用高频训练样本配合 ground truth。\n\n---\n\n## TFD（文本频率蒸馏）——扩充语料辅助估频\n\n**原理**：纯靠网页统计的频率估计在低资源或领域外句子上会出现零频问题，需要用 LLM 生成的文本来\"补充\"语料再重新估频。  \n**做法**：把待估频的句子作为前缀，让 LLM 做 story completion（续写），把生成文本合并进语料库，加权平均原始频率与模型生成频率，从而获得更鲁棒的估计。\n\n---\n\n## CTFT（课程文本频率训练）——按频递增微调\n\n**原理**：低频表达式虽然\"难\"，但更**多样**——放在训练早期让模型先见识多样分布，有利于泛化；高频表达式在后期强化，使模型收敛到更低的 loss 区间。  \n**做法**：每个 epoch 内把训练样本按句子频率从低到高排序，遵循从\"多样但难\"到\"稳定且易\"的课程顺序逐步微调。\n\n---\n\n三者形成完整闭环：TFD 负责更准地估频 → TFL 用估频结果选最优 prompt → CTFT 用频率顺序指导训练，共同让模型在推理和训练两个阶段都对齐 Adam's Law 揭示的规律。[[1]](https://arxiv.org/html/2604.02176)",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": 1112,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:47:09",
+      "model": "sonnet",
+      "duration": "66.7s",
+      "tokens": 65
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-21T14:28:15.138Z",
+  "updatedAt": "2026-04-21T14:48:16.480Z",
+  "branchSessionIds": {
+    "0": "da86c92f-27d6-49ea-99f9-5a57e7212b5e"
+  },
+  "sdkSessionId": "da86c92f-27d6-49ea-99f9-5a57e7212b5e"
+}

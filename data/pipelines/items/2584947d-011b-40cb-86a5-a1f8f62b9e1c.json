@@ -1,8 +1,68 @@
 {
   "id": "2584947d-011b-40cb-86a5-a1f8f62b9e1c",
-  "nodes": [],
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "17:21:30",
+      "inputUrls": [
+        "https://www.shadertoy.com/view/ltffzl"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "error",
+      "text": "https://www.shadertoy.com/view/ltffzl",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "17:21:32",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "0d366bd0-db19-4eb5-8ddc-a338c4919352",
+        "batchId": "e9172e33-21d0-4dea-b882-2c79daf428b7",
+        "url": "https://www.shadertoy.com/view/ltffzl",
+        "title": "Heartfelt——雨水玻璃着色器",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "读取来源",
+          "溯源搜索"
+        ],
+        "liveStatus": "整理结果",
+        "verdict": "skip",
+        "verdictReason": "具名项目 Heartfelt 有完整可查证源码，技术思路（多层程序化噪声 + 法线折射）清晰，社区移植记录丰富，具备参考价值",
+        "concepts": [],
+        "sources": [],
+        "relatedEntries": [],
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 6,
+          "inputTokens": 10,
+          "outputTokens": 2115,
+          "cacheReadTokens": 43372,
+          "costUsd": 0.1534246,
+          "durationMs": 64518
+        }
+      },
+      "error": "溯源失败：声明的 original https://www.shadertoy.com/view/ltffzl 与原文无关键词重叠（原文未提到 shadertoy/view），疑似幻觉"
+    }
+  ],
   "sediment": [],
   "model": "sonnet",
   "createdAt": "2026-04-20T05:57:20.884Z",
-  "updatedAt": "2026-04-20T08:29:37.872Z"
+  "updatedAt": "2026-04-20T09:22:41.421Z"
 }

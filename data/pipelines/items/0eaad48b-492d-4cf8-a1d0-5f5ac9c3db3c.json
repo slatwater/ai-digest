@@ -1,0 +1,24 @@
+{
+  "id": "0eaad48b-492d-4cf8-a1d0-5f5ac9c3db3c",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "23:24:54",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-20T15:24:54.957Z",
+  "updatedAt": "2026-04-20T15:24:54.972Z"
+}

@@ -1,0 +1,49 @@
+{
+  "id": "e368de4d-9a94-49e2-b882-30942b12ba06",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "17:40:55",
+      "inputUrls": [
+        "https://www.shadertoy.com/view/ltffzl"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "error",
+      "text": "https://www.shadertoy.com/view/ltffzl",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "17:41:06",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "706a58fb-c3d7-4136-9112-1883bb611706",
+        "batchId": "ba706ff3-e3f2-4b67-a0d7-d8326692162b",
+        "url": "https://www.shadertoy.com/view/ltffzl",
+        "title": "https://www.shadertoy.com/view/ltffzl",
+        "livePhases": [],
+        "liveStatus": "采集页面"
+      },
+      "error": "抓取失败：内容为空或过短"
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-20T09:40:55.254Z",
+  "updatedAt": "2026-04-20T09:41:10.257Z"
+}

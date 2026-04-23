@@ -1,6 +1,14 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useImperativeHandle,
+  forwardRef,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {
@@ -23,6 +31,7 @@ interface Props {
 // 卡片固定尺寸
 const NODE_W = 280;
 const NODE_H = 160;
+const COL_GAP = 64; // 与 usePipeline.ts 一致；用于合并卡后续节点视觉左移
 
 function validUrl(u: string): boolean {
   const t = u.trim();
@@ -129,6 +138,7 @@ function TopBar({
   onNewFlow,
   model,
   onModelChange,
+  sedimentCount,
 }: {
   session: PipelineSession;
   onExit?: () => void;
@@ -136,6 +146,7 @@ function TopBar({
   onNewFlow: () => void;
   model: TriageModel;
   onModelChange: (m: TriageModel) => void;
+  sedimentCount: number;
 }) {
   const markedCount = session.nodes.filter(n => n.marked).length;
   const firstParseTitle =
@@ -289,13 +300,32 @@ function TopBar({
             fontSize: 11,
             padding: '6px 14px',
             letterSpacing: 0.3,
-            background: 'var(--amber)',
-            color: 'var(--bg)',
+            background: sedimentCount > 0 ? 'var(--amber)' : 'var(--bg2)',
+            color: sedimentCount > 0 ? 'var(--bg)' : 'var(--ink3)',
             border: '1px solid var(--amber)',
             fontWeight: 600,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
           }}
+          title="查看已标记的要点，并整理存入 Wiki"
         >
-          整理 → 存入 Wiki
+          ◈ 沉淀区
+          <span
+            style={{
+              minWidth: 18,
+              padding: '0 5px',
+              fontSize: 10,
+              fontWeight: 700,
+              background: sedimentCount > 0 ? 'var(--bg)' : 'var(--rule)',
+              color: sedimentCount > 0 ? 'var(--amber)' : 'var(--ink3)',
+              borderRadius: 2,
+              textAlign: 'center',
+              lineHeight: '14px',
+            }}
+          >
+            {sedimentCount}
+          </span>
         </button>
       </div>
     </header>
@@ -306,19 +336,16 @@ function TopBar({
 /* ──────────────────────────────────────────────────────────
    Canvas — pan/zoom, nodes, bezier connectors
    ────────────────────────────────────────────────────────── */
-function Canvas({
-  nodes,
-  streamingNodeId,
-  toolStatus,
-  selectedNode,
-  setSelectedNode,
-  onMark,
-  onUnmark,
-  onOpen,
-  onSubmitInput,
-  onStartExperiment,
-  onDelete,
-}: {
+export interface CanvasView { x: number; y: number; zoom: number }
+export interface CanvasRect { w: number; h: number }
+export interface CanvasHandle {
+  focusNode: (nodeId: string) => void;
+  panToWorld: (worldX: number, worldY: number) => void;
+  getView: () => CanvasView;
+  getRect: () => CanvasRect;
+}
+
+const Canvas = forwardRef<CanvasHandle, {
   nodes: PipelineNode[];
   streamingNodeId: string | null;
   toolStatus: string | null;
@@ -330,14 +357,49 @@ function Canvas({
   onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
   onStartExperiment: (answerNodeId: string) => void;
   onDelete: (nodeId: string) => void;
-}) {
+  onViewChange?: (view: CanvasView, rect: CanvasRect) => void;
+}>(function Canvas({
+  nodes,
+  streamingNodeId,
+  toolStatus,
+  selectedNode,
+  setSelectedNode,
+  onMark,
+  onUnmark,
+  onOpen,
+  onSubmitInput,
+  onStartExperiment,
+  onDelete,
+  onViewChange,
+}, forwardedRef) {
   const [view, setView] = useState({ x: 40, y: 20, zoom: 1.6 });
+  const [rect, setRect] = useState<CanvasRect>({ w: 0, h: 0 });
   const [panning, setPanning] = useState<
     { startX: number; startY: number; viewX: number; viewY: number } | null
   >(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [confirmDel, setConfirmDel] = useState<{ nodeId: string; typeLabel: string; descCount: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const nodesRef = useRef<PipelineNode[]>(nodes);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
+  // 追踪画布容器尺寸（minimap 需要用来算视口框）
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const sync = () => setRect({ w: el.clientWidth, h: el.clientHeight });
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 把 view + rect 向外广播（供 Minimap 等使用）；用 ref 捕获最新回调避免依赖抖动
+  const onViewChangeRef = useRef(onViewChange);
+  useEffect(() => { onViewChangeRef.current = onViewChange; }, [onViewChange]);
+  useEffect(() => {
+    onViewChangeRef.current?.(view, rect);
+  }, [view, rect]);
 
   // 点画布任意位置关闭菜单
   useEffect(() => {
@@ -388,13 +450,91 @@ function Canvas({
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  // Q/A 视觉合并：每对 question + answer 合成一张卡
+  //   - mergedByQId: question.id → 对应的 answer 节点
+  //   - questionByAId: answer.id → 对应的 question 节点（edge 起点映射用）
+  //   - hiddenIds: 被合并掉的 answer id（节点循环里跳过）
+  const { mergedByQId, questionByAId, hiddenIds } = useMemo(() => {
+    const m = new Map<string, PipelineNode>();
+    const q2: Map<string, PipelineNode> = new Map();
+    const h = new Set<string>();
+    for (const n of nodes) {
+      if (n.type === 'answer' && n.parent) {
+        const q = nodes.find(x => x.id === n.parent && x.type === 'question');
+        if (q) {
+          m.set(q.id, n);
+          q2.set(n.id, q);
+          h.add(n.id);
+        }
+      }
+    }
+    return { mergedByQId: m, questionByAId: q2, hiddenIds: h };
+  }, [nodes]);
+
+  // 合并后节点左移：经过每个被隐藏 answer，后续子树整体左移 NODE_W+COL_GAP
+  //   —— 让连线紧贴合并卡右边，消除原 answer 留下的空白
+  const effectiveX = useMemo(() => {
+    const result = new Map<string, number>();
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const childrenBy = new Map<string, string[]>();
+    for (const n of nodes) {
+      if (n.parent) {
+        const arr = childrenBy.get(n.parent) ?? [];
+        arr.push(n.id);
+        childrenBy.set(n.parent, arr);
+      }
+    }
+    const SHIFT = NODE_W + COL_GAP;
+    const visit = (id: string, shift: number) => {
+      const n = byId.get(id);
+      if (!n) return;
+      result.set(id, (n.x ?? 0) + shift);
+      const nextShift = hiddenIds.has(id) ? shift - SHIFT : shift;
+      for (const cid of childrenBy.get(id) ?? []) visit(cid, nextShift);
+    };
+    for (const r of nodes.filter(n => !n.parent)) visit(r.id, 0);
+    return result;
+  }, [nodes, hiddenIds]);
+
+  const getX = (n: PipelineNode) => effectiveX.get(n.id) ?? (n.x ?? 0);
+
+  // 对外暴露命令式 API：聚焦某节点 / 平移到世界坐标
+  useImperativeHandle(forwardedRef, () => ({
+    getView: () => view,
+    getRect: () => rect,
+    panToWorld: (wx: number, wy: number) => {
+      setView(v => ({
+        ...v,
+        x: rect.w / 2 - wx * v.zoom,
+        y: rect.h / 2 - wy * v.zoom,
+      }));
+    },
+    focusNode: (nodeId: string) => {
+      // 点到被隐藏的 answer 时自动回退到对应合并卡（question）
+      const targetId = hiddenIds.has(nodeId)
+        ? (questionByAId.get(nodeId)?.id ?? nodeId)
+        : nodeId;
+      const n = nodesRef.current.find(x => x.id === targetId);
+      if (!n) return;
+      const cx = (effectiveX.get(targetId) ?? (n.x ?? 0)) + (n.w ?? NODE_W) / 2;
+      const cy = (n.y ?? 0) + NODE_H / 2;
+      setView(v => ({
+        ...v,
+        x: rect.w / 2 - cx * v.zoom,
+        y: rect.h / 2 - cy * v.zoom,
+      }));
+    },
+  }), [view, rect, hiddenIds, questionByAId, effectiveX]);
+
   const edges = nodes
     .filter(n => n.parent)
     .map(n => {
       const p = nodes.find(x => x.id === n.parent);
       return p ? { from: p, to: n } : null;
     })
-    .filter((e): e is { from: PipelineNode; to: PipelineNode } => !!e);
+    .filter((e): e is { from: PipelineNode; to: PipelineNode } => !!e)
+    // 合并卡内部的 question→answer 边不画
+    .filter(e => !(e.from.type === 'question' && e.to.type === 'answer' && hiddenIds.has(e.to.id)));
 
   const bounds = useMemo(() => {
     if (!nodes.length)
@@ -404,7 +544,8 @@ function Canvas({
       maxX = -Infinity,
       maxY = -Infinity;
     nodes.forEach(n => {
-      const x = n.x ?? 0;
+      if (hiddenIds.has(n.id)) return; // 被合并的 answer 不参与 bbox，避免空白拉大画布
+      const x = effectiveX.get(n.id) ?? (n.x ?? 0);
       const y = n.y ?? 0;
       const w = n.w ?? NODE_W;
       minX = Math.min(minX, x);
@@ -413,7 +554,7 @@ function Canvas({
       maxY = Math.max(maxY, y + NODE_H);
     });
     return { minX: minX - 40, minY: minY - 40, maxX: maxX + 40, maxY: maxY + 40 };
-  }, [nodes]);
+  }, [nodes, hiddenIds, effectiveX]);
 
   return (
     <div
@@ -480,9 +621,13 @@ function Canvas({
           </defs>
           {edges.map((e, i) => {
             // 水平连线：从父节点右边中线 → 子节点左边中线
-            const fromX = (e.from.x ?? 0) - bounds.minX + (e.from.w ?? NODE_W);
-            const fromY = (e.from.y ?? 0) - bounds.minY + NODE_H / 2;
-            const toX = (e.to.x ?? 0) - bounds.minX;
+            // 若 from 是被合并掉的 answer，起点落到其 question（合并卡）的右边
+            const fromNode = hiddenIds.has(e.from.id)
+              ? (questionByAId.get(e.from.id) ?? e.from)
+              : e.from;
+            const fromX = getX(fromNode) - bounds.minX + (fromNode.w ?? NODE_W);
+            const fromY = (fromNode.y ?? 0) - bounds.minY + NODE_H / 2;
+            const toX = getX(e.to) - bounds.minX;
             const toY = (e.to.y ?? 0) - bounds.minY + NODE_H / 2;
             const isBranch = e.from.branchIdx !== e.to.branchIdx && e.from.type !== 'input';
             const isParseEdge = e.from.type === 'input' && e.to.type === 'parse';
@@ -560,22 +705,46 @@ function Canvas({
           })}
         </svg>
 
-        {nodes.map(n => (
-          <CanvasNode
-            key={n.id}
-            node={n}
-            selected={selectedNode === n.id}
-            streaming={streamingNodeId === n.id}
-            toolStatus={streamingNodeId === n.id ? toolStatus : null}
-            onSelect={() => setSelectedNode(n.id)}
-            onMark={() => onMark(n.id)}
-            onUnmark={() => onUnmark(n.id)}
-            onOpen={() => onOpen(n.id)}
-            onSubmitInput={onSubmitInput}
-            onStartExperiment={onStartExperiment}
-            onContextMenu={(x, y) => setCtxMenu({ x, y, nodeId: n.id })}
-          />
-        ))}
+        {nodes.map(n => {
+          if (hiddenIds.has(n.id)) return null;
+          const mergedAnswer = mergedByQId.get(n.id);
+          const nShown = { ...n, x: getX(n) };
+          if (mergedAnswer) {
+            const aSelected = selectedNode === n.id || selectedNode === mergedAnswer.id;
+            return (
+              <MergedQACard
+                key={n.id}
+                question={nShown}
+                answer={mergedAnswer}
+                selected={aSelected}
+                streaming={streamingNodeId === mergedAnswer.id}
+                toolStatus={streamingNodeId === mergedAnswer.id ? toolStatus : null}
+                onSelect={() => setSelectedNode(mergedAnswer.id)}
+                onMark={() => onMark(mergedAnswer.id)}
+                onUnmark={() => onUnmark(mergedAnswer.id)}
+                onOpen={() => onOpen(mergedAnswer.id)}
+                onStartExperiment={onStartExperiment}
+                onContextMenu={(x, y) => setCtxMenu({ x, y, nodeId: n.id })}
+              />
+            );
+          }
+          return (
+            <CanvasNode
+              key={n.id}
+              node={nShown}
+              selected={selectedNode === n.id}
+              streaming={streamingNodeId === n.id}
+              toolStatus={streamingNodeId === n.id ? toolStatus : null}
+              onSelect={() => setSelectedNode(n.id)}
+              onMark={() => onMark(n.id)}
+              onUnmark={() => onUnmark(n.id)}
+              onOpen={() => onOpen(n.id)}
+              onSubmitInput={onSubmitInput}
+              onStartExperiment={onStartExperiment}
+              onContextMenu={(x, y) => setCtxMenu({ x, y, nodeId: n.id })}
+            />
+          );
+        })}
       </div>
 
       {ctxMenu && (() => {
@@ -827,7 +996,7 @@ function Canvas({
         <div style={{ height: 1, background: 'var(--rule)', margin: '2px 0' }} />
         <button
           className="mono tool-btn"
-          onClick={() => setView({ x: 40, y: 20, zoom: 1.6 })}
+          onClick={() => setView({ x: 40, y: 20, zoom: 1.05 })}
           style={{ width: 28, height: 28, fontSize: 10 }}
         >
           ⊡
@@ -882,6 +1051,402 @@ function Canvas({
       </div>
     </div>
   );
+});
+
+/* ──────────────────────────────────────────────────────────
+   Minimap — 画布卡片总览导航
+   读 session.nodes + Canvas 广播的 view/rect，SVG 缩略图渲染
+   点节点 → Canvas.focusNode(id)；点空白 / 拖视口框 → Canvas.panToWorld
+   ────────────────────────────────────────────────────────── */
+const MINI_W = 276;
+const MINI_H = 176;
+const MINI_PAD = 6;
+
+function nodeMiniFill(node: PipelineNode): string {
+  switch (node.type) {
+    case 'input':
+      return 'var(--ink)';
+    case 'parse':
+      return node.parseEntry?.direct ? 'var(--amber)' : 'var(--red)';
+    case 'question':
+      return 'var(--amber)';
+    case 'experiment':
+      return 'var(--teal)';
+    default:
+      return 'var(--ink3)';
+  }
+}
+
+function Minimap({
+  nodes,
+  view,
+  canvasRect,
+  selectedNode,
+  streamingNodeId,
+  onFocusNode,
+  onNavigate,
+}: {
+  nodes: PipelineNode[];
+  view: CanvasView;
+  canvasRect: CanvasRect;
+  selectedNode: string | null;
+  streamingNodeId: string | null;
+  onFocusNode: (id: string) => void;
+  onNavigate: (worldX: number, worldY: number) => void;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // Q/A 视觉合并 + effectiveX 左移（与 Canvas 内逻辑保持一致）
+  const { mergedByQId, hiddenIds, effectiveX } = useMemo(() => {
+    const m = new Map<string, PipelineNode>();
+    const h = new Set<string>();
+    for (const n of nodes) {
+      if (n.type === 'answer' && n.parent) {
+        const q = nodes.find(x => x.id === n.parent && x.type === 'question');
+        if (q) {
+          m.set(q.id, n);
+          h.add(n.id);
+        }
+      }
+    }
+    const result = new Map<string, number>();
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const childrenBy = new Map<string, string[]>();
+    for (const n of nodes) {
+      if (n.parent) {
+        const arr = childrenBy.get(n.parent) ?? [];
+        arr.push(n.id);
+        childrenBy.set(n.parent, arr);
+      }
+    }
+    const SHIFT = NODE_W + COL_GAP;
+    const visit = (id: string, shift: number) => {
+      const nn = byId.get(id);
+      if (!nn) return;
+      result.set(id, (nn.x ?? 0) + shift);
+      const nextShift = h.has(id) ? shift - SHIFT : shift;
+      for (const cid of childrenBy.get(id) ?? []) visit(cid, nextShift);
+    };
+    for (const r of nodes.filter(n => !n.parent)) visit(r.id, 0);
+    return { mergedByQId: m, hiddenIds: h, effectiveX: result };
+  }, [nodes]);
+
+  const getX = (n: PipelineNode) => effectiveX.get(n.id) ?? (n.x ?? 0);
+
+  // 当前在跑的节点数：SSE streaming + 任意节点 state='streaming'（parse 并发解析）
+  const activeCount = useMemo(
+    () => nodes.filter(n => n.id === streamingNodeId || n.state === 'streaming').length,
+    [nodes, streamingNodeId],
+  );
+
+  // 世界坐标 bbox（只算非隐藏节点 + 120px padding）
+  const bbox = useMemo(() => {
+    if (!nodes.length) {
+      return { minX: 0, minY: 0, maxX: 1000, maxY: 600 };
+    }
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    nodes.forEach(n => {
+      if (hiddenIds.has(n.id)) return;
+      const x = effectiveX.get(n.id) ?? (n.x ?? 0);
+      const y = n.y ?? 0;
+      const w = n.w ?? NODE_W;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + NODE_H);
+    });
+    const pad = 120;
+    return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+  }, [nodes, hiddenIds, effectiveX]);
+
+  const innerW = MINI_W - MINI_PAD * 2;
+  const innerH = MINI_H - MINI_PAD * 2;
+  const bboxW = Math.max(1, bbox.maxX - bbox.minX);
+  const bboxH = Math.max(1, bbox.maxY - bbox.minY);
+  const scale = Math.min(innerW / bboxW, innerH / bboxH);
+  const drawW = bboxW * scale;
+  const drawH = bboxH * scale;
+  const offX = MINI_PAD + (innerW - drawW) / 2;
+  const offY = MINI_PAD + (innerH - drawH) / 2;
+
+  const toMini = (wx: number, wy: number) => ({
+    x: offX + (wx - bbox.minX) * scale,
+    y: offY + (wy - bbox.minY) * scale,
+  });
+
+  // 视口在世界坐标的位置 / 尺寸
+  const zoom = view.zoom || 1;
+  const vpWorld = {
+    x: -view.x / zoom,
+    y: -view.y / zoom,
+    w: (canvasRect.w || 0) / zoom,
+    h: (canvasRect.h || 0) / zoom,
+  };
+  const vp = toMini(vpWorld.x, vpWorld.y);
+  const vpW = vpWorld.w * scale;
+  const vpH = vpWorld.h * scale;
+
+  // 鼠标 clientXY → 世界坐标
+  const clientToWorld = (clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const r = svg.getBoundingClientRect();
+    const mx = clientX - r.left;
+    const my = clientY - r.top;
+    return {
+      wx: (mx - offX) / scale + bbox.minX,
+      wy: (my - offY) / scale + bbox.minY,
+    };
+  };
+
+  // SVG 空白/节点点击
+  const handleClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const pt = clientToWorld(e.clientX, e.clientY);
+    if (!pt) return;
+    // 合并卡用单卡宽度命中；隐藏 answer 不参与；hit-test 用 effective x
+    const hit = nodes.find(n => {
+      if (hiddenIds.has(n.id)) return false;
+      const x = getX(n);
+      const y = n.y ?? 0;
+      const w = n.w ?? NODE_W;
+      return pt.wx >= x && pt.wx <= x + w && pt.wy >= y && pt.wy <= y + NODE_H;
+    });
+    if (hit) {
+      // 合并卡：selected 挂 answer（操作行为都挂在 answer 上）
+      const focusId = mergedByQId.get(hit.id)?.id || hit.id;
+      onFocusNode(focusId);
+    } else {
+      onNavigate(pt.wx, pt.wy);
+    }
+  };
+
+  // 视口框拖动：抓住框上某点，框跟随鼠标；offset 保存点击位置相对视口中心的偏移
+  const [dragOff, setDragOff] = useState<{ dx: number; dy: number } | null>(null);
+  const onVpMouseDown = (e: React.MouseEvent<SVGRectElement>) => {
+    e.stopPropagation();
+    const pt = clientToWorld(e.clientX, e.clientY);
+    if (!pt) return;
+    const cx = vpWorld.x + vpWorld.w / 2;
+    const cy = vpWorld.y + vpWorld.h / 2;
+    setDragOff({ dx: pt.wx - cx, dy: pt.wy - cy });
+  };
+  useEffect(() => {
+    if (!dragOff) return;
+    const mv = (e: globalThis.MouseEvent) => {
+      const pt = clientToWorld(e.clientX, e.clientY);
+      if (!pt) return;
+      onNavigate(pt.wx - dragOff.dx, pt.wy - dragOff.dy);
+    };
+    const up = () => setDragOff(null);
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', up);
+    return () => {
+      window.removeEventListener('mousemove', mv);
+      window.removeEventListener('mouseup', up);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragOff]);
+
+  return (
+    <div
+      style={{
+        padding: '12px 12px 10px',
+        borderBottom: '1px solid var(--rule)',
+        background: 'var(--panel)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+        }}
+      >
+        <span
+          className="mono"
+          style={{
+            fontSize: 9,
+            color: 'var(--red)',
+            letterSpacing: 1.2,
+            textTransform: 'uppercase',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          ◎ 画布总览
+          {activeCount > 0 && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '1px 5px',
+                background: 'var(--red-soft)',
+                color: 'var(--red)',
+                border: '1px solid var(--red)',
+                fontWeight: 600,
+                letterSpacing: 0.3,
+              }}
+              title={`${activeCount} 个节点处理中`}
+            >
+              ● {activeCount}
+            </span>
+          )}
+        </span>
+        <span
+          className="mono"
+          style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 0.5 }}
+        >
+          {nodes.length} 节点 · {zoom.toFixed(1)}×
+        </span>
+      </div>
+      <svg
+        ref={svgRef}
+        width={MINI_W}
+        height={MINI_H}
+        onClick={handleClick}
+        style={{
+          display: 'block',
+          background: 'var(--bg)',
+          border: '1px solid var(--rule)',
+          cursor: dragOff ? 'grabbing' : 'default',
+        }}
+      >
+        {nodes.length === 0 && (
+          <text
+            x={MINI_W / 2}
+            y={MINI_H / 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={10}
+            fill="var(--ink4)"
+            style={{ fontFamily: 'var(--mono, monospace)', letterSpacing: 1 }}
+          >
+            空画布
+          </text>
+        )}
+        {nodes.map(n => {
+          if (hiddenIds.has(n.id)) return null;
+          const merged = mergedByQId.get(n.id);
+          const x = getX(n);
+          const y = n.y ?? 0;
+          // 合并卡在缩略图里也只占单卡宽度
+          const w = n.w ?? NODE_W;
+          const mp = toMini(x, y);
+          const mw = Math.max(2, w * scale);
+          const mh = Math.max(2, NODE_H * scale);
+          // 合并卡选中/streaming/marked 同时感知 question+answer
+          const isSelected = merged
+            ? selectedNode === n.id || selectedNode === merged.id
+            : n.id === selectedNode;
+          // streaming 判定：SSE 正在写入 / 节点自身 state='streaming'（parse 并发解析也算）
+          const effectiveN = merged ?? n;
+          const isStreaming =
+            effectiveN.id === streamingNodeId || effectiveN.state === 'streaming';
+          const isMarked = merged ? !!merged.marked : !!n.marked;
+          const fill = merged ? 'var(--amber)' : nodeMiniFill(n);
+          const cx0 = mp.x + mw / 2;
+          const cy0 = mp.y + mh / 2;
+          const rMin = Math.max(mw, mh) / 2 + 1;
+          const rMax = Math.max(mw, mh) * 1.4;
+          return (
+            <g key={n.id}>
+              {/* streaming 时单层柔和涟漪 */}
+              {isStreaming && (
+                <circle
+                  cx={cx0}
+                  cy={cy0}
+                  fill="none"
+                  stroke="var(--red)"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  <animate
+                    attributeName="r"
+                    values={`${rMin};${rMax}`}
+                    dur="1.6s"
+                    repeatCount="indefinite"
+                  />
+                  <animate
+                    attributeName="opacity"
+                    values="0.55;0"
+                    dur="1.6s"
+                    repeatCount="indefinite"
+                  />
+                  <animate
+                    attributeName="stroke-width"
+                    values="1.2;0.3"
+                    dur="1.6s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+              )}
+              {/* 节点本体：保留类型色，仅做柔和 opacity pulse */}
+              <rect
+                x={mp.x}
+                y={mp.y}
+                width={mw}
+                height={mh}
+                fill={fill}
+                opacity={isStreaming ? 1 : 0.85}
+                rx={1}
+                className={isStreaming ? 'pipe-mini-streaming' : undefined}
+              />
+              {isSelected && (
+                <rect
+                  x={mp.x - 1}
+                  y={mp.y - 1}
+                  width={mw + 2}
+                  height={mh + 2}
+                  fill="none"
+                  stroke="var(--amber)"
+                  strokeWidth={1.2}
+                />
+              )}
+              {isMarked && (
+                <circle
+                  cx={mp.x + mw - 2}
+                  cy={mp.y + 2}
+                  r={1.6}
+                  fill="var(--amber)"
+                />
+              )}
+            </g>
+          );
+        })}
+        {/* 视口框：在节点之上，便于点击/拖动 */}
+        {canvasRect.w > 0 && canvasRect.h > 0 && (
+          <rect
+            x={vp.x}
+            y={vp.y}
+            width={vpW}
+            height={vpH}
+            fill="rgba(201,74,26,0.08)"
+            stroke="var(--red)"
+            strokeWidth={1}
+            style={{ cursor: dragOff ? 'grabbing' : 'grab' }}
+            onMouseDown={onVpMouseDown}
+          />
+        )}
+      </svg>
+      <div
+        className="mono"
+        style={{
+          marginTop: 6,
+          fontSize: 9,
+          color: 'var(--ink4)',
+          letterSpacing: 0.4,
+          lineHeight: 1.5,
+        }}
+      >
+        点击节点居中 · 拖红框或点空白处平移
+      </div>
+    </div>
+  );
 }
 
 // 按节点类型返回视觉规格：底色 / 左边条颜色 / 头部标签 / 头部色
@@ -924,10 +1489,10 @@ function nodeVisuals(node: PipelineNode, selected: boolean): {
     case 'experiment':
       return {
         bg: 'var(--panel)',
-        headerBg: 'rgba(232,162,76,0.08)',
-        leftBar: 'var(--amber)',
+        headerBg: 'rgba(95,179,168,0.1)',
+        leftBar: 'var(--teal)',
         label: '❦ 实验',
-        labelColor: 'var(--amber)',
+        labelColor: 'var(--teal)',
         clickTitle: '双击展开实验对话',
       };
     default: // answer
@@ -1411,8 +1976,8 @@ function CanvasNode({
             title="以此回答为起点开启实验节点"
             style={{
               fontSize: 9,
-              color: 'var(--amber)',
-              border: '1px solid var(--amber)',
+              color: 'var(--teal)',
+              border: '1px solid var(--teal)',
               padding: '2px 6px',
               letterSpacing: 0.3,
               opacity: hovering || selected ? 1 : 0.55,
@@ -1423,6 +1988,360 @@ function CanvasNode({
           </button>
         )}
         {isAnswer && node.marked && (
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              onUnmark();
+            }}
+            className="mono"
+            style={{
+              fontSize: 9,
+              color: 'var(--amber)',
+              letterSpacing: 0.3,
+            }}
+          >
+            取消
+          </button>
+        )}
+        <span
+          className="mono"
+          style={{
+            fontSize: 9,
+            color: 'var(--ink4)',
+            letterSpacing: 0.5,
+            opacity: hovering ? 1 : 0.5,
+            transition: 'opacity 0.15s',
+          }}
+        >
+          双击 ⇱
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+   MergedQACard — 把一对 question + answer 视觉合并为一张卡
+   数据层仍保留两个独立节点（parent 链、sediment、experiment 派生照旧）
+   ────────────────────────────────────────────────────────── */
+function MergedQACard({
+  question,
+  answer,
+  selected,
+  streaming,
+  toolStatus,
+  onSelect,
+  onMark,
+  onUnmark,
+  onOpen,
+  onStartExperiment,
+  onContextMenu,
+}: {
+  question: PipelineNode;
+  answer: PipelineNode;
+  selected: boolean;
+  streaming: boolean;
+  toolStatus: string | null;
+  onSelect: () => void;
+  onMark: () => void;
+  onUnmark: () => void;
+  onOpen: () => void;
+  onStartExperiment: (answerNodeId: string) => void;
+  onContextMenu: (x: number, y: number) => void;
+}) {
+  const [hovering, setHovering] = useState(false);
+  const isStreaming = answer.state === 'streaming' || streaming;
+  const left = question.x ?? 0;
+  const top = question.y ?? 0;
+  // 合并卡收窄为单卡宽度：视觉上是一张 question 卡，答案通过双击或 footer 按钮触达
+  const width = question.w ?? NODE_W;
+  const borderColor = selected
+    ? 'var(--amber)'
+    : answer.marked
+      ? 'var(--amber)'
+      : 'var(--rule)';
+
+  const stateLabel = isStreaming
+    ? '● 正在写'
+    : answer.state === 'error'
+      ? '× 失败'
+      : answer.state === 'pending'
+        ? '等待'
+        : 'done';
+  const stateColor = isStreaming
+    ? 'var(--red)'
+    : answer.state === 'error'
+      ? 'var(--red)'
+      : 'var(--ink3)';
+
+  const questionText = truncate(question.text || '', 220);
+
+  return (
+    <div
+      data-node={question.id}
+      onClick={e => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      onDoubleClick={e => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      onContextMenu={e => {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect();
+        onContextMenu(e.clientX, e.clientY);
+      }}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+      title="双击展开对话详情"
+      style={{
+        position: 'absolute',
+        left,
+        top,
+        width,
+        height: NODE_H,
+        background: 'var(--panel)',
+        borderTop: `1px solid ${borderColor}`,
+        borderRight: `1px solid ${borderColor}`,
+        borderBottom: `1px solid ${borderColor}`,
+        borderLeft: `3px solid ${answer.marked ? 'var(--amber)' : 'var(--amber)'}`,
+        boxShadow: selected
+          ? '0 0 0 3px rgba(232,162,76,0.15), 4px 4px 0 rgba(0,0,0,0.4)'
+          : '3px 3px 0 rgba(0,0,0,0.4)',
+        cursor: 'pointer',
+        transition: 'border-color 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      {isStreaming && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 2,
+            overflow: 'hidden',
+            zIndex: 1,
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width: '40%',
+              background: 'var(--red)',
+              boxShadow: '0 0 8px var(--red)',
+              animation: 'pipelineScanBar 1.8s linear infinite',
+            }}
+          />
+        </div>
+      )}
+
+      {/* Header */}
+      <div
+        style={{
+          padding: '5px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          borderBottom: '1px solid var(--rule)',
+          background: 'rgba(232,162,76,0.06)',
+          flexShrink: 0,
+        }}
+      >
+        <span
+          className="mono"
+          style={{
+            fontSize: 9,
+            letterSpacing: 0.8,
+            textTransform: 'uppercase',
+            color: 'var(--amber)',
+            fontWeight: 600,
+          }}
+        >
+          → 你问
+        </span>
+        <span className="mono" style={{ fontSize: 9, color: 'var(--ink4)' }}>
+          {question.id}
+        </span>
+        {question.branchLabel && (
+          <span
+            className="mono"
+            style={{
+              fontSize: 9,
+              color: 'var(--branch)',
+              border: '1px solid var(--branch)',
+              padding: '1px 4px',
+              letterSpacing: 0.5,
+              maxWidth: 90,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {question.branchLabel}
+          </span>
+        )}
+        {answer.marked && (
+          <span
+            className="mono"
+            style={{
+              fontSize: 8,
+              color: 'var(--bg)',
+              background: 'var(--amber)',
+              padding: '1px 4px',
+              letterSpacing: 0.5,
+              fontWeight: 600,
+            }}
+          >
+            ✓
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span
+          className="mono"
+          style={{ fontSize: 9, color: stateColor, letterSpacing: 0.5 }}
+        >
+          {stateLabel}
+        </span>
+      </div>
+
+      {/* Body：只显示问题；答案通过双击或 footer 按钮触达 */}
+      <div
+        style={{
+          flex: 1,
+          padding: '10px 12px',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        <div
+          className="serif"
+          style={{
+            fontSize: 13,
+            lineHeight: 1.5,
+            color: 'var(--ink)',
+            fontWeight: 500,
+            letterSpacing: -0.1,
+            display: '-webkit-box',
+            WebkitLineClamp: 4,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            flex: 1,
+          }}
+        >
+          {questionText || '（空问题）'}
+        </div>
+        {isStreaming && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            {[0, 1, 2].map(i => (
+              <span
+                key={i}
+                style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: '50%',
+                  background: 'var(--red)',
+                  animation: `pipelineTypingDot 1s infinite ${i * 0.15}s`,
+                }}
+              />
+            ))}
+            <span
+              className="mono"
+              style={{
+                fontSize: 9,
+                color: 'var(--red)',
+                marginLeft: 4,
+                letterSpacing: 0.5,
+              }}
+            >
+              {toolStatus || 'agent 回答中…'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Footer：复刻 answer 的操作区 */}
+      <div
+        style={{
+          padding: '4px 10px',
+          borderTop: '1px dashed var(--rule)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          flexShrink: 0,
+          background: 'rgba(0,0,0,0.15)',
+        }}
+      >
+        {(answer.duration || answer.tokens) && (
+          <span className="mono" style={{ fontSize: 9, color: 'var(--ink3)' }}>
+            {answer.duration ?? ''}
+            {answer.duration && answer.tokens ? ' · ' : ''}
+            {answer.tokens ? `${answer.tokens}t` : ''}
+          </span>
+        )}
+        {answer.createdAt && (
+          <span className="mono" style={{ fontSize: 9, color: 'var(--ink4)' }}>
+            {answer.createdAt.length > 8
+              ? answer.createdAt.slice(11, 19)
+              : answer.createdAt}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {answer.state === 'done' && !answer.marked && (
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              onMark();
+            }}
+            className="mono"
+            style={{
+              fontSize: 9,
+              color: 'var(--amber)',
+              border: '1px solid var(--amber)',
+              padding: '2px 6px',
+              letterSpacing: 0.3,
+              opacity: hovering || selected ? 1 : 0.55,
+              transition: 'opacity 0.15s',
+            }}
+          >
+            ◈ 标记
+          </button>
+        )}
+        {answer.state === 'done' && (
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              onStartExperiment(answer.id);
+            }}
+            className="mono"
+            title="以此回答为起点开启实验节点"
+            style={{
+              fontSize: 9,
+              color: 'var(--teal)',
+              border: '1px solid var(--teal)',
+              padding: '2px 6px',
+              letterSpacing: 0.3,
+              opacity: hovering || selected ? 1 : 0.55,
+              transition: 'opacity 0.15s',
+            }}
+          >
+            ❦ 实验
+          </button>
+        )}
+        {answer.marked && (
           <button
             onClick={e => {
               e.stopPropagation();
@@ -1687,240 +2606,6 @@ function InputNodeBody({
   );
 }
 
-/* ──────────────────────────────────────────────────────────
-   SedimentTray (right)
-   ────────────────────────────────────────────────────────── */
-function SedimentTray({
-  points,
-  onJumpTo,
-  onRemove,
-  setShowReview,
-}: {
-  points: SedimentPoint[];
-  onJumpTo: (nodeId: string) => void;
-  onRemove: (id: string) => void;
-  setShowReview: (v: boolean) => void;
-}) {
-  return (
-    <aside
-      style={{
-        width: 300,
-        height: '100%',
-        borderLeft: '1px solid var(--rule)',
-        background: 'var(--panel)',
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'relative',
-        zIndex: 4,
-      }}
-    >
-      <div
-        style={{
-          padding: '12px 16px 10px',
-          borderBottom: '1px solid var(--rule)',
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div>
-          <div
-            className="mono"
-            style={{
-              fontSize: 9,
-              color: 'var(--red)',
-              letterSpacing: 1.2,
-              textTransform: 'uppercase',
-            }}
-          >
-            ◈ 沉淀区 · sediment
-          </div>
-          <div
-            className="serif"
-            style={{
-              fontSize: 15,
-              color: 'var(--ink)',
-              fontWeight: 500,
-              marginTop: 2,
-              letterSpacing: -0.1,
-            }}
-          >
-            {points.length} 个要点
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="scroll"
-        style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 20px' }}
-      >
-        {points.length === 0 && (
-          <div
-            className="mono"
-            style={{
-              fontSize: 10,
-              color: 'var(--ink3)',
-              textAlign: 'center',
-              padding: '40px 10px',
-              border: '1px dashed var(--rule)',
-              lineHeight: 1.6,
-            }}
-          >
-            还没有标记任何要点
-            <br />
-            <span style={{ color: 'var(--ink4)' }}>
-              悬停回答 → 点 ◈ 标为要点
-            </span>
-          </div>
-        )}
-
-        {points.map((p, i) => (
-          <div
-            key={p.id}
-            style={{
-              marginBottom: 10,
-              background: 'var(--bg2)',
-              border: '1px solid var(--rule)',
-              borderLeft: '2px solid var(--amber)',
-              position: 'relative',
-              animation: 'pipelineFadeIn 0.25s ease-out',
-            }}
-          >
-            <div
-              className="mono"
-              style={{
-                padding: '6px 10px 4px',
-                fontSize: 9,
-                color: 'var(--amber)',
-                letterSpacing: 1.2,
-                background: 'rgba(232,162,76,0.06)',
-                borderBottom: '1px dashed var(--rule)',
-                display: 'flex',
-                justifyContent: 'space-between',
-              }}
-            >
-              <span>
-                ◈ № {String(i + 1).padStart(2, '0')} · {p.markedAt}
-              </span>
-              <button
-                onClick={() => onRemove(p.id)}
-                style={{ color: 'var(--ink3)', fontSize: 10 }}
-              >
-                ×
-              </button>
-            </div>
-            <div style={{ padding: '10px 12px 8px' }}>
-              <div
-                className="serif"
-                style={{
-                  fontSize: 13,
-                  color: 'var(--ink)',
-                  fontWeight: 500,
-                  lineHeight: 1.35,
-                  letterSpacing: -0.1,
-                }}
-              >
-                {p.text}
-              </div>
-              {p.excerpts.length > 0 && (
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--ink2)',
-                    lineHeight: 1.5,
-                    marginTop: 6,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 4,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {p.excerpts.join('\n\n')}
-                </div>
-              )}
-            </div>
-            <div
-              style={{
-                padding: '6px 10px',
-                borderTop: '1px dashed var(--rule)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                background: 'rgba(0,0,0,0.15)',
-              }}
-            >
-              {p.suggestedSection && (
-                <span
-                  className="mono"
-                  style={{
-                    fontSize: 9,
-                    color: 'var(--teal)',
-                    letterSpacing: 0.3,
-                    border: '1px solid var(--teal)',
-                    opacity: 0.8,
-                    padding: '1px 5px',
-                  }}
-                >
-                  § {p.suggestedSection}
-                </span>
-              )}
-              <button
-                onClick={() => onJumpTo(p.fromNode)}
-                className="mono"
-                style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 0.3 }}
-              >
-                ↳ 跳至 {p.fromNode}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div
-        style={{
-          padding: '12px 12px 14px',
-          borderTop: '1px solid var(--rule)',
-          background: 'var(--bg2)',
-        }}
-      >
-        <button
-          onClick={() => setShowReview(true)}
-          disabled={points.length === 0}
-          className="mono"
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            background: points.length ? 'var(--amber)' : 'var(--bg2)',
-            color: points.length ? 'var(--bg)' : 'var(--ink4)',
-            border:
-              '1px solid ' + (points.length ? 'var(--amber)' : 'var(--rule)'),
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 0.5,
-            cursor: points.length ? 'pointer' : 'not-allowed',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span>整理 → 存入 Wiki</span>
-          <span>→</span>
-        </button>
-        <div
-          className="mono"
-          style={{
-            fontSize: 9,
-            color: 'var(--ink3)',
-            marginTop: 6,
-            textAlign: 'center',
-          }}
-        >
-          AI 会把要点预合成为词条草稿
-        </div>
-      </div>
-    </aside>
-  );
-}
 
 /* ──────────────────────────────────────────────────────────
    ReviewSheet — 手动分组 + 存入 Wiki（无 AI 参与）
@@ -1966,11 +2651,17 @@ function ReviewSheet({
   session,
   onClose,
   onSaved,
+  onJumpTo,
+  onRemove,
 }: {
   session: PipelineSession;
   onClose: () => void;
   onSaved: (itemId: string) => void;
+  onJumpTo: (nodeId: string) => void;
+  onRemove: (id: string) => void;
 }) {
+  // 顶层阶段 tab：list=查看要点，review=整理存入（原 ReviewSheet）
+  const [stage, setStage] = useState<'list' | 'review'>('list');
   const [mode, setMode] = useState<ReviewMode>('new');
   const [appendToItemId, setAppendToItemId] = useState<string>('');
   // 取首个 parse 节点标题作为默认条目名；兼容老数据的 entrySnapshot
@@ -2151,13 +2842,13 @@ function ReviewSheet({
               className="mono"
               style={{ fontSize: 10, color: 'var(--amber)', letterSpacing: 1.4, textTransform: 'uppercase' }}
             >
-              § 整理 · 手动分组 & 存入
+              ◈ 沉淀区 · {session.sediment.length} 个要点
             </div>
             <div
               className="serif"
               style={{ fontSize: 20, color: 'var(--ink)', fontWeight: 500, marginTop: 4, letterSpacing: -0.3 }}
             >
-              手动分组 · 原文无损存入 Wiki
+              {stage === 'list' ? '查看已标记要点' : '手动分组 · 原文无损存入 Wiki'}
             </div>
           </div>
           <button onClick={onClose} className="mono" style={{ fontSize: 14, color: 'var(--ink3)' }}>
@@ -2165,32 +2856,63 @@ function ReviewSheet({
           </button>
         </div>
 
-        {/* mode tabs */}
+        {/* stage tabs：查看要点 / 整理存入 */}
         <div
           style={{
-            padding: '16px 20px 0',
+            padding: '0 20px',
             display: 'flex',
             gap: 0,
             borderBottom: '1px solid var(--rule)',
+            background: 'var(--bg2)',
           }}
         >
-          {(['new', 'append'] as const).map(m => (
+          {(['list', 'review'] as const).map(st => (
             <button
-              key={m}
-              onClick={() => setMode(m)}
+              key={st}
+              onClick={() => setStage(st)}
               className="mono"
               style={{
-                padding: '10px 16px',
+                padding: '12px 18px',
                 fontSize: 11,
                 letterSpacing: 0.5,
-                color: mode === m ? 'var(--amber)' : 'var(--ink3)',
-                borderBottom: mode === m ? '2px solid var(--amber)' : '2px solid transparent',
+                fontWeight: stage === st ? 600 : 400,
+                color: stage === st ? 'var(--amber)' : 'var(--ink3)',
+                borderBottom: stage === st ? '2px solid var(--amber)' : '2px solid transparent',
               }}
             >
-              {m === 'new' ? '新建词条' : '追加到现有词条'}
+              {st === 'list' ? `◈ 要点一览 (${session.sediment.length})` : '§ 整理存入 Wiki'}
             </button>
           ))}
         </div>
+
+        {/* mode tabs：仅在 review 阶段显示 */}
+        {stage === 'review' && (
+          <div
+            style={{
+              padding: '16px 20px 0',
+              display: 'flex',
+              gap: 0,
+              borderBottom: '1px solid var(--rule)',
+            }}
+          >
+            {(['new', 'append'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className="mono"
+                style={{
+                  padding: '10px 16px',
+                  fontSize: 11,
+                  letterSpacing: 0.5,
+                  color: mode === m ? 'var(--amber)' : 'var(--ink3)',
+                  borderBottom: mode === m ? '2px solid var(--amber)' : '2px solid transparent',
+                }}
+              >
+                {m === 'new' ? '新建词条' : '追加到现有词条'}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Body */}
         <div className="scroll" style={{ flex: 1, overflowY: 'auto', padding: '18px 22px 22px' }}>
@@ -2204,13 +2926,125 @@ function ReviewSheet({
                 color: 'var(--ink3)',
                 border: '1px dashed var(--rule)',
                 textAlign: 'center',
+                lineHeight: 1.7,
               }}
             >
-              沉淀区为空，请先在画布上标记要点
+              沉淀区为空
+              <br />
+              <span style={{ color: 'var(--ink4)' }}>
+                在画布上悬停回答 → 点 ◈ 将要点标为沉淀
+              </span>
             </div>
           )}
 
-          {session.sediment.length > 0 && (
+          {/* 阶段 1：要点一览 */}
+          {stage === 'list' && session.sediment.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {session.sediment.map((p, i) => (
+                <div
+                  key={p.id}
+                  style={{
+                    background: 'var(--bg2)',
+                    border: '1px solid var(--rule)',
+                    borderLeft: '2px solid var(--amber)',
+                  }}
+                >
+                  <div
+                    className="mono"
+                    style={{
+                      padding: '6px 12px 4px',
+                      fontSize: 9,
+                      color: 'var(--amber)',
+                      letterSpacing: 1.2,
+                      background: 'rgba(232,162,76,0.06)',
+                      borderBottom: '1px dashed var(--rule)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span>
+                      ◈ № {String(i + 1).padStart(2, '0')} · {p.markedAt}
+                    </span>
+                    <button
+                      onClick={() => onRemove(p.id)}
+                      style={{ color: 'var(--ink3)', fontSize: 11, padding: '0 4px' }}
+                      title="从沉淀区移除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div style={{ padding: '10px 14px 8px' }}>
+                    <div
+                      className="serif"
+                      style={{
+                        fontSize: 14,
+                        color: 'var(--ink)',
+                        fontWeight: 500,
+                        lineHeight: 1.4,
+                        letterSpacing: -0.1,
+                      }}
+                    >
+                      {p.text}
+                    </div>
+                    {p.excerpts.length > 0 && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--ink2)',
+                          lineHeight: 1.55,
+                          marginTop: 6,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {p.excerpts.join('\n\n')}
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      padding: '6px 12px',
+                      borderTop: '1px dashed var(--rule)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: 'rgba(0,0,0,0.15)',
+                    }}
+                  >
+                    {p.suggestedSection ? (
+                      <span
+                        className="mono"
+                        style={{
+                          fontSize: 9,
+                          color: 'var(--teal)',
+                          letterSpacing: 0.3,
+                          border: '1px solid var(--teal)',
+                          opacity: 0.8,
+                          padding: '1px 6px',
+                        }}
+                      >
+                        § {p.suggestedSection}
+                      </span>
+                    ) : <span />}
+                    <button
+                      onClick={() => onJumpTo(p.fromNode)}
+                      className="mono"
+                      style={{ fontSize: 10, color: 'var(--ink3)', letterSpacing: 0.3 }}
+                      title="跳转到来源节点"
+                    >
+                      ↳ 跳至 {p.fromNode}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 阶段 2：整理存入 */}
+          {stage === 'review' && session.sediment.length > 0 && (
             <>
               {/* 追加模式：目标条目选择 */}
               {mode === 'append' && (
@@ -2529,30 +3363,50 @@ function ReviewSheet({
               className="mono tool-btn"
               style={{ padding: '8px 14px', fontSize: 11 }}
             >
-              再想想
+              {stage === 'list' ? '关闭' : '再想想'}
             </button>
-            <button
-              onClick={save}
-              disabled={
-                saving || session.sediment.length === 0 ||
-                (mode === 'append' && !appendToItemId)
-              }
-              className="mono"
-              style={{
-                padding: '8px 18px',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: 0.5,
-                background: saving || session.sediment.length === 0 || (mode === 'append' && !appendToItemId)
-                  ? 'var(--bg2)' : 'var(--amber)',
-                color: saving || session.sediment.length === 0 || (mode === 'append' && !appendToItemId)
-                  ? 'var(--ink4)' : 'var(--bg)',
-                border: '1px solid var(--amber)',
-                cursor: saving || session.sediment.length === 0 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {saving ? '保存中…' : mode === 'append' ? '追加到词条 →' : '创建词条 →'}
-            </button>
+            {stage === 'list' ? (
+              <button
+                onClick={() => setStage('review')}
+                disabled={session.sediment.length === 0}
+                className="mono"
+                style={{
+                  padding: '8px 18px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                  background: session.sediment.length === 0 ? 'var(--bg2)' : 'var(--amber)',
+                  color: session.sediment.length === 0 ? 'var(--ink4)' : 'var(--bg)',
+                  border: '1px solid var(--amber)',
+                  cursor: session.sediment.length === 0 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                整理 → 存入 Wiki
+              </button>
+            ) : (
+              <button
+                onClick={save}
+                disabled={
+                  saving || session.sediment.length === 0 ||
+                  (mode === 'append' && !appendToItemId)
+                }
+                className="mono"
+                style={{
+                  padding: '8px 18px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                  background: saving || session.sediment.length === 0 || (mode === 'append' && !appendToItemId)
+                    ? 'var(--bg2)' : 'var(--amber)',
+                  color: saving || session.sediment.length === 0 || (mode === 'append' && !appendToItemId)
+                    ? 'var(--ink4)' : 'var(--bg)',
+                  border: '1px solid var(--amber)',
+                  cursor: saving || session.sediment.length === 0 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {saving ? '保存中…' : mode === 'append' ? '追加到词条 →' : '创建词条 →'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -3250,6 +4104,11 @@ export function PipelineView({ pipeline, onExit }: Props) {
   const [parseTarget, setParseTarget] = useState<string | null>(null);
   const [experimentTarget, setExperimentTarget] = useState<string | null>(null);
 
+  // Minimap 需要 Canvas 的 view + 尺寸；通过 ref 反向调用 focusNode/panToWorld
+  const canvasRef = useRef<CanvasHandle>(null);
+  const [canvasView, setCanvasView] = useState<CanvasView>({ x: 40, y: 20, zoom: 1.6 });
+  const [canvasRect, setCanvasRect] = useState<CanvasRect>({ w: 0, h: 0 });
+
   // 首次 mount：确保存在 session + 至少一张 input 节点
   useEffect(() => {
     let cancelled = false;
@@ -3330,6 +4189,7 @@ export function PipelineView({ pipeline, onExit }: Props) {
         onNewFlow={() => pipeline.addInputFlow()}
         model={pipeline.model}
         onModelChange={pipeline.setModel}
+        sedimentCount={session.sediment.length}
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div
@@ -3342,6 +4202,7 @@ export function PipelineView({ pipeline, onExit }: Props) {
           }}
         >
           <Canvas
+            ref={canvasRef}
             nodes={session.nodes}
             streamingNodeId={pipeline.streamingNodeId}
             toolStatus={pipeline.toolStatus}
@@ -3359,17 +4220,39 @@ export function PipelineView({ pipeline, onExit }: Props) {
               }
             }}
             onDelete={pipeline.deleteNode}
+            onViewChange={(v, r) => {
+              setCanvasView(v);
+              setCanvasRect(r);
+            }}
           />
         </div>
-        <SedimentTray
-          points={session.sediment}
-          onJumpTo={nodeId => {
-            setSelectedNode(nodeId);
-            openSheet(nodeId);
+        {/* 右侧栏：顶部 Minimap 总览导航；下方空间保留供后续功能 */}
+        <aside
+          aria-label="右侧功能栏"
+          style={{
+            width: 300,
+            height: '100%',
+            borderLeft: '1px solid var(--rule)',
+            background: 'var(--panel)',
+            position: 'relative',
+            zIndex: 4,
+            display: 'flex',
+            flexDirection: 'column',
           }}
-          onRemove={pipeline.removeSediment}
-          setShowReview={setShowReview}
-        />
+        >
+          <Minimap
+            nodes={session.nodes}
+            view={canvasView}
+            canvasRect={canvasRect}
+            selectedNode={selectedNode}
+            streamingNodeId={pipeline.streamingNodeId}
+            onFocusNode={id => {
+              setSelectedNode(id);
+              canvasRef.current?.focusNode(id);
+            }}
+            onNavigate={(wx, wy) => canvasRef.current?.panToWorld(wx, wy)}
+          />
+        </aside>
       </div>
 
       {parseTarget && (
@@ -3414,6 +4297,12 @@ export function PipelineView({ pipeline, onExit }: Props) {
           onSaved={() => {
             setShowReview(false);
           }}
+          onJumpTo={nodeId => {
+            setShowReview(false);
+            setSelectedNode(nodeId);
+            openSheet(nodeId);
+          }}
+          onRemove={pipeline.removeSediment}
         />
       )}
 
@@ -4211,7 +5100,7 @@ function ExperimentSheet({
   const [input, setInput] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
   const [seedOpen, setSeedOpen] = useState(false);
-  const [cozeOpen, setCozeOpen] = useState(true);
+  const [cozeOpen, setCozeOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -4219,9 +5108,22 @@ function ExperimentSheet({
   const isStreamingHere = pipeline.streamingNodeId === nodeId;
   const streamingText = isStreamingHere ? pipeline.experimentStreamingText : '';
 
+  // 新消息到来：无条件滚到底（让用户看到新消息）
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [payload?.messages.length, streamingText]);
+  }, [payload?.messages.length]);
+
+  // 流式 token 增量：只有用户当前「粘在底部」才跟随滚动，
+  // 否则保持用户自行滚动的位置，允许上翻查看历史
+  useEffect(() => {
+    if (!streamingText) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (atBottom) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [streamingText]);
 
   useEffect(() => {
     if (!isStreamingHere) inputRef.current?.focus();
@@ -4260,7 +5162,7 @@ function ExperimentSheet({
         className="pipeline-sheet-resizable"
         style={{
           width: 'min(1200px, 94vw)',
-          height: 'auto',
+          height: 'min(820px, 90vh)',
           minWidth: 560,
           minHeight: 320,
           maxWidth: '98vw',
@@ -4370,9 +5272,8 @@ function ExperimentSheet({
         <div
           ref={scrollRef}
           style={{
-            flex: 1,
-            minHeight: 260,
-            maxHeight: 'calc(100vh - 340px)',
+            flex: '1 1 0',
+            minHeight: 0,
             overflowY: 'auto',
             padding: '11px 18px',
           }}
@@ -4472,7 +5373,17 @@ function ExperimentSheet({
               </span>
             </button>
             {cozeOpen && (
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div
+                style={{
+                  marginTop: 8,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  maxHeight: 260,
+                  overflowY: 'auto',
+                  paddingRight: 4,
+                }}
+              >
                 {payload.cozeRuns.map(run => <CozeRunRow key={run.id} run={run} />)}
               </div>
             )}

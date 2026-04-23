@@ -1,0 +1,184 @@
+{
+  "id": "ed9ebdf4-ac6a-426a-8ec1-ae7de18a7755",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:18:33",
+      "inputUrls": [
+        "paste://1776694719278"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "// Heartfelt - by Martijn Steinrucken ak",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:18:39",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "41e9fefc-de51-410a-b29c-25381bcc6620",
+        "batchId": "24375d11-705e-40bd-8faf-e04b6c351494",
+        "url": "paste://1776694719278",
+        "title": "// Heartfelt - by Martijn Steinrucken ak",
+        "livePhases": [],
+        "verdict": "save",
+        "verdictReason": "直接深入模式（用户粘贴原文，未跑解析 agent）",
+        "narrative": "// Heartfelt - by Martijn Steinrucken aka BigWings - 2017\n// Email:countfrolic@gmail.com Twitter:@The_ArtOfCode\n// License Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.\n\n// I revisited the rain effect I did for another shader. This one is better in multiple ways:\n// 1. The glass gets foggy.\n// 2. Drops cut trails in the fog on the glass.\n// 3. The amount of rain is adjustable (with Mouse.y)\n\n// To have full control over the rain, uncomment the HAS_HEART define \n\n// A video of the effect can be found here:\n// https://www.youtube.com/watch?v=uiF5Tlw22PI&feature=youtu.be\n\n// Music - Alone In The Dark - Vadim Kiselev\n// https://soundcloud.com/ahmed-gado-1/sad-piano-alone-in-the-dark\n// Rain sounds:\n// https://soundcloud.com/elirtmusic/sleeping-sound-rain-and-thunder-1-hours\n\n#define S(a, b, t) smoothstep(a, b, t)\n//#define CHEAP_NORMALS\n#define HAS_HEART\n#define USE_POST_PROCESSING\n\nvec3 N13(float p) {\n    //  from DAVE HOSKINS\n   vec3 p3 = fract(vec3(p) * vec3(.1031,.11369,.13787));\n   p3 += dot(p3, p3.yzx + 19.19);\n   return fract(vec3((p3.x + p3.y)*p3.z, (p3.x+p3.z)*p3.y, (p3.y+p3.z)*p3.x));\n}\n\nvec4 N14(float t) {\n\treturn fract(sin(t*vec4(123., 1024., 1456., 264.))*vec4(6547., 345., 8799., 1564.));\n}\nfloat N(float t) {\n    return fract(sin(t*12345.564)*7658.76);\n}\n\nfloat Saw(float b, float t) {\n\treturn S(0., b, t)*S(1., b, t);\n}\n\n\nvec2 DropLayer2(vec2 uv, float t) {\n    vec2 UV = uv;\n    \n    uv.y += t*0.75;\n    vec2 a = vec2(6., 1.);\n    vec2 grid = a*2.;\n    vec2 id = floor(uv*grid);\n    \n    float colShift = N(id.x); \n    uv.y += colShift;\n    \n    id = floor(uv*grid);\n    vec3 n = N13(id.x*35.2+id.y*2376.1);\n    vec2 st = fract(uv*grid)-vec2(.5, 0);\n    \n    float x = n.x-.5;\n    \n    float y = UV.y*20.;\n    float wiggle = sin(y+sin(y));\n    x += wiggle*(.5-abs(x))*(n.z-.5);\n    x *= .7;\n    float ti = fract(t+n.z);\n    y = (Saw(.85, ti)-.5)*.9+.5;\n    vec2 p = vec2(x, y);\n    \n    float d = length((st-p)*a.yx);\n    \n    float mainDr",
+        "concepts": [],
+        "sources": [],
+        "direct": true
+      }
+    },
+    {
+      "id": "n3",
+      "type": "question",
+      "state": "done",
+      "text": "该雨滴真实滑落视觉的实现原理是什么",
+      "parent": "n2",
+      "branchIdx": 0,
+      "x": 768,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:22:52",
+      "model": "sonnet"
+    },
+    {
+      "id": "n4",
+      "type": "answer",
+      "state": "done",
+      "text": "## 雨滴真实滑落视觉的实现原理\n\n锚点代码中 `DropLayer2` 函数是核心，分以下几层机制：\n\n---\n\n### 1. 格栅化分区（每滴独立随机）\n\n```glsl\nvec2 a = vec2(6., 1.);\nvec2 grid = a*2.;\nvec2 id = floor(uv*grid);\n```\n\n屏幕被切成 6:1 宽高比的小格（横向密，纵向稀）。每个格子用 `N13(id.x*35.2 + id.y*2376.1)` 生成独立随机向量 `n`，决定该滴的**x 偏移、时间相位、抖动幅度**，保证每滴行为不同。\n\n---\n\n### 2. 列间错位防止对齐感\n\n```glsl\nfloat colShift = N(id.x);\nuv.y += colShift;\n```\n\n同列的滴在 y 方向随机偏移，避免所有滴整齐地从同一高度出发，消除人工感。\n\n---\n\n### 3. 锯齿波控制滑落节奏\n\n```glsl\nfloat ti = fract(t + n.z);\ny = (Saw(.85, ti) - .5) * .9 + .5;\n```\n\n`Saw(b, t)` = `smoothstep(0,b,t) * smoothstep(1,b,t)`，形成**先缓慢积聚、然后快速下滑、最后突然复位**的运动曲线。`.85` 控制下滑占整个周期的比例——前 85% 时间在滑落，后 15% 瞬间跳回顶部，模拟水滴聚积到临界点才滑落的物理行为。\n\n---\n\n### 4. 蜿蜒路径（正弦叠加）\n\n```glsl\nfloat wiggle = sin(y + sin(y));\nx += wiggle * (.5 - abs(x)) * (n.z - .5);\n```\n\n用 `sin(y+sin(y))` 产生非线性的 S 形摆动，越靠近中心（`abs(x)` 小）摆动越大，同时乘以随机因子 `n.z-.5` 让每滴摆幅方向不同——这是玻璃上水滴走\"Z字路\"的关键。\n\n---\n\n### 5. 椭圆 SDF 塑形\n\n```glsl\nfloat d = length((st - p) * a.yx);\n```\n\n`a.yx = vec2(1., 6.)`，在距离计算时 y 方向放大 6 倍，把圆压缩成**竖向水滴椭圆**形。后续（代码被截断处）会用 `smoothstep` 对 `d` 阈值化，得到带柔边的水滴轮廓，再用来扰动背景 UV 产生折射感。\n\n---\n\n**整体流程**：格栅分区 → 随机参数绑定 → 锯齿波驱动 y 位置 → 正弦叠加产生蜿蜒 x → 椭圆 SDF 渲染轮廓 → 扰动 UV 模拟折射。所有计算均在 fragment shader 里逐像素完成，无需粒子系统。",
+      "parent": "n3",
+      "branchIdx": 0,
+      "x": 1112,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:22:52",
+      "model": "sonnet",
+      "duration": "30.5s"
+    },
+    {
+      "id": "n5",
+      "type": "question",
+      "state": "done",
+      "text": "我不懂技术，需要你科普下他都用了还是什么底层技术，不是代码层面",
+      "parent": "n3",
+      "branchIdx": 1,
+      "x": 1112,
+      "y": 280,
+      "w": 280,
+      "createdAt": "22:34:51",
+      "model": "sonnet"
+    },
+    {
+      "id": "n6",
+      "type": "answer",
+      "state": "done",
+      "text": "这条分支锚定在 Heartfelt 雨滴 Shader 的实现原理，我按这个边界回答。\n\n---\n\n## 非技术版：这个雨滴效果背后用了什么\"底层技术\"？\n\n### 🖥️ 第一层：运行在显卡上的\"像素程序\"（Fragment Shader）\n\n这个效果不是视频，也不是图片——它是一段**每秒运行数十亿次的小程序**，专门跑在你电脑的显卡（GPU）里。屏幕上每一个像素，它都单独计算一遍\"这里该显示什么颜色\"。这类程序叫 **GLSL Fragment Shader**，是实时图形渲染的底层语言。\n\n### 🎲 第二层：用数学公式\"伪造\"随机（过程式噪声）\n\n代码里的 `N13`、`N14`、`N` 函数，本质是用**数学公式模拟随机数**。真实世界里雨滴的位置、大小、速度都是随机的，但计算机不存真随机——作者用了一类叫**哈希函数**的数学技巧，输入一个位置坐标，就能输出一个\"看起来随机\"的值。这是程序化生成内容的核心底层思路。\n\n### 📐 第三层：坐标变换（UV 空间操作）\n\n屏幕被抽象成一张 0~1 的坐标网格（叫 **UV 空间**）。雨滴\"向下滑动\"的效果，实际上是不断**修改这个坐标系**，让纹理/颜色采样的位置随时间偏移，视觉上就像东西在动。\n\n### 🌫️ 第四层：平滑插值（Smoothstep）\n\n代码大量使用 `smoothstep`，这是一个**数学插值函数**，让颜色、边缘过渡得自然柔和——雨滴的边缘不会生硬，玻璃的雾气会渐变，都靠它实现。\n\n---\n\n**一句话总结**：这是一段跑在显卡上的数学程序，用坐标变换模拟运动、用哈希函数模拟随机、用插值函数模拟柔和——完全没有真实图片或物理模拟，**全是纯数学画出来的**。",
+      "parent": "n5",
+      "branchIdx": 1,
+      "x": 1456,
+      "y": 280,
+      "w": 280,
+      "createdAt": "22:34:51",
+      "model": "sonnet",
+      "duration": "21.9s",
+      "tokens": 12,
+      "marked": true,
+      "markedAs": "这条分支锚定在 Heartfelt 雨滴 Shader 的实现原理，我按这个边界回答。"
+    },
+    {
+      "id": "n7",
+      "type": "question",
+      "state": "done",
+      "text": "我需要一套文档能让任意llm拿到之后就能给我做出这种真实雨滴的视觉效果",
+      "parent": "n4",
+      "branchIdx": 0,
+      "x": 1456,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:40:01",
+      "model": "sonnet"
+    },
+    {
+      "id": "n8",
+      "type": "answer",
+      "state": "done",
+      "text": "这条分支锚定在 Heartfelt shader 的雨滴实现原理，以下直接基于锚点和父节点分析，输出一份面向 LLM 的自包含实现规格文档。\n\n---\n\n# 🌧️ 玻璃雨滴视觉效果实现规格文档\n\n> **受众**：任意具备 GLSL / WGSL / ShaderToy 能力的 LLM  \n> **目标**：在 fragment shader 中纯数学实现玻璃表面真实雨滴滑落效果  \n> **原作**：Martijn Steinrucken (BigWings) — Heartfelt, 2017\n\n---\n\n## 一、效果构成清单\n\n实现以下四个视觉层，缺一不可：\n\n| 层 | 描述 |\n|---|---|\n| A | 主水滴（椭圆体，带折射扰动） |\n| B | 滑落轨迹（拖尾细条纹，雾气被划开） |\n| C | 玻璃雾气（全屏低频模糊感） |\n| D | 环境折射（背景图通过水滴 UV 扭曲） |\n\n---\n\n## 二、必须实现的数学工具函数\n\n```glsl\n// 1. 宏：smoothstep 别名\n#define S(a, b, t) smoothstep(a, b, t)\n\n// 2. 哈希：float -> vec3，用于给每个格子绑定随机参数\nvec3 N13(float p) {\n    vec3 p3 = fract(vec3(p) * vec3(.1031, .11369, .13787));\n    p3 += dot(p3, p3.yzx + 19.19);\n    return fract(vec3((p3.x+p3.y)*p3.z, (p3.x+p3.z)*p3.y, (p3.y+p3.z)*p3.x));\n}\n\n// 3. 哈希：float -> float\nfloat N(float t) { return fract(sin(t*12345.564)*7658.76); }\n\n// 4. 锯齿波：先平滑上升到b，再平滑下降到1\n//    用途：驱动水滴的\"积聚-滑落-复位\"节奏\nfloat Saw(float b, float t) {\n    return S(0., b, t) * S(1., b, t);\n}\n```\n\n**Saw 函数的行为说明**：`b=0.85` 时，`t` 从 0→0.85 输出值从 0 上升到峰值（水滴下滑），0.85→1.0 快速跌回 0（瞬间复位），模拟水滴积够重量才落下的物理节奏。\n\n---\n\n## 三、单层水滴核心函数 `DropLayer`\n\n```glsl\n// 返回值: vec2(折射偏移量, 该点是否在水滴/轨迹内)\nvec2 DropLayer(vec2 uv, float t) {\n    vec2 UV = uv;              // 保留原始uv用于wiggle计算\n\n    // === Step 1: 格栅分区 ===\n    // a.x=6 使格子横向密集（每行约12个滴），a.y=1 纵向稀疏\n    uv.y += t * 0.75;          // 整体向上滚动（等效于滴向下）\n    vec2 a    = vec2(6., 1.);\n    vec2 grid = a * 2.;\n    vec2 id   = floor(uv * grid);\n\n    // === Step 2: 列间错位（消除人工整齐感）===\n    float colShift = N(id.x);\n    uv.y += colShift;\n    id = floor(uv * grid);     // 错位后重算格子ID\n\n    // === Step 3: 为此格子生成随机参数 ===\n    vec3  n  = N13(id.x * 35.2 + id.y * 2376.1);\n    // n.x → 水平初始偏移\n    // n.y → 未使用（可扩展）\n    // n.z → 时间相位 & 摆动方向\n\n    vec2 st = fract(uv * grid) - vec2(.5, 0.); // 格内局部坐标，x居中\n\n    // === Step 4: 计算水滴在格内的位置 p ===\n    float x = n.x - .5;                        // x: [-0.5, 0.5] 随机初始位置\n\n    // 蜿蜒路径：sin叠加产生S形摆动\n    float y_world  = UV.y * 20.;\n    float wiggle   = sin(y_world + sin(y_world));\n    // 越靠近中心摆幅越大，随机决定左右偏向\n    x += wiggle * (.5 - abs(x)) * (n.z - .5);\n    x *= .7;                                    // 整体收窄，防止超出格边界\n\n    // 锯齿波驱动y位置（0=顶部, 1=底部）\n    float ti = fract(t + n.z);                  // 每滴相位不同\n    float y  = (Saw(.85, ti) - .5) * .9 + .5;  // 映射到[0.05, 0.95]\n    vec2 p   = vec2(x, y);                      // 水滴中心（格内坐标）\n\n    // === Step 5: 椭圆SDF（竖向拉伸） ===\n    // a.yx = (1, 6)：y方向×6，把圆变成竖向椭圆\n    float d = length((st - p) * a.yx);\n\n    // 主水滴轮廓（带柔边）\n    float mainDrop = S(.4, .0, d);             // d<0.4开始有，d→0完全不透明\n\n    // === Step 6: 拖尾轨迹 ===\n    // 轨迹在水滴正上方，细而长\n    float r    = sqrt(S(1., y, st.y) * S(.0, y, st.y)); // y范围限制\n    float trailY = S(.5*r, r, abs(st.x - x));           // 水平贴近路径\n    float trail  = trailY * S(-.02, .02, st.y - y);     // 只画水滴上方\n\n    // === Step 7: 输出折射偏移 ===\n    // 水滴/轨迹区域对背景UV产生扰动（产生折射感）\n    vec2 offs = vec2(0.);\n    offs += (mainDrop + trail * .3) * (p - st) * .3;\n\n    return offs;\n}\n```\n\n---\n\n## 四、雾气层实现\n\n```glsl\n// 全屏雾气：用低频噪声对背景UV轻微模糊\n// 实现思路：对uv加一层随机小偏移再采样背景\nfloat StaticDrops(vec2 uv, float t) {\n    uv *= 40.;\n    vec2 id = floor(uv);\n    vec3 n  = N13(id.x*107.45 + id.y*3543.1);\n    // 只有部分格子\"激活\"，形成静止小水珠\n    float fade = S(0., 1., fract(t + n.z) * 2.);  // 淡入淡出\n    return S(.3, .0, length(fract(uv) - .5)) * fade * n.x;\n}\n```\n\n---\n\n## 五、多层叠加与主函数结构\n\n```glsl\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - .5*iResolution.xy) / iResolution.y;\n    float t  = iTime * .2;\n\n    // --- 叠加3层不同速度/密度的雨滴 ---\n    vec2 offs = vec2(0.);\n    offs += DropLayer(uv * vec2(1., .5) + vec2(.1, t*.2), t);       // 层1：慢\n    offs += DropLayer(uv * vec2(1., .5) + vec2(.2, t*.4), t*1.3);   // 层2：中\n    offs += DropLayer(uv * vec2(1., .5) + vec2(.9, t*.3), t*.7);    // 层3：快\n\n    // --- 雾气层 ---\n    float fog  = StaticDrops(uv, t);\n    offs      += vec2(fog) * .01;            // 雾对折射的微小贡献\n\n    // --- 采样背景并应用折射偏移 ---\n    vec2  refractedUV = uv + offs;\n    vec4  bg = texture(iChannel0, refractedUV); // iChannel0: 背景图/视频\n\n    // --- 后处理：暗角 + 色调 ---\n    float vign = S(1.5, .5, length(uv));\n    fragColor  = bg * vign;\n}\n```\n\n---\n\n## 六、关键参数速查表\n\n| 参数 | 位置 | 含义 | 调节效果 |\n|---|---|---|---|\n| `a = vec2(6,1)` | DropLayer | 格栅密度 | x越大滴越密 |\n| `0.75` | `uv.y += t*0.75` | 滚动速度 | 控制雨速 |\n| `0.85` | `Saw(.85, ti)` | 滑落/复位比 | 越大下滑越慢 |\n| `*.7` | `x *= .7` | 水平范围限制 | 防止滴出格边 |\n| `20.` | `UV.y * 20.` | 蜿蜒频率 | 越大S形越密 |\n| `.9+.5` | Saw 输出映射 | 滴的y范围 | 控制在[0.05,0.95] |\n| `3层叠加` | mainImage | 层数 | 越多越自然越耗能 |\n\n---\n\n## 七、给实现 LLM 的注意事项\n\n1. **没有粒子系统**——全部是逐像素 SDF 数学，不存在\"创建水滴对象\"的概念；\n2. **折射而非透明**——水滴效果来自对背景 UV 的**偏移采样**，需要一张背景纹理 `iChannel0`；\n3. **`Saw` 是核心节奏**——如果水滴运动不自然，首先检查 Saw 函数和 `ti` 相位的实现；\n4. **ShaderToy 环境**：`iTime` = 时间，`iResolution` = 分辨率，`iChannel0` = 背景图；\n5. **调试顺序**：先让一层 `DropLayer` 的 `d` 值可视化（输出 `vec4(d,d,d,1)`），确认椭圆 SDF 正确，再接折射和多层叠加。",
+      "parent": "n7",
+      "branchIdx": 0,
+      "x": 1800,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:40:01",
+      "model": "sonnet",
+      "duration": "68.7s",
+      "tokens": 12,
+      "marked": true,
+      "markedAs": "这条分支锚定在 Heartfelt shader 的雨滴实现原理，以下直接基于锚点和父节点分析，输出一份面向 LLM 的"
+    }
+  ],
+  "sediment": [
+    {
+      "id": "s-1776696081204",
+      "fromNode": "n8",
+      "mode": "full",
+      "text": "这条分支锚定在 Heartfelt shader 的雨滴实现原理，以下直接基于锚点和父节点分析，输出一份面向 LLM 的",
+      "excerpts": [
+        "我需要一套文档能让任意llm拿到之后就能给我做出这种真实雨滴的视觉效果\n\n这条分支锚定在 Heartfelt shader 的雨滴实现原理，以下直接基于锚点和父节点分析，输出一份面向 LLM 的自包含实现规格文档。\n\n---\n\n# 🌧️ 玻璃雨滴视觉效果实现规格文档\n\n> **受众**：任意具备 GLSL / WGSL / ShaderToy 能力的 LLM  \n> **目标**：在 fragment shader 中纯数学实现玻璃表面真实雨滴滑落效果  \n> **原作**：Martijn Steinrucken (BigWings) — Heartfelt, 2017\n\n---\n\n## 一、效果构成清单\n\n实现以下四个视觉层，缺一不可：\n\n| 层 | 描述 |\n|---|---|\n| A | 主水滴（椭圆体，带折射扰动） |\n| B | 滑落轨迹（拖尾细条纹，雾气被划开） |\n| C | 玻璃雾气（全屏低频模糊感） |\n| D | 环境折射（背景图通过水滴 UV 扭曲） |\n\n---\n\n## 二、必须实现的数学工具函数\n\n```glsl\n// 1. 宏：smoothstep 别名\n#define S(a, b, t) smoothstep(a, b, t)\n\n// 2. 哈希：float -> vec3，用于给每个格子绑定随机参数\nvec3 N13(float p) {\n    vec3 p3 = fract(vec3(p) * vec3(.1031, .11369, .13787));\n    p3 += dot(p3, p3.yzx + 19.19);\n    return fract(vec3((p3.x+p3.y)*p3.z, (p3.x+p3.z)*p3.y, (p3.y+p3.z)*p3.x));\n}\n\n// 3. 哈希：float -> float\nfloat N(float t) { return fract(sin(t*12345.564)*7658.76); }\n\n// 4. 锯齿波：先平滑上升到b，再平滑下降到1\n//    用途：驱动水滴的\"积聚-滑落-复位\"节奏\nfloat Saw(float b, float t) {\n    return S(0., b, t) * S(1., b, t);\n}\n```\n\n**Saw 函数的行为说明**：`b=0.85` 时，`t` 从 0→0.85 输出值从 0 上升到峰值（水滴下滑），0.85→1.0 快速跌回 0（瞬间复位），模拟水滴积够重量才落下的物理节奏。\n\n---\n\n## 三、单层水滴核心函数 `DropLayer`\n\n```glsl\n// 返回值: vec2(折射偏移量, 该点是否在水滴/轨迹内)\nvec2 DropLayer(vec2 uv, float t) {\n    vec2 UV = uv;              // 保留原始uv用于wiggle计算\n\n    // === Step 1: 格栅分区 ===\n    // a.x=6 使格子横向密集（每行约12个滴），a.y=1 纵向稀疏\n    uv.y += t * 0.75;          // 整体向上滚动（等效于滴向下）\n    vec2 a    = vec2(6., 1.);\n    vec2 grid = a * 2.;\n    vec2 id   = floor(uv * grid);\n\n    // === Step 2: 列间错位（消除人工整齐感）===\n    float colShift = N(id.x);\n    uv.y += colShift;\n    id = floor(uv * grid);     // 错位后重算格子ID\n\n    // === Step 3: 为此格子生成随机参数 ===\n    vec3  n  = N13(id.x * 35.2 + id.y * 2376.1);\n    // n.x → 水平初始偏移\n    // n.y → 未使用（可扩展）\n    // n.z → 时间相位 & 摆动方向\n\n    vec2 st = fract(uv * grid) - vec2(.5, 0.); // 格内局部坐标，x居中\n\n    // === Step 4: 计算水滴在格内的位置 p ===\n    float x = n.x - .5;                        // x: [-0.5, 0.5] 随机初始位置\n\n    // 蜿蜒路径：sin叠加产生S形摆动\n    float y_world  = UV.y * 20.;\n    float wiggle   = sin(y_world + sin(y_world));\n    // 越靠近中心摆幅越大，随机决定左右偏向\n    x += wiggle * (.5 - abs(x)) * (n.z - .5);\n    x *= .7;                                    // 整体收窄，防止超出格边界\n\n    // 锯齿波驱动y位置（0=顶部, 1=底部）\n    float ti = fract(t + n.z);                  // 每滴相位不同\n    float y  = (Saw(.85, ti) - .5) * .9 + .5;  // 映射到[0.05, 0.95]\n    vec2 p   = vec2(x, y);                      // 水滴中心（格内坐标）\n\n    // === Step 5: 椭圆SDF（竖向拉伸） ===\n    // a.yx = (1, 6)：y方向×6，把圆变成竖向椭圆\n    float d = length((st - p) * a.yx);\n\n    // 主水滴轮廓（带柔边）\n    float mainDrop = S(.4, .0, d);             // d<0.4开始有，d→0完全不透明\n\n    // === Step 6: 拖尾轨迹 ===\n    // 轨迹在水滴正上方，细而长\n    float r    = sqrt(S(1., y, st.y) * S(.0, y, st.y)); // y范围限制\n    float trailY = S(.5*r, r, abs(st.x - x));           // 水平贴近路径\n    float trail  = trailY * S(-.02, .02, st.y - y);     // 只画水滴上方\n\n    // === Step 7: 输出折射偏移 ===\n    // 水滴/轨迹区域对背景UV产生扰动（产生折射感）\n    vec2 offs = vec2(0.);\n    offs += (mainDrop + trail * .3) * (p - st) * .3;\n\n    return offs;\n}\n```\n\n---\n\n## 四、雾气层实现\n\n```glsl\n// 全屏雾气：用低频噪声对背景UV轻微模糊\n// 实现思路：对uv加一层随机小偏移再采样背景\nfloat StaticDrops(vec2 uv, float t) {\n    uv *= 40.;\n    vec2 id = floor(uv);\n    vec3 n  = N13(id.x*107.45 + id.y*3543.1);\n    // 只有部分格子\"激活\"，形成静止小水珠\n    float fade = S(0., 1., fract(t + n.z) * 2.);  // 淡入淡出\n    return S(.3, .0, length(fract(uv) - .5)) * fade * n.x;\n}\n```\n\n---\n\n## 五、多层叠加与主函数结构\n\n```glsl\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - .5*iResolution.xy) / iResolution.y;\n    float t  = iTime * .2;\n\n    // --- 叠加3层不同速度/密度的雨滴 ---\n    vec2 offs = vec2(0.);\n    offs += DropLayer(uv * vec2(1., .5) + vec2(.1, t*.2), t);       // 层1：慢\n    offs += DropLayer(uv * vec2(1., .5) + vec2(.2, t*.4), t*1.3);   // 层2：中\n    offs += DropLayer(uv * vec2(1., .5) + vec2(.9, t*.3), t*.7);    // 层3：快\n\n    // --- 雾气层 ---\n    float fog  = StaticDrops(uv, t);\n    offs      += vec2(fog) * .01;            // 雾对折射的微小贡献\n\n    // --- 采样背景并应用折射偏移 ---\n    vec2  refractedUV = uv + offs;\n    vec4  bg = texture(iChannel0, refractedUV); // iChannel0: 背景图/视频\n\n    // --- 后处理：暗角 + 色调 ---\n    float vign = S(1.5, .5, length(uv));\n    fragColor  = bg * vign;\n}\n```\n\n---\n\n## 六、关键参数速查表\n\n| 参数 | 位置 | 含义 | 调节效果 |\n|---|---|---|---|\n| `a = vec2(6,1)` | DropLayer | 格栅密度 | x越大滴越密 |\n| `0.75` | `uv.y += t*0.75` | 滚动速度 | 控制雨速 |\n| `0.85` | `Saw(.85, ti)` | 滑落/复位比 | 越大下滑越慢 |\n| `*.7` | `x *= .7` | 水平范围限制 | 防止滴出格边 |\n| `20.` | `UV.y * 20.` | 蜿蜒频率 | 越大S形越密 |\n| `.9+.5` | Saw 输出映射 | 滴的y范围 | 控制在[0.05,0.95] |\n| `3层叠加` | mainImage | 层数 | 越多越自然越耗能 |\n\n---\n\n## 七、给实现 LLM 的注意事项\n\n1. **没有粒子系统**——全部是逐像素 SDF 数学，不存在\"创建水滴对象\"的概念；\n2. **折射而非透明**——水滴效果来自对背景 UV 的**偏移采样**，需要一张背景纹理 `iChannel0`；\n3. **`Saw` 是核心节奏**——如果水滴运动不自然，首先检查 Saw 函数和 `ti` 相位的实现；\n4. **ShaderToy 环境**：`iTime` = 时间，`iResolution` = 分辨率，`iChannel0` = 背景图；\n5. **调试顺序**：先让一层 `DropLayer` 的 `d` 值可视化（输出 `vec4(d,d,d,1)`），确认椭圆 SDF 正确，再接折射和多层叠加。"
+      ],
+      "markedAt": "22:41:21",
+      "suggestedSection": "新要点",
+      "order": 1
+    },
+    {
+      "id": "s-1776696274696",
+      "fromNode": "n6",
+      "mode": "full",
+      "text": "这条分支锚定在 Heartfelt 雨滴 Shader 的实现原理，我按这个边界回答。",
+      "excerpts": [
+        "我不懂技术，需要你科普下他都用了还是什么底层技术，不是代码层面\n\n这条分支锚定在 Heartfelt 雨滴 Shader 的实现原理，我按这个边界回答。\n\n---\n\n## 非技术版：这个雨滴效果背后用了什么\"底层技术\"？\n\n### 🖥️ 第一层：运行在显卡上的\"像素程序\"（Fragment Shader）\n\n这个效果不是视频，也不是图片——它是一段**每秒运行数十亿次的小程序**，专门跑在你电脑的显卡（GPU）里。屏幕上每一个像素，它都单独计算一遍\"这里该显示什么颜色\"。这类程序叫 **GLSL Fragment Shader**，是实时图形渲染的底层语言。\n\n### 🎲 第二层：用数学公式\"伪造\"随机（过程式噪声）\n\n代码里的 `N13`、`N14`、`N` 函数，本质是用**数学公式模拟随机数**。真实世界里雨滴的位置、大小、速度都是随机的，但计算机不存真随机——作者用了一类叫**哈希函数**的数学技巧，输入一个位置坐标，就能输出一个\"看起来随机\"的值。这是程序化生成内容的核心底层思路。\n\n### 📐 第三层：坐标变换（UV 空间操作）\n\n屏幕被抽象成一张 0~1 的坐标网格（叫 **UV 空间**）。雨滴\"向下滑动\"的效果，实际上是不断**修改这个坐标系**，让纹理/颜色采样的位置随时间偏移，视觉上就像东西在动。\n\n### 🌫️ 第四层：平滑插值（Smoothstep）\n\n代码大量使用 `smoothstep`，这是一个**数学插值函数**，让颜色、边缘过渡得自然柔和——雨滴的边缘不会生硬，玻璃的雾气会渐变，都靠它实现。\n\n---\n\n**一句话总结**：这是一段跑在显卡上的数学程序，用坐标变换模拟运动、用哈希函数模拟随机、用插值函数模拟柔和——完全没有真实图片或物理模拟，**全是纯数学画出来的**。"
+      ],
+      "markedAt": "22:44:34",
+      "suggestedSection": "新要点",
+      "order": 1
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-20T09:57:00.918Z",
+  "updatedAt": "2026-04-20T14:49:59.297Z",
+  "branchSessionIds": {
+    "0": "03bbd4f2-78ae-499a-9668-8aecbe4b5839",
+    "1": "f9ddd8cf-a435-41da-ae2b-3dc850e31078"
+  },
+  "sdkSessionId": "03bbd4f2-78ae-499a-9668-8aecbe4b5839",
+  "savedWikiItemId": "9aa3f6c1-e007-4641-b9d3-fee90ac5169a",
+  "draft": {
+    "name": "// Heartfelt - by Martijn Steinrucken ak",
+    "categoryId": "ai-工具与技能包",
+    "newCategory": null,
+    "sections": [],
+    "sourceLinks": [
+      {
+        "url": "paste://1776694719278",
+        "title": "// Heartfelt - by Martijn Steinrucken ak",
+        "type": "original"
+      }
+    ]
+  }
+}

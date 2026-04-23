@@ -35,7 +35,7 @@ src/
 │   ├── storage.ts            # 数据读写 + 老数据迁移（entrySnapshot 可空）
 │   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment
 ├── components/
-│   ├── PipelineView.tsx      # 统一画布：input→parse→Q→A 水平流 + 多条并排 + ParseDetailSheet
+│   ├── PipelineView.tsx      # 统一画布：input→parse→QA合并卡 + Minimap + ParseDetailSheet
 │   ├── TriageCard.tsx        # 解析卡片（保留为弹窗内的渲染片段，主视图已下线）
 │   ├── WikiBrowseView.tsx    # Wiki 三级钻取
 │   ├── SandboxView.tsx / ExperimentView.tsx / ExperienceView.tsx / BlueprintView.tsx
@@ -52,14 +52,15 @@ scripts/scrape.py             # Scrapling 抓取
   [input 卡] 粘贴 URL / 勾「直接深入」/ 粘原文（paste://）→ [parse 卡] × N（同 batch 并列，左边条朱砂红）
          连线上实时显示 liveStatus（capture/trace/…）；direct 模式跳过 triage agent 只抓锚点
   双击 parse 卡 → ParseDetailSheet（完整 narrative + 概念 + 溯源） → [深入追问]
-  [question]→[answer] 向右延伸；派生分支上下偏移；多条流用「+ 新流程」上下并排
-  标记要点（answer 卡）→ 右侧 SedimentTray → 「整理 → 存入 Wiki」
-  answer 卡「❦ 实验」→ 画布挂一个 experiment 节点（双击进 ExperimentSheet 聊天+coze，可存经验）
+  Q/A 合并为单卡（只显示问题，双击进 AskSheet）；派生分支上下偏移；「+ 新流程」上下并排
+  顶栏「◈ 沉淀区 N」统一弹窗（要点一览 / 整理存入 Wiki 两阶段）；answer 卡「❦ 实验」→ teal 色 experiment 节点
+  右侧栏 Minimap：类型染色 + 视口框拖拽 + 点节点居中 + streaming 涟漪
 Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 ```
 ## 代码规范
 - 中文注释，英文变量名；色彩 OKLCH；方向 B 视觉：#f4ede0 纸底 + #c94a1a 朱砂红 + #1a1713 墨线 + Fraunces 衬线 + 硬阴影
-- 节点左边条区分类型：input=墨黑 / parse=朱砂红 / question=琥珀 / answer=墨灰
+- 节点左边条区分类型：input=墨黑 / parse=朱砂红 / question=琥珀 / experiment=青绿 / answer=墨灰
+- 合并卡下游节点渲染用 `effectiveX` DFS 累积左移（每遇 hidden answer 减 NODE_W+COL_GAP），Minimap 同步
 - 画布水平流：父节点右边中线 → 子节点左边中线 bezier；input→parse 虚线 + 中点标 liveStatus
 - SSE 统一用 buffer + `\n\n` 分割；narrative 标记 `[[技术名]]`
 - Triage batch 内 entry 匹配 PipelineNode 按 URL，不依赖后端 UUID
@@ -69,3 +70,5 @@ Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 - 追问每轮 prompt 必钉 parse 锚点 + "先读锚点→查 sources→WebSearch"三步，禁首次 WebSearch；X 推文必用 `mcp__aidigest__scrape_url`
 - SDK session 按 `branchIdx` 隔离（`branchSessionIds`）；派生分支开新 sid；删光分支 Q/A 时级联清孤儿 sid
 - 前端 `localStorage[aidigest.lastPipelineId]` 记上次 session；画布 mount 时先 GET 恢复，失败才新建（刷新不丢）
+- flex-column 弹窗必须固定高度（非 auto），内部 flex:1 子区要 `minHeight:0`；长列表默认折叠或限高 + overflowY，避免撑破父布局把输入框挤出视口
+- 实验弹窗流式 token 只在「用户粘底」时才 scrollTo，否则保持当前位置让用户可上翻查看历史

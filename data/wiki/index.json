@@ -1,5 +1,16 @@
 [
   {
+    "id": "9aa3f6c1-e007-4641-b9d3-fee90ac5169a",
+    "name": "// Heartfelt - by Martijn Steinrucken ak",
+    "categoryId": "ai-工具与技能包",
+    "sectionHeadings": [
+      "其他"
+    ],
+    "sourceCount": 2,
+    "skillFileCount": 0,
+    "updatedAt": "2026-04-20T14:49:59.295Z"
+  },
+  {
     "id": "681d4bfe-7670-493d-9fb3-a721090535eb",
     "name": "HTML 设计助手通用系统提示词（模型无关版）",
     "categoryId": "ai-工具与技能包",

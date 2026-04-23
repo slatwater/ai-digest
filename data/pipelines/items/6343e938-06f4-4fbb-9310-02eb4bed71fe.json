@@ -1,0 +1,96 @@
+{
+  "id": "6343e938-06f4-4fbb-9310-02eb4bed71fe",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:06:15",
+      "inputUrls": [
+        "https://x.com/vista8/status/2046254553151262822"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "parse",
+      "state": "done",
+      "text": "https://x.com/vista8/status/2046254553151262822",
+      "parent": "n1",
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 424,
+      "y": 80,
+      "w": 280,
+      "createdAt": "22:06:27",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "70fc2176-5317-4324-be0a-354f07efa554",
+        "batchId": "e55ce610-de00-4de5-92ec-6cc07ecff6b4",
+        "url": "https://x.com/vista8/status/2046254553151262822",
+        "title": "Adam's Law：文本频率法则对大语言模型的影响",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "读取来源",
+          "溯源搜索"
+        ],
+        "verdict": "save",
+        "verdictReason": "具名论文 Adam's Law，有明确实验结论和可复现框架，对写 prompt 和做微调均有直接指导意义",
+        "narrative": "从 @vista8 推文发现，一手来源是 Hongyuan Adam Lu 等人于 2026 年 4 月投稿至 ACL 2026 的 arXiv 论文（arXiv:2604.02176）。\n\n论文作者提出了 [[Textual Frequency Law (TFL)]]：把同一意思改写成用词频率更高的版本再喂给 LLM，模型在翻译和推理任务上的得分都会系统性地变好，跨 100 多种语言测试后，频率与性能的相关系数接近 1。为了在训练阶段也用上这一规律，作者还引入了 [[Textual Frequency Distillation (TFD)]]，让 LLM 自己续写句子来估算训练数据的频率分布，进而按频率从低到高的顺序做课程微调。整套框架在数学推理、机器翻译、常识推理和工具调用四个任务上均验证有效。",
+        "concepts": [
+          {
+            "name": "Textual Frequency Law (TFL)",
+            "role": "subject",
+            "root": "Hongyuan Adam Lu 等人，arXiv 2604.02176，2026 → 句子级文本频率越高，LLM 在该输入上的表现越好，两者相关系数趋近于 1",
+            "whatItEnables": "通过把 prompt 改写为更高频的同义表达，无需改变语义即可提升翻译质量和推理准确率",
+            "sourceUrl": "https://arxiv.org/abs/2604.02176"
+          },
+          {
+            "name": "Textual Frequency Distillation (TFD)",
+            "role": "component",
+            "root": "同上 → 用 LLM 做故事续写来扩充数据集并校准频率估计，解决闭源模型训练数据不可见的问题",
+            "whatItEnables": "在无法获取 LLM 训练语料的情况下，仍能可靠地估计句子频率并用于微调",
+            "sourceUrl": "https://arxiv.org/abs/2604.02176"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://arxiv.org/abs/2604.02176",
+            "title": "Adam's Law: Textual Frequency Law on Large Language Models",
+            "type": "original"
+          },
+          {
+            "url": "https://huggingface.co/papers/2604.02176",
+            "title": "Paper page - Adam's Law: Textual Frequency Law on Large Language Models (Hugging Face)",
+            "type": "related"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "首次系统量化「高频用词 prompt」与 LLM 性能的正相关关系，并给出可落地的改写流水线和微调方案（ACL 2026 论文级别的实证）"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 4,
+          "inputTokens": 8,
+          "outputTokens": 1471,
+          "cacheReadTokens": 33458,
+          "costUsd": 0.08033565000000001,
+          "durationMs": 43512
+        }
+      }
+    }
+  ],
+  "sediment": [],
+  "model": "sonnet",
+  "createdAt": "2026-04-21T14:06:15.099Z",
+  "updatedAt": "2026-04-21T14:07:42.137Z"
+}
