@@ -10,7 +10,6 @@ import {
 } from '@/lib/storage';
 import type {
   PipelineDraft,
-  PipelineSession,
   WikiCategory,
   WikiItem,
   WikiSection,
@@ -18,59 +17,25 @@ import type {
 
 export const runtime = 'nodejs';
 
-// 按 sedimentIds 从 session 查原文 → 拼成无损 markdown
-// 每段前加小标签 "> ↳ 来自 Q<父问题 node id> @ HH:MM:SS"
-function buildSectionContent(
-  sedimentIds: string[],
-  session: PipelineSession,
-): string {
-  const sedimentById = new Map(session.sediment.map(s => [s.id, s]));
-  const nodeById = new Map(session.nodes.map(n => [n.id, n]));
-
-  const blocks: string[] = [];
-  for (const sid of sedimentIds) {
-    const s = sedimentById.get(sid);
-    if (!s) continue;
-    // 定位父问题 id：如果 fromNode 是 answer，取其 parent；否则自身就是 Q
-    const fromNode = nodeById.get(s.fromNode);
-    const qNodeId =
-      fromNode?.type === 'answer' ? fromNode.parent || s.fromNode : s.fromNode;
-    const label = `> ↳ 来自 Q${qNodeId} @ ${s.markedAt}`;
-    const body = s.excerpts.join('\n\n');
-    blocks.push(`${label}\n\n${body}`);
-  }
-  return blocks.join('\n\n---\n\n');
+// 直接拼接 excerpts → 无损 markdown，多段之间用 --- 分隔
+function buildSectionContent(excerpts: string[]): string {
+  return excerpts
+    .map(e => e.trim())
+    .filter(Boolean)
+    .join('\n\n---\n\n');
 }
 
-// 组装最终 WikiSection[]：按 AI 的分组 + 漏分兜底到「其他」段
-function assembleSections(
-  draft: PipelineDraft,
-  session: PipelineSession,
-): { sections: WikiSection[]; error?: string } {
-  const assigned = new Set<string>();
+// 组装最终 WikiSection[]：每段直接来自 draft.sections.excerpts
+function assembleSections(draft: PipelineDraft): { sections: WikiSection[]; error?: string } {
   const out: WikiSection[] = [];
-
   for (const sec of draft.sections) {
-    if (!Array.isArray(sec.sedimentIds)) continue;
-    const ids = sec.sedimentIds.filter(id => !assigned.has(id));
-    for (const id of ids) assigned.add(id);
-    const content = buildSectionContent(ids, session);
-    if (!content.trim()) continue;
+    if (!Array.isArray(sec.excerpts)) continue;
+    const content = buildSectionContent(sec.excerpts);
+    if (!content) continue;
     out.push({ heading: sec.heading?.trim() || '未命名段落', content });
   }
-
-  // 漏分的 sediment 塞"其他"段
-  const missing = session.sediment.filter(s => !assigned.has(s.id));
-  if (missing.length > 0) {
-    const content = buildSectionContent(
-      missing.map(s => s.id),
-      session,
-    );
-    if (content.trim()) out.push({ heading: '其他', content });
-  }
-
   if (out.length === 0) {
-    return { sections: out, error: '未能拼出任何段落内容（sedimentIds 可能全部无效）' };
+    return { sections: out, error: '未能拼出任何段落内容（excerpts 为空）' };
   }
   return { sections: out };
 }
@@ -117,8 +82,8 @@ export async function POST(
     return Response.json({ error: '缺少分类 id' }, { status: 400 });
   }
 
-  // ── 按 sedimentIds 无损拼接 content
-  const { sections: wikiSections, error: assembleError } = assembleSections(draft, session);
+  // ── 直接用 draft.sections.excerpts 拼 content
+  const { sections: wikiSections, error: assembleError } = assembleSections(draft);
   if (assembleError) {
     return Response.json({ error: assembleError }, { status: 400 });
   }

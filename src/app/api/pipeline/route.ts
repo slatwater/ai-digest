@@ -34,7 +34,6 @@ export async function POST(req: NextRequest) {
   const session: PipelineSession = {
     id: uuidv4(),
     nodes: [],
-    sediment: [],
     wikiCandidate,
     model: validModel,
     createdAt: now,

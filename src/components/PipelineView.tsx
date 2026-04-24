@@ -14,10 +14,9 @@ import remarkGfm from 'remark-gfm';
 import type {
   PipelineSession,
   PipelineNode,
-  SedimentPoint,
-  SedimentMode,
   TriageModel,
   CozeRun,
+  WikiSourceLink,
 } from '@/lib/types';
 import type { usePipeline } from '@/hooks/usePipeline';
 
@@ -67,6 +66,208 @@ function useOverlayClose(onClose: () => void) {
       downOnOverlay.current = false;
     },
   };
+}
+
+/* ──────────────────────────────────────────────────────────
+   选区右键菜单：在文本容器上左键拖选→右键时浮出"§ 存入 Wiki"
+   选区为空则不拦截浏览器默认菜单。
+   ────────────────────────────────────────────────────────── */
+type SelectionMenuState = { x: number; y: number; text: string } | null;
+
+function useSelectionMenu() {
+  const [menu, setMenu] = useState<SelectionMenuState>(null);
+  const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+    const text = sel ? sel.toString().trim() : '';
+    if (!text) return;
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, text });
+  };
+  // 任意点击 / 滚动 / Esc → 关闭
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+  return { menu, setMenu, onContextMenu };
+}
+
+/* 从 markdown 源里反查选区对应的 md 子串。
+   构造 plain↔md 字符映射跳过 `[[name]]` / `**bold**` / `[text](url)` / `` `code` `` 标记字符，
+   命中后回切原 md 子串以保留排版；命中失败 fallback 到选区原文。
+   选区里的 \n 在多段时通常是单 \n（浏览器折叠），fallback 路径把它升级到 \n\n 让 wiki 的 ReactMarkdown 分段。*/
+function extractMarkdownExcerpt(source: string, plainSelection: string): string {
+  const target = plainSelection.trim();
+  if (!target || !source) return normalizeParagraphs(plainSelection);
+
+  const plainChars: string[] = [];
+  const mdIdx: number[] = []; // plainChars[i] 在 source 中的位置
+  let i = 0;
+  while (i < source.length) {
+    const rest = source.slice(i);
+    let m: RegExpMatchArray | null;
+    if ((m = rest.match(/^\[\[([^\]]+)\]\]/))) {
+      const t = m[1];
+      for (let k = 0; k < t.length; k++) { plainChars.push(t[k]); mdIdx.push(i + 2 + k); }
+      i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^\*\*([^*]+)\*\*/))) {
+      const t = m[1];
+      for (let k = 0; k < t.length; k++) { plainChars.push(t[k]); mdIdx.push(i + 2 + k); }
+      i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^`([^`]+)`/))) {
+      const t = m[1];
+      for (let k = 0; k < t.length; k++) { plainChars.push(t[k]); mdIdx.push(i + 1 + k); }
+      i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^\[([^\]]+)\]\(([^)]+)\)/))) {
+      const t = m[1];
+      for (let k = 0; k < t.length; k++) { plainChars.push(t[k]); mdIdx.push(i + 1 + k); }
+      i += m[0].length; continue;
+    }
+    plainChars.push(source[i]);
+    mdIdx.push(i);
+    i += 1;
+  }
+  const plain = plainChars.join('');
+
+  // 尝试 1：原样匹配（跨段时浏览器多以单 \n 分隔，下方再退到 \n→' ' 试一次）
+  let pIdx = plain.indexOf(target);
+  if (pIdx < 0) {
+    // 尝试 2：把 plain 内的 \n 也压成 ' ' 再匹配（与折叠后的选区对齐）
+    const plainOneLine = plain.replace(/\n+/g, ' ');
+    pIdx = plainOneLine.indexOf(target);
+    // plainOneLine 与 plain 字符总数相同（仅替换），idx 通用
+  }
+  if (pIdx < 0) return toWikiMarkdown(normalizeParagraphs(plainSelection));
+
+  const startMd = mdIdx[pIdx];
+  const endMd = mdIdx[pIdx + target.length - 1] + 1;
+  // 命中位置若整段落在 ```...``` 内部，则把围栏（含语言标签）包回去，否则 wiki 渲染会折叠多行
+  const fence = findFenceRange(source, startMd, endMd);
+  if (fence) {
+    const inner = source.slice(startMd, endMd).replace(/^\n+|\n+$/g, '');
+    return toWikiMarkdown(`\`\`\`${fence.lang}\n${inner}\n\`\`\``);
+  }
+  return toWikiMarkdown(source.slice(startMd, endMd).trim());
+}
+
+// 检测 [startMd, endMd) 是否完全落在某个 fenced code block 的内部（围栏之间）；返回该围栏的语言标签
+function findFenceRange(source: string, startMd: number, endMd: number): { lang: string } | null {
+  const re = /```([^\n`]*)\n([\s\S]*?)\n```/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source)) !== null) {
+    const innerStart = m.index + m[0].indexOf('\n') + 1;
+    const innerEnd = m.index + m[0].length - 4; // 减去 "\n```"
+    if (startMd >= innerStart && endMd <= innerEnd + 1) {
+      return { lang: m[1].trim() };
+    }
+  }
+  return null;
+}
+
+// 选区文本里的单 \n 升到 \n\n，让 wiki ReactMarkdown 分段；连续多空行规整成 \n\n
+function normalizeParagraphs(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split(/\n+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+// aidigest 自定义的 [[技术名]] 不是标准 markdown，wiki 那边的 ReactMarkdown 不识别会显示字面字符；
+// 转成 **加粗** 让 prose 样式给视觉强调。叠加 autolink 让裸 URL 在 wiki 里可点。
+function toWikiMarkdown(md: string): string {
+  return autolinkBareUrls(md.replace(/\[\[([^\]]+)\]\]/g, '**$1**'));
+}
+
+// 把裸 URL 转成 markdown link，跳过已在 [text](url) / `code` / <https://…> 里的部分（用 \0 占位符保护）。
+// 只转"含路径的裸域名"或"已带 http(s):// 协议"的——避免把 "Adam's Law" 这种英文短语误识为 url。
+function autolinkBareUrls(md: string): string {
+  const links: string[] = [];
+  let s = md.replace(/\[[^\]]+\]\([^)]+\)/g, m => {
+    links.push(m);
+    return `LNK${links.length - 1}`;
+  });
+  const codes: string[] = [];
+  s = s.replace(/`[^`]+`/g, m => {
+    codes.push(m);
+    return `COD${codes.length - 1}`;
+  });
+  const angles: string[] = [];
+  s = s.replace(/<https?:\/\/[^>\s]+>/g, m => {
+    angles.push(m);
+    return `ANG${angles.length - 1}`;
+  });
+
+  // 域名 + 可选路径：必须带 http(s):// 协议 OR 含 / 路径；末尾常见标点不吞
+  const urlRe = /(?:https?:\/\/)?[a-zA-Z0-9][a-zA-Z0-9\-]*(?:\.[a-zA-Z0-9\-]+){1,}(?:\/[^\s)，。、；：（）「」『』""'']*)?/g;
+  s = s.replace(urlRe, m => {
+    const hasProtocol = /^https?:\/\//i.test(m);
+    const hasPath = /\//.test(m.replace(/^https?:\/\//i, ''));
+    if (!hasProtocol && !hasPath) return m; // 仅域名（如 "x.com" / "ai.cn"）不转
+    // 收尾常见标点（如句末逗号点）剥到 url 外
+    const trail = m.match(/[.,;:!?）」』）]+$/);
+    let body = m;
+    let tail = '';
+    if (trail) { body = m.slice(0, -trail[0].length); tail = trail[0]; }
+    const url = /^https?:\/\//i.test(body) ? body : `https://${body}`;
+    return `[${body}](${url})${tail}`;
+  });
+
+  s = s.replace(/ANG(\d+)/g, (_, i) => angles[+i]);
+  s = s.replace(/COD(\d+)/g, (_, i) => codes[+i]);
+  s = s.replace(/LNK(\d+)/g, (_, i) => links[+i]);
+  return s;
+}
+
+function SelectionContextMenu({
+  x, y, onSave, onClose,
+}: { x: number; y: number; onSave: () => void; onClose: () => void }) {
+  return (
+    <div
+      onMouseDown={e => e.stopPropagation()}
+      className="mono"
+      style={{
+        position: 'fixed',
+        left: x,
+        top: y,
+        zIndex: 60,
+        background: 'var(--panel)',
+        border: '1px solid var(--amber)',
+        boxShadow: '4px 4px 0 rgba(0,0,0,0.4)',
+        minWidth: 160,
+        fontSize: 12,
+        letterSpacing: 0.3,
+      }}
+    >
+      <button
+        onClick={() => { onSave(); onClose(); }}
+        style={{
+          display: 'block',
+          width: '100%',
+          textAlign: 'left',
+          padding: '10px 14px',
+          background: 'transparent',
+          color: 'var(--amber)',
+          fontWeight: 600,
+          letterSpacing: 0.5,
+        }}
+      >
+        § 存入 Wiki
+      </button>
+    </div>
+  );
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -166,21 +367,16 @@ function Narrative({ text, small, size }: { text: string; small?: boolean; size?
 function TopBar({
   session,
   onExit,
-  onOpenReview,
   onNewFlow,
   model,
   onModelChange,
-  sedimentCount,
 }: {
   session: PipelineSession;
   onExit?: () => void;
-  onOpenReview: () => void;
   onNewFlow: () => void;
   model: TriageModel;
   onModelChange: (m: TriageModel) => void;
-  sedimentCount: number;
 }) {
-  const markedCount = session.nodes.filter(n => n.marked).length;
   const firstParseTitle =
     session.nodes.find(n => n.type === 'parse' && n.parseEntry?.title)?.parseEntry?.title ||
     session.entrySnapshot?.title ||
@@ -293,8 +489,6 @@ function TopBar({
         <span>elapsed {elapsed}</span>
         <span style={{ color: 'var(--ink4)' }}>│</span>
         <span>{session.nodes.length} 节点</span>
-        <span style={{ color: 'var(--ink4)' }}>│</span>
-        <span style={{ color: 'var(--amber)' }}>● {markedCount} 已标记</span>
       </div>
 
       {/* Right: model picker + action */}
@@ -325,40 +519,6 @@ function TopBar({
             </button>
           ))}
         </span>
-        <button
-          onClick={onOpenReview}
-          className="mono"
-          style={{
-            fontSize: 11,
-            padding: '6px 14px',
-            letterSpacing: 0.3,
-            background: sedimentCount > 0 ? 'var(--amber)' : 'var(--bg2)',
-            color: sedimentCount > 0 ? 'var(--bg)' : 'var(--ink3)',
-            border: '1px solid var(--amber)',
-            fontWeight: 600,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-          title="查看已标记的要点，并整理存入 Wiki"
-        >
-          ◈ 沉淀区
-          <span
-            style={{
-              minWidth: 18,
-              padding: '0 5px',
-              fontSize: 10,
-              fontWeight: 700,
-              background: sedimentCount > 0 ? 'var(--bg)' : 'var(--rule)',
-              color: sedimentCount > 0 ? 'var(--amber)' : 'var(--ink3)',
-              borderRadius: 2,
-              textAlign: 'center',
-              lineHeight: '14px',
-            }}
-          >
-            {sedimentCount}
-          </span>
-        </button>
       </div>
     </header>
   );
@@ -383,8 +543,6 @@ const Canvas = forwardRef<CanvasHandle, {
   toolStatus: string | null;
   selectedNode: string | null;
   setSelectedNode: (id: string | null) => void;
-  onMark: (id: string) => void;
-  onUnmark: (id: string) => void;
   onOpen: (nodeId: string) => void;
   onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
   onStartExperiment: (answerNodeId: string) => void;
@@ -396,8 +554,6 @@ const Canvas = forwardRef<CanvasHandle, {
   toolStatus,
   selectedNode,
   setSelectedNode,
-  onMark,
-  onUnmark,
   onOpen,
   onSubmitInput,
   onStartExperiment,
@@ -768,8 +924,6 @@ const Canvas = forwardRef<CanvasHandle, {
                 streaming={streamingNodeId === mergedAnswer.id}
                 toolStatus={streamingNodeId === mergedAnswer.id ? toolStatus : null}
                 onSelect={() => setSelectedNode(mergedAnswer.id)}
-                onMark={() => onMark(mergedAnswer.id)}
-                onUnmark={() => onUnmark(mergedAnswer.id)}
                 onOpen={() => onOpen(mergedAnswer.id)}
                 onStartExperiment={onStartExperiment}
                 onContextMenu={(x, y) => setCtxMenu({ x, y, nodeId: n.id })}
@@ -784,8 +938,6 @@ const Canvas = forwardRef<CanvasHandle, {
               streaming={streamingNodeId === n.id}
               toolStatus={streamingNodeId === n.id ? toolStatus : null}
               onSelect={() => setSelectedNode(n.id)}
-              onMark={() => onMark(n.id)}
-              onUnmark={() => onUnmark(n.id)}
               onOpen={() => onOpen(n.id)}
               onSubmitInput={onSubmitInput}
               onStartExperiment={onStartExperiment}
@@ -1095,7 +1247,7 @@ const Canvas = forwardRef<CanvasHandle, {
           pointerEvents: 'none',
         }}
       >
-        拖拽平移 · ⌘滚轮缩放 · 双击解析卡查看完整内容 · 回答卡可标记为要点
+        拖拽平移 · ⌘滚轮缩放 · 双击解析卡查看完整内容 · 详情/对话内选中文字右键 § 存入 Wiki
       </div>
     </div>
   );
@@ -1402,7 +1554,7 @@ function Minimap({
           const mp = toMini(x, y);
           const mw = Math.max(2, w * scale);
           const mh = Math.max(2, NODE_H * scale);
-          // 合并卡选中/streaming/marked 同时感知 question+answer
+          // 合并卡选中/streaming 同时感知 question+answer
           const isSelected = merged
             ? selectedNode === n.id || selectedNode === merged.id
             : n.id === selectedNode;
@@ -1410,7 +1562,6 @@ function Minimap({
           const effectiveN = merged ?? n;
           const isStreaming =
             effectiveN.id === streamingNodeId || effectiveN.state === 'streaming';
-          const isMarked = merged ? !!merged.marked : !!n.marked;
           const fill = merged ? 'var(--amber)' : nodeMiniFill(n);
           const cx0 = mp.x + mw / 2;
           const cy0 = mp.y + mh / 2;
@@ -1467,14 +1618,6 @@ function Minimap({
                   fill="none"
                   stroke="var(--amber)"
                   strokeWidth={1.2}
-                />
-              )}
-              {isMarked && (
-                <circle
-                  cx={mp.x + mw - 2}
-                  cy={mp.y + 2}
-                  r={1.6}
-                  fill="var(--amber)"
                 />
               )}
             </g>
@@ -1577,8 +1720,6 @@ function CanvasNode({
   streaming,
   toolStatus,
   onSelect,
-  onMark,
-  onUnmark,
   onOpen,
   onSubmitInput,
   onStartExperiment,
@@ -1589,8 +1730,6 @@ function CanvasNode({
   streaming: boolean;
   toolStatus: string | null;
   onSelect: () => void;
-  onMark: () => void;
-  onUnmark: () => void;
   onOpen: () => void;
   onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
   onStartExperiment: (answerNodeId: string) => void;
@@ -1677,11 +1816,7 @@ function CanvasNode({
     ].filter(Boolean);
   }
 
-  const borderColor = selected
-    ? 'var(--amber)'
-    : node.marked
-      ? 'var(--amber)'
-      : 'var(--rule)';
+  const borderColor = selected ? 'var(--amber)' : 'var(--rule)';
 
   return (
     <div
@@ -1713,7 +1848,7 @@ function CanvasNode({
         borderTop: `1px solid ${borderColor}`,
         borderRight: `1px solid ${borderColor}`,
         borderBottom: `1px solid ${borderColor}`,
-        borderLeft: `3px solid ${node.marked ? 'var(--amber)' : v.leftBar}`,
+        borderLeft: `3px solid ${v.leftBar}`,
         boxShadow: selected
           ? '0 0 0 3px rgba(232,162,76,0.15), 4px 4px 0 rgba(0,0,0,0.4)'
           : '3px 3px 0 rgba(0,0,0,0.4)',
@@ -1791,21 +1926,6 @@ function CanvasNode({
             }}
           >
             {node.branchLabel}
-          </span>
-        )}
-        {node.marked && (
-          <span
-            className="mono"
-            style={{
-              fontSize: 8,
-              color: 'var(--bg)',
-              background: 'var(--amber)',
-              padding: '1px 4px',
-              letterSpacing: 0.5,
-              fontWeight: 600,
-            }}
-          >
-            ✓
           </span>
         )}
         <span style={{ flex: 1 }} />
@@ -2008,26 +2128,6 @@ function CanvasNode({
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {isAnswer && node.state === 'done' && !node.marked && (
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onMark();
-            }}
-            className="mono"
-            style={{
-              fontSize: 9,
-              color: 'var(--amber)',
-              border: '1px solid var(--amber)',
-              padding: '2px 6px',
-              letterSpacing: 0.3,
-              opacity: hovering || selected ? 1 : 0.55,
-              transition: 'opacity 0.15s',
-            }}
-          >
-            ◈ 标记
-          </button>
-        )}
         {isAnswer && node.state === 'done' && (
           <button
             onClick={e => {
@@ -2049,22 +2149,6 @@ function CanvasNode({
             ❦ 实验
           </button>
         )}
-        {isAnswer && node.marked && (
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onUnmark();
-            }}
-            className="mono"
-            style={{
-              fontSize: 9,
-              color: 'var(--amber)',
-              letterSpacing: 0.3,
-            }}
-          >
-            取消
-          </button>
-        )}
         <span
           className="mono"
           style={{
@@ -2084,7 +2168,7 @@ function CanvasNode({
 
 /* ──────────────────────────────────────────────────────────
    MergedQACard — 把一对 question + answer 视觉合并为一张卡
-   数据层仍保留两个独立节点（parent 链、sediment、experiment 派生照旧）
+   数据层仍保留两个独立节点（parent 链、experiment 派生照旧）
    ────────────────────────────────────────────────────────── */
 function MergedQACard({
   question,
@@ -2093,8 +2177,6 @@ function MergedQACard({
   streaming,
   toolStatus,
   onSelect,
-  onMark,
-  onUnmark,
   onOpen,
   onStartExperiment,
   onContextMenu,
@@ -2105,8 +2187,6 @@ function MergedQACard({
   streaming: boolean;
   toolStatus: string | null;
   onSelect: () => void;
-  onMark: () => void;
-  onUnmark: () => void;
   onOpen: () => void;
   onStartExperiment: (answerNodeId: string) => void;
   onContextMenu: (x: number, y: number) => void;
@@ -2117,11 +2197,7 @@ function MergedQACard({
   const top = question.y ?? 0;
   // 合并卡收窄为单卡宽度：视觉上是一张 question 卡，答案通过双击或 footer 按钮触达
   const width = question.w ?? NODE_W;
-  const borderColor = selected
-    ? 'var(--amber)'
-    : answer.marked
-      ? 'var(--amber)'
-      : 'var(--rule)';
+  const borderColor = selected ? 'var(--amber)' : 'var(--rule)';
 
   const stateLabel = isStreaming
     ? '● 正在写'
@@ -2168,7 +2244,7 @@ function MergedQACard({
         borderTop: `1px solid ${borderColor}`,
         borderRight: `1px solid ${borderColor}`,
         borderBottom: `1px solid ${borderColor}`,
-        borderLeft: `3px solid ${answer.marked ? 'var(--amber)' : 'var(--amber)'}`,
+        borderLeft: `3px solid var(--amber)`,
         boxShadow: selected
           ? '0 0 0 3px rgba(232,162,76,0.15), 4px 4px 0 rgba(0,0,0,0.4)'
           : '3px 3px 0 rgba(0,0,0,0.4)',
@@ -2246,21 +2322,6 @@ function MergedQACard({
             }}
           >
             {question.branchLabel}
-          </span>
-        )}
-        {answer.marked && (
-          <span
-            className="mono"
-            style={{
-              fontSize: 8,
-              color: 'var(--bg)',
-              background: 'var(--amber)',
-              padding: '1px 4px',
-              letterSpacing: 0.5,
-              fontWeight: 600,
-            }}
-          >
-            ✓
           </span>
         )}
         <span style={{ flex: 1 }} />
@@ -2362,26 +2423,6 @@ function MergedQACard({
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {answer.state === 'done' && !answer.marked && (
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onMark();
-            }}
-            className="mono"
-            style={{
-              fontSize: 9,
-              color: 'var(--amber)',
-              border: '1px solid var(--amber)',
-              padding: '2px 6px',
-              letterSpacing: 0.3,
-              opacity: hovering || selected ? 1 : 0.55,
-              transition: 'opacity 0.15s',
-            }}
-          >
-            ◈ 标记
-          </button>
-        )}
         {answer.state === 'done' && (
           <button
             onClick={e => {
@@ -2401,22 +2442,6 @@ function MergedQACard({
             }}
           >
             ❦ 实验
-          </button>
-        )}
-        {answer.marked && (
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onUnmark();
-            }}
-            className="mono"
-            style={{
-              fontSize: 9,
-              color: 'var(--amber)',
-              letterSpacing: 0.3,
-            }}
-          >
-            取消
           </button>
         )}
         <span
@@ -2670,903 +2695,6 @@ function InputNodeBody({
 
 
 /* ──────────────────────────────────────────────────────────
-   ReviewSheet — 手动分组 + 存入 Wiki（无 AI 参与）
-   打开时按 suggestedSection groupBy 初始化分段；用户可编辑 heading、
-   新增空段、删除段（内部要点回流未分组）、把要点在段间移动
-   ────────────────────────────────────────────────────────── */
-
-type ReviewMode = 'new' | 'append';
-
-interface DraftSection {
-  id: string;
-  heading: string;
-  sedimentIds: string[];
-}
-
-interface WikiCategoryMeta { id: string; name: string }
-interface WikiItemMeta { id: string; name: string; categoryId: string }
-
-const UNASSIGNED_ID = '__unassigned__';
-
-// 按 suggestedSection 自动分组，无提示的进未分组
-function initSections(sediment: SedimentPoint[]): { sections: DraftSection[]; unassigned: string[] } {
-  const map = new Map<string, string[]>();
-  const unassigned: string[] = [];
-  for (const s of sediment) {
-    const key = s.suggestedSection?.trim();
-    if (!key || key === '新要点') {
-      unassigned.push(s.id);
-      continue;
-    }
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(s.id);
-  }
-  let n = 0;
-  const sections: DraftSection[] = [];
-  for (const [heading, ids] of map) {
-    sections.push({ id: `sec-${++n}`, heading, sedimentIds: ids });
-  }
-  return { sections, unassigned };
-}
-
-function ReviewSheet({
-  session,
-  onClose,
-  onSaved,
-  onJumpTo,
-  onRemove,
-}: {
-  session: PipelineSession;
-  onClose: () => void;
-  onSaved: (itemId: string) => void;
-  onJumpTo: (nodeId: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  // 顶层阶段 tab：list=查看要点，review=整理存入（原 ReviewSheet）
-  const [stage, setStage] = useState<'list' | 'review'>('list');
-  const [mode, setMode] = useState<ReviewMode>('new');
-  const [appendToItemId, setAppendToItemId] = useState<string>('');
-  // 取首个 parse 节点标题作为默认条目名；兼容老数据的 entrySnapshot
-  const defaultName =
-    session.nodes.find(n => n.type === 'parse' && n.parseEntry?.title)?.parseEntry?.title ||
-    session.entrySnapshot?.title ||
-    '未命名条目';
-  const [name, setName] = useState(defaultName);
-  const [categoryId, setCategoryId] = useState<string>('');
-  const [catNewName, setCatNewName] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [errMsg, setErrMsg] = useState<string | null>(null);
-
-  const [wikiCats, setWikiCats] = useState<WikiCategoryMeta[]>([]);
-  const [wikiItems, setWikiItems] = useState<WikiItemMeta[]>([]);
-
-  const initial = useMemo(() => initSections(session.sediment), [session.sediment]);
-  const [sections, setSections] = useState<DraftSection[]>(initial.sections);
-  const [unassigned, setUnassigned] = useState<string[]>(initial.unassigned);
-
-  // 拉取 Wiki 索引（分类+条目）用于下拉
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/wiki')
-      .then(r => r.json())
-      .then(data => {
-        if (cancelled) return;
-        setWikiCats(data.categories || []);
-        setWikiItems(data.items || []);
-      })
-      .catch(() => { /* */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  const sedimentById = useMemo(
-    () => new Map(session.sediment.map(s => [s.id, s])),
-    [session.sediment],
-  );
-
-  // 段落操作
-  const updateSectionHeading = (id: string, heading: string) => {
-    setSections(prev => prev.map(s => (s.id === id ? { ...s, heading } : s)));
-  };
-  const addSection = () => {
-    setSections(prev => [
-      ...prev,
-      { id: `sec-${Date.now()}`, heading: '新段落', sedimentIds: [] },
-    ]);
-  };
-  const removeSection = (id: string) => {
-    setSections(prev => {
-      const target = prev.find(s => s.id === id);
-      if (target && target.sedimentIds.length > 0) {
-        setUnassigned(u => [...u, ...target.sedimentIds]);
-      }
-      return prev.filter(s => s.id !== id);
-    });
-  };
-  // 把 sediment 从当前位置移到目标（UNASSIGNED_ID 表示移回未分组）
-  const moveSediment = (sid: string, targetId: string) => {
-    setSections(prev =>
-      prev.map(s => ({ ...s, sedimentIds: s.sedimentIds.filter(x => x !== sid) })),
-    );
-    setUnassigned(prev => prev.filter(x => x !== sid));
-    if (targetId === UNASSIGNED_ID) {
-      setUnassigned(prev => [...prev, sid]);
-    } else {
-      setSections(prev =>
-        prev.map(s =>
-          s.id === targetId ? { ...s, sedimentIds: [...s.sedimentIds, sid] } : s,
-        ),
-      );
-    }
-  };
-
-  // 保存：发送 PipelineDraft 到 save 路由（后端按 sedimentIds 无损拼原文）
-  const save = async () => {
-    if (!name.trim()) { setErrMsg('条目名称不能为空'); return; }
-    const newCategoryName = catNewName.trim();
-    if (!categoryId && !newCategoryName) { setErrMsg('请选择或新建分类'); return; }
-    if (mode === 'append' && !appendToItemId) { setErrMsg('请选择追加目标条目'); return; }
-
-    setSaving(true);
-    setErrMsg(null);
-    try {
-      const nonEmpty = sections.filter(s => s.sedimentIds.length > 0);
-      const payload = {
-        name: name.trim(),
-        categoryId: categoryId || '',
-        newCategory: newCategoryName ? { name: newCategoryName } : null,
-        appendToItemId: mode === 'append' ? appendToItemId : undefined,
-        sections: nonEmpty.map(s => ({
-          heading: s.heading.trim() || '未命名段落',
-          sedimentIds: s.sedimentIds,
-        })),
-        sourceLinks: session.nodes
-          .filter(n => n.type === 'parse' && n.parseEntry?.url)
-          .map(n => ({
-            url: n.parseEntry!.url,
-            title: n.parseEntry!.title || n.parseEntry!.url,
-            type: 'original' as const,
-          }))
-          .concat(
-            session.entrySnapshot?.url
-              ? [{
-                  url: session.entrySnapshot.url,
-                  title: session.entrySnapshot.title,
-                  type: 'original' as const,
-                }]
-              : [],
-          ),
-      };
-      const res = await fetch(`/api/pipeline/${session.id}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: payload }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || '保存失败');
-      onSaved(json.itemId);
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // 构造「移到...」下拉的选项
-  const moveOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = sections.map(s => ({
-      value: s.id,
-      label: `§ ${s.heading || '未命名段落'}`,
-    }));
-    opts.push({ value: UNASSIGNED_ID, label: '○ 未分组' });
-    return opts;
-  }, [sections]);
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 20,
-        background: 'rgba(20,17,13,0.88)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        animation: 'pipelineFadeIn 0.2s',
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 880,
-          maxWidth: '94vw',
-          maxHeight: '90vh',
-          background: 'var(--panel)',
-          border: '1px solid var(--amber)',
-          boxShadow: '0 0 0 1px var(--bg), 8px 8px 0 rgba(0,0,0,0.5)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            padding: '14px 20px',
-            borderBottom: '1px solid var(--rule)',
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            background: 'rgba(232,162,76,0.06)',
-          }}
-        >
-          <div>
-            <div
-              className="mono"
-              style={{ fontSize: 10, color: 'var(--amber)', letterSpacing: 1.4, textTransform: 'uppercase' }}
-            >
-              ◈ 沉淀区 · {session.sediment.length} 个要点
-            </div>
-            <div
-              className="serif"
-              style={{ fontSize: 20, color: 'var(--ink)', fontWeight: 500, marginTop: 4, letterSpacing: -0.3 }}
-            >
-              {stage === 'list' ? '查看已标记要点' : '手动分组 · 原文无损存入 Wiki'}
-            </div>
-          </div>
-          <button onClick={onClose} className="mono" style={{ fontSize: 14, color: 'var(--ink3)' }}>
-            × 关闭
-          </button>
-        </div>
-
-        {/* stage tabs：查看要点 / 整理存入 */}
-        <div
-          style={{
-            padding: '0 20px',
-            display: 'flex',
-            gap: 0,
-            borderBottom: '1px solid var(--rule)',
-            background: 'var(--bg2)',
-          }}
-        >
-          {(['list', 'review'] as const).map(st => (
-            <button
-              key={st}
-              onClick={() => setStage(st)}
-              className="mono"
-              style={{
-                padding: '12px 18px',
-                fontSize: 11,
-                letterSpacing: 0.5,
-                fontWeight: stage === st ? 600 : 400,
-                color: stage === st ? 'var(--amber)' : 'var(--ink3)',
-                borderBottom: stage === st ? '2px solid var(--amber)' : '2px solid transparent',
-              }}
-            >
-              {st === 'list' ? `◈ 要点一览 (${session.sediment.length})` : '§ 整理存入 Wiki'}
-            </button>
-          ))}
-        </div>
-
-        {/* mode tabs：仅在 review 阶段显示 */}
-        {stage === 'review' && (
-          <div
-            style={{
-              padding: '16px 20px 0',
-              display: 'flex',
-              gap: 0,
-              borderBottom: '1px solid var(--rule)',
-            }}
-          >
-            {(['new', 'append'] as const).map(m => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className="mono"
-                style={{
-                  padding: '10px 16px',
-                  fontSize: 11,
-                  letterSpacing: 0.5,
-                  color: mode === m ? 'var(--amber)' : 'var(--ink3)',
-                  borderBottom: mode === m ? '2px solid var(--amber)' : '2px solid transparent',
-                }}
-              >
-                {m === 'new' ? '新建词条' : '追加到现有词条'}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="scroll" style={{ flex: 1, overflowY: 'auto', padding: '18px 22px 22px' }}>
-          {/* 空态 */}
-          {session.sediment.length === 0 && (
-            <div
-              className="mono"
-              style={{
-                padding: 24,
-                fontSize: 11,
-                color: 'var(--ink3)',
-                border: '1px dashed var(--rule)',
-                textAlign: 'center',
-                lineHeight: 1.7,
-              }}
-            >
-              沉淀区为空
-              <br />
-              <span style={{ color: 'var(--ink4)' }}>
-                在画布上悬停回答 → 点 ◈ 将要点标为沉淀
-              </span>
-            </div>
-          )}
-
-          {/* 阶段 1：要点一览 */}
-          {stage === 'list' && session.sediment.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {session.sediment.map((p, i) => (
-                <div
-                  key={p.id}
-                  style={{
-                    background: 'var(--bg2)',
-                    border: '1px solid var(--rule)',
-                    borderLeft: '2px solid var(--amber)',
-                  }}
-                >
-                  <div
-                    className="mono"
-                    style={{
-                      padding: '6px 12px 4px',
-                      fontSize: 9,
-                      color: 'var(--amber)',
-                      letterSpacing: 1.2,
-                      background: 'rgba(232,162,76,0.06)',
-                      borderBottom: '1px dashed var(--rule)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span>
-                      ◈ № {String(i + 1).padStart(2, '0')} · {p.markedAt}
-                    </span>
-                    <button
-                      onClick={() => onRemove(p.id)}
-                      style={{ color: 'var(--ink3)', fontSize: 11, padding: '0 4px' }}
-                      title="从沉淀区移除"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div style={{ padding: '10px 14px 8px' }}>
-                    <div
-                      className="serif"
-                      style={{
-                        fontSize: 14,
-                        color: 'var(--ink)',
-                        fontWeight: 500,
-                        lineHeight: 1.4,
-                        letterSpacing: -0.1,
-                      }}
-                    >
-                      {p.text}
-                    </div>
-                    {p.excerpts.length > 0 && (
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: 'var(--ink2)',
-                          lineHeight: 1.55,
-                          marginTop: 6,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 4,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {p.excerpts.join('\n\n')}
-                      </div>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      padding: '6px 12px',
-                      borderTop: '1px dashed var(--rule)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      background: 'rgba(0,0,0,0.15)',
-                    }}
-                  >
-                    {p.suggestedSection ? (
-                      <span
-                        className="mono"
-                        style={{
-                          fontSize: 9,
-                          color: 'var(--teal)',
-                          letterSpacing: 0.3,
-                          border: '1px solid var(--teal)',
-                          opacity: 0.8,
-                          padding: '1px 6px',
-                        }}
-                      >
-                        § {p.suggestedSection}
-                      </span>
-                    ) : <span />}
-                    <button
-                      onClick={() => onJumpTo(p.fromNode)}
-                      className="mono"
-                      style={{ fontSize: 10, color: 'var(--ink3)', letterSpacing: 0.3 }}
-                      title="跳转到来源节点"
-                    >
-                      ↳ 跳至 {p.fromNode}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* 阶段 2：整理存入 */}
-          {stage === 'review' && session.sediment.length > 0 && (
-            <>
-              {/* 追加模式：目标条目选择 */}
-              {mode === 'append' && (
-                <div style={{ marginBottom: 16 }}>
-                  <div
-                    className="mono"
-                    style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}
-                  >
-                    追加到条目
-                  </div>
-                  <select
-                    value={appendToItemId}
-                    onChange={e => setAppendToItemId(e.target.value)}
-                    className="mono"
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      fontSize: 12,
-                      background: 'var(--bg2)',
-                      border: '1px solid var(--rule)',
-                      color: 'var(--ink)',
-                      outline: 'none',
-                    }}
-                  >
-                    <option value="">— 选择目标 —</option>
-                    {wikiItems.map(it => (
-                      <option key={it.id} value={it.id}>
-                        {it.name}（{it.categoryId}）
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* 条目名 + 分类 */}
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                <div style={{ flex: 2 }}>
-                  <div
-                    className="mono"
-                    style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}
-                  >
-                    条目名称
-                  </div>
-                  <input
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    className="serif"
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      fontSize: 15,
-                      fontWeight: 500,
-                      background: 'var(--bg2)',
-                      border: '1px solid var(--rule)',
-                      color: 'var(--ink)',
-                      outline: 'none',
-                    }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div
-                    className="mono"
-                    style={{ fontSize: 9, color: 'var(--ink3)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}
-                  >
-                    分类
-                  </div>
-                  <select
-                    value={categoryId}
-                    onChange={e => {
-                      setCategoryId(e.target.value);
-                      if (e.target.value) setCatNewName('');
-                    }}
-                    className="mono"
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      fontSize: 12,
-                      background: 'var(--bg2)',
-                      border: '1px solid var(--rule)',
-                      color: 'var(--ink)',
-                      outline: 'none',
-                    }}
-                  >
-                    <option value="">— 未选 —</option>
-                    {wikiCats.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                  <input
-                    value={catNewName}
-                    onChange={e => {
-                      setCatNewName(e.target.value);
-                      if (e.target.value) setCategoryId('');
-                    }}
-                    placeholder="或新建分类名"
-                    className="mono"
-                    style={{
-                      width: '100%',
-                      marginTop: 6,
-                      padding: '6px 10px',
-                      fontSize: 11,
-                      background: 'var(--bg2)',
-                      border: '1px dashed var(--rule)',
-                      color: 'var(--ink2)',
-                      outline: 'none',
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* 段落列表 */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 10,
-                }}
-              >
-                <div
-                  className="mono"
-                  style={{ fontSize: 9, color: 'var(--red)', letterSpacing: 1.2, textTransform: 'uppercase' }}
-                >
-                  ─ 分组（按 suggestedSection 初始化 · 可手动调整）
-                </div>
-                <button
-                  onClick={addSection}
-                  className="mono"
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--amber)',
-                    border: '1px solid var(--amber)',
-                    padding: '3px 10px',
-                    letterSpacing: 0.3,
-                  }}
-                >
-                  ＋ 新段落
-                </button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {sections.map((sec, i) => (
-                  <div
-                    key={sec.id}
-                    style={{
-                      padding: '12px 14px',
-                      background: 'var(--bg2)',
-                      border: '1px solid var(--rule)',
-                      borderLeft: '2px solid var(--amber)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <span
-                        className="mono"
-                        style={{ fontSize: 9, color: 'var(--amber)', letterSpacing: 0.5 }}
-                      >
-                        § {i + 1}
-                      </span>
-                      <input
-                        value={sec.heading}
-                        onChange={e => updateSectionHeading(sec.id, e.target.value)}
-                        className="serif"
-                        style={{
-                          flex: 1,
-                          padding: '4px 6px',
-                          fontSize: 14,
-                          fontWeight: 500,
-                          background: 'transparent',
-                          border: 'none',
-                          borderBottom: '1px dashed var(--rule)',
-                          color: 'var(--ink)',
-                          outline: 'none',
-                        }}
-                      />
-                      <span
-                        className="mono"
-                        style={{ fontSize: 9, color: 'var(--ink3)' }}
-                      >
-                        {sec.sedimentIds.length} 要点
-                      </span>
-                      <button
-                        onClick={() => removeSection(sec.id)}
-                        className="mono"
-                        style={{
-                          fontSize: 10,
-                          color: 'var(--ink3)',
-                          letterSpacing: 0.3,
-                        }}
-                      >
-                        × 删段
-                      </button>
-                    </div>
-                    {sec.sedimentIds.length === 0 ? (
-                      <div
-                        className="mono"
-                        style={{
-                          padding: 10,
-                          fontSize: 10,
-                          color: 'var(--ink3)',
-                          textAlign: 'center',
-                          border: '1px dashed var(--rule)',
-                        }}
-                      >
-                        空段 · 从未分组或其他段「移到此段」
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {sec.sedimentIds.map(sid => {
-                          const s = sedimentById.get(sid);
-                          if (!s) return null;
-                          const opts = moveOptions.filter(o => o.value !== sec.id);
-                          return (
-                            <SedimentRow
-                              key={sid}
-                              point={s}
-                              moveOptions={opts}
-                              onMove={target => moveSediment(sid, target)}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {sections.length === 0 && (
-                  <div
-                    className="mono"
-                    style={{
-                      padding: 16,
-                      fontSize: 11,
-                      color: 'var(--ink3)',
-                      textAlign: 'center',
-                      border: '1px dashed var(--rule)',
-                    }}
-                  >
-                    暂无段落 · 点「＋ 新段落」开始分组
-                  </div>
-                )}
-              </div>
-
-              {/* 未分组 */}
-              {unassigned.length > 0 && (
-                <div
-                  style={{
-                    marginTop: 14,
-                    padding: '12px 14px',
-                    background: 'var(--bg2)',
-                    border: '1px dashed var(--red)',
-                  }}
-                >
-                  <div
-                    className="mono"
-                    style={{
-                      fontSize: 9,
-                      color: 'var(--red)',
-                      letterSpacing: 1,
-                      textTransform: 'uppercase',
-                      marginBottom: 8,
-                    }}
-                  >
-                    ○ 未分组 {unassigned.length} 要点 · 保存时自动塞入「其他」段
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {unassigned.map(sid => {
-                      const s = sedimentById.get(sid);
-                      if (!s) return null;
-                      const opts = moveOptions.filter(o => o.value !== UNASSIGNED_ID);
-                      return (
-                        <SedimentRow
-                          key={sid}
-                          point={s}
-                          moveOptions={opts}
-                          onMove={target => moveSediment(sid, target)}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {errMsg && (
-            <div
-              className="mono"
-              style={{
-                marginTop: 14,
-                padding: '10px',
-                fontSize: 10,
-                color: 'var(--red)',
-                border: '1px solid var(--red)',
-                background: 'var(--red-soft)',
-              }}
-            >
-              {errMsg}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div
-          style={{
-            padding: '12px 20px',
-            borderTop: '1px solid var(--rule)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            background: 'var(--bg2)',
-          }}
-        >
-          <div className="mono" style={{ fontSize: 10, color: 'var(--ink3)' }}>
-            {session.sediment.length} 要点 · {session.nodes.filter(n => n.state === 'done').length} 回答 · session#{session.id.slice(0, 8)}
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={onClose}
-              className="mono tool-btn"
-              style={{ padding: '8px 14px', fontSize: 11 }}
-            >
-              {stage === 'list' ? '关闭' : '再想想'}
-            </button>
-            {stage === 'list' ? (
-              <button
-                onClick={() => setStage('review')}
-                disabled={session.sediment.length === 0}
-                className="mono"
-                style={{
-                  padding: '8px 18px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  letterSpacing: 0.5,
-                  background: session.sediment.length === 0 ? 'var(--bg2)' : 'var(--amber)',
-                  color: session.sediment.length === 0 ? 'var(--ink4)' : 'var(--bg)',
-                  border: '1px solid var(--amber)',
-                  cursor: session.sediment.length === 0 ? 'not-allowed' : 'pointer',
-                }}
-              >
-                整理 → 存入 Wiki
-              </button>
-            ) : (
-              <button
-                onClick={save}
-                disabled={
-                  saving || session.sediment.length === 0 ||
-                  (mode === 'append' && !appendToItemId)
-                }
-                className="mono"
-                style={{
-                  padding: '8px 18px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  letterSpacing: 0.5,
-                  background: saving || session.sediment.length === 0 || (mode === 'append' && !appendToItemId)
-                    ? 'var(--bg2)' : 'var(--amber)',
-                  color: saving || session.sediment.length === 0 || (mode === 'append' && !appendToItemId)
-                    ? 'var(--ink4)' : 'var(--bg)',
-                  border: '1px solid var(--amber)',
-                  cursor: saving || session.sediment.length === 0 ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {saving ? '保存中…' : mode === 'append' ? '追加到词条 →' : '创建词条 →'}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ReviewSheet 子组件：单个 sediment 行（标题 + 来源 + 展开原文 + 移到...下拉）
-function SedimentRow({
-  point,
-  moveOptions,
-  onMove,
-}: {
-  point: SedimentPoint;
-  moveOptions?: { value: string; label: string }[];
-  onMove?: (targetId: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const body = point.excerpts.join('\n\n');
-  return (
-    <div style={{ borderLeft: '1px dashed var(--rule)', paddingLeft: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span
-          className="mono"
-          style={{
-            fontSize: 9,
-            color: 'var(--teal)',
-            letterSpacing: 0.3,
-            border: '1px solid var(--teal)',
-            padding: '1px 5px',
-            opacity: 0.85,
-          }}
-        >
-          {point.mode === 'full' ? 'full' : 'custom'}
-        </span>
-        <span
-          className="serif"
-          style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 500, flex: 1, minWidth: 120 }}
-        >
-          {point.text}
-        </span>
-        <span className="mono" style={{ fontSize: 9, color: 'var(--ink3)' }}>
-          Q{point.fromNode} · {point.markedAt}
-        </span>
-        {moveOptions && onMove && (
-          <select
-            value=""
-            onChange={e => {
-              const v = e.target.value;
-              if (v) onMove(v);
-            }}
-            className="mono"
-            style={{
-              fontSize: 9,
-              padding: '2px 4px',
-              background: 'transparent',
-              color: 'var(--ink3)',
-              border: '1px solid var(--rule)',
-              outline: 'none',
-            }}
-          >
-            <option value="">移到…</option>
-            {moveOptions.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        )}
-        <button
-          onClick={() => setExpanded(v => !v)}
-          className="mono"
-          style={{ fontSize: 9, color: 'var(--ink3)' }}
-        >
-          {expanded ? '收起' : '展开原文'}
-        </button>
-      </div>
-      {expanded && (
-        <div
-          style={{
-            marginTop: 6,
-            padding: '6px 10px',
-            fontSize: 11,
-            lineHeight: 1.6,
-            color: 'var(--ink2)',
-            background: 'var(--bg)',
-            border: '1px solid var(--rule)',
-            whiteSpace: 'pre-wrap',
-            maxHeight: 220,
-            overflowY: 'auto',
-          }}
-        >
-          {body}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ──────────────────────────────────────────────────────────
    AskSheet — 对话弹窗：展示分支问答链 + 就地追问
    ────────────────────────────────────────────────────────── */
 interface AskTarget {
@@ -3583,8 +2711,7 @@ function AskSheet({
   toolStatus,
   canAsk,
   onAsk,
-  onMark,
-  onUnmark,
+  onSaveExcerpt,
   onClose,
 }: {
   session: PipelineSession;
@@ -3593,14 +2720,16 @@ function AskSheet({
   toolStatus: string | null;
   canAsk: boolean;
   onAsk: (question: string, parentId: string | null, opts: { isBranch: boolean; branchLabel?: string }) => void;
-  onMark: (nodeId: string) => void;
-  onUnmark: (nodeId: string) => void;
+  onSaveExcerpt: (excerpt: string, source: { nodeId: string; sourceUrl?: string; sourceTitle?: string }) => void;
   onClose: () => void;
 }) {
   const [inputValue, setInputValue] = useState('');
   const [isBranch, setIsBranch] = useState(false);
   const [branchLabel, setBranchLabel] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 选区右键菜单：记录选中文本来自哪个 answer 节点，存入 wiki 时带上 source
+  const { menu: selMenu, setMenu: setSelMenu, onContextMenu: onSelectionContext } = useSelectionMenu();
+  const selSourceRef = useRef<{ nodeId: string } | null>(null);
 
   // 链路锚点：
   //  - 双击打开：锚点 = 被双击节点（target.focusId）
@@ -3900,6 +3029,10 @@ function AskSheet({
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
+                    onContextMenu={!isQ && n.state === 'done' ? (e) => {
+                      selSourceRef.current = { nodeId: n.id };
+                      onSelectionContext(e);
+                    } : undefined}
                     style={{
                       fontSize: 20,
                       lineHeight: 1.9,
@@ -3907,7 +3040,9 @@ function AskSheet({
                       fontWeight: isQ ? 550 : 450,
                       letterSpacing: 0.15,
                       whiteSpace: 'pre-wrap',
+                      userSelect: !isQ ? 'text' : 'auto',
                     }}
+                    title={!isQ && n.state === 'done' ? '选中文字 → 右键存入 Wiki' : undefined}
                   >
                     {n.text ? (
                       isQ ? n.text : <Narrative text={n.text} size="large" />
@@ -3952,7 +3087,7 @@ function AskSheet({
                       )}
                     </div>
                   )}
-                  {!isQ && n.state === 'done' && (
+                  {!isQ && n.state === 'done' && (n.duration || n.tokens) && (
                     <div
                       style={{
                         marginTop: 8,
@@ -3970,36 +3105,9 @@ function AskSheet({
                         {n.tokens ? `${n.tokens} tok` : ''}
                       </span>
                       <span style={{ flex: 1 }} />
-                      {!n.marked ? (
-                        <button
-                          onClick={() => onMark(n.id)}
-                          className="mono"
-                          style={{
-                            fontSize: 14,
-                            color: 'var(--amber)',
-                            border: '1px solid var(--amber)',
-                            padding: '2px 8px',
-                            letterSpacing: 0.3,
-                          }}
-                        >
-                          ◈ 标为要点
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => onUnmark(n.id)}
-                          className="mono"
-                          style={{
-                            fontSize: 14,
-                            color: 'var(--bg)',
-                            background: 'var(--amber)',
-                            padding: '2px 8px',
-                            letterSpacing: 0.3,
-                            fontWeight: 600,
-                          }}
-                        >
-                          ✓ 已标记
-                        </button>
-                      )}
+                      <span className="mono" style={{ fontSize: 11, color: 'var(--ink4)', letterSpacing: 0.3 }}>
+                        选中文字 → 右键 § 存入 Wiki
+                      </span>
                     </div>
                   )}
                 </div>
@@ -4150,6 +3258,21 @@ function AskSheet({
           </div>
         </form>
       </div>
+      {selMenu && (
+        <SelectionContextMenu
+          x={selMenu.x}
+          y={selMenu.y}
+          onClose={() => setSelMenu(null)}
+          onSave={() => {
+            const src = selSourceRef.current;
+            if (!src) return;
+            // 从 answer 节点 text 反查保留 markdown 源
+            const sourceNode = session.nodes.find(n => n.id === src.nodeId);
+            const md = extractMarkdownExcerpt(sourceNode?.text ?? '', selMenu.text);
+            onSaveExcerpt(md, { nodeId: src.nodeId });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -4160,11 +3283,43 @@ function AskSheet({
 export function PipelineView({ pipeline, onExit }: Props) {
   const session = pipeline.session;
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const [showReview, setShowReview] = useState(false);
   const [askTarget, setAskTarget] = useState<AskTarget | null>(null);
-  const [markTarget, setMarkTarget] = useState<string | null>(null);
   const [parseTarget, setParseTarget] = useState<string | null>(null);
   const [experimentTarget, setExperimentTarget] = useState<string | null>(null);
+  // 选区右键 → 存入 wiki：弹窗承载的状态（excerpt 文本 + 可选来源链接）
+  const [saveDialog, setSaveDialog] = useState<{
+    excerpt: string;
+    sourceLink?: WikiSourceLink | null;
+  } | null>(null);
+
+  // 把 AskSheet / ParseDetailSheet 的"右键 → 存入"统一打开 SaveExcerptDialog
+  const handleSaveExcerpt = (
+    excerpt: string,
+    source: { nodeId: string; sourceUrl?: string; sourceTitle?: string },
+  ) => {
+    let sourceLink: WikiSourceLink | null = null;
+    if (source.sourceUrl) {
+      sourceLink = { url: source.sourceUrl, title: source.sourceTitle || source.sourceUrl, type: 'original' };
+    } else {
+      // 从节点祖先链找最近的 parse 节点取来源
+      const byId = new Map(session?.nodes.map(n => [n.id, n]) ?? []);
+      let cursor: string | null = source.nodeId;
+      while (cursor) {
+        const n = byId.get(cursor);
+        if (!n) break;
+        if (n.type === 'parse' && n.parseEntry?.url && !n.parseEntry.url.startsWith('paste://')) {
+          sourceLink = {
+            url: n.parseEntry.url,
+            title: n.parseEntry.title || n.parseEntry.url,
+            type: 'original',
+          };
+          break;
+        }
+        cursor = n.parent;
+      }
+    }
+    setSaveDialog({ excerpt, sourceLink });
+  };
 
   // Minimap 需要 Canvas 的 view + 尺寸；通过 ref 反向调用 focusNode/panToWorld
   const canvasRef = useRef<CanvasHandle>(null);
@@ -4247,11 +3402,9 @@ export function PipelineView({ pipeline, onExit }: Props) {
       <TopBar
         session={session}
         onExit={onExit}
-        onOpenReview={() => setShowReview(true)}
         onNewFlow={() => pipeline.addInputFlow()}
         model={pipeline.model}
         onModelChange={pipeline.setModel}
-        sedimentCount={session.sediment.length}
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div
@@ -4270,8 +3423,6 @@ export function PipelineView({ pipeline, onExit }: Props) {
             toolStatus={pipeline.toolStatus}
             selectedNode={selectedNode}
             setSelectedNode={setSelectedNode}
-            onMark={(id: string) => setMarkTarget(id)}
-            onUnmark={pipeline.unmarkNode}
             onOpen={nodeId => openSheet(nodeId)}
             onSubmitInput={(id, urls, opts) => pipeline.submitInput(id, urls, undefined, opts)}
             onStartExperiment={async (answerId: string) => {
@@ -4326,6 +3477,7 @@ export function PipelineView({ pipeline, onExit }: Props) {
             setParseTarget(null);
             setAskTarget({ parentId: nodeId, focusId: nodeId });
           }}
+          onSaveExcerpt={handleSaveExcerpt}
         />
       )}
 
@@ -4346,39 +3498,276 @@ export function PipelineView({ pipeline, onExit }: Props) {
           toolStatus={pipeline.toolStatus}
           canAsk={canAsk}
           onAsk={onSheetAsk}
-          onMark={pipeline.markNode}
-          onUnmark={pipeline.unmarkNode}
+          onSaveExcerpt={handleSaveExcerpt}
           onClose={() => setAskTarget(null)}
         />
       )}
 
-      {showReview && (
-        <ReviewSheet
-          session={session}
-          onClose={() => setShowReview(false)}
-          onSaved={() => {
-            setShowReview(false);
+      {saveDialog && (
+        <SaveExcerptDialog
+          excerpt={saveDialog.excerpt}
+          sourceLink={saveDialog.sourceLink ?? null}
+          defaultName={
+            session.nodes.find(n => n.type === 'parse' && n.parseEntry?.title)?.parseEntry?.title
+            || session.entrySnapshot?.title
+            || ''
+          }
+          onSave={async ({ excerpt, name, categoryId, newCategoryName, appendToItemId, heading }) => {
+            return pipeline.saveExcerptToWiki({
+              excerpt,
+              heading,
+              name,
+              categoryId,
+              newCategory: newCategoryName ? { name: newCategoryName } : null,
+              appendToItemId,
+              sourceLink: saveDialog.sourceLink ?? null,
+            });
           }}
-          onJumpTo={nodeId => {
-            setShowReview(false);
-            setSelectedNode(nodeId);
-            openSheet(nodeId);
-          }}
-          onRemove={pipeline.removeSediment}
+          onClose={() => setSaveDialog(null)}
         />
       )}
+    </div>
+  );
+}
 
-      {markTarget && (
-        <MarkSheet
-          session={session}
-          nodeId={markTarget}
-          onConfirm={(options) => {
-            pipeline.markNode(markTarget, options);
-            setMarkTarget(null);
-          }}
-          onClose={() => setMarkTarget(null)}
-        />
-      )}
+/* ──────────────────────────────────────────────────────────
+   SaveExcerptDialog — 选区右键 → 存入 Wiki 的轻量四字段弹窗
+   字段：① 项目名称（已有条目下拉 / 新建）② 分类 ③ 内容预览（可微调）④ 确认存入
+   ────────────────────────────────────────────────────────── */
+interface WikiCategoryMeta { id: string; name: string }
+interface WikiItemMeta { id: string; name: string; categoryId: string }
+const NEW_ITEM_VALUE = '__new__';
+
+function SaveExcerptDialog({
+  excerpt,
+  sourceLink,
+  defaultName,
+  onSave,
+  onClose,
+}: {
+  excerpt: string;
+  sourceLink: WikiSourceLink | null;
+  defaultName: string;
+  onSave: (payload: {
+    excerpt: string;
+    name: string;
+    categoryId: string;
+    newCategoryName: string;
+    appendToItemId?: string;
+    heading: string;
+  }) => Promise<{ ok: true; itemId: string } | { ok: false; error: string }>;
+  onClose: () => void;
+}) {
+  const overlayHandlers = useOverlayClose(onClose);
+  const [cats, setCats] = useState<WikiCategoryMeta[]>([]);
+  const [items, setItems] = useState<WikiItemMeta[]>([]);
+  // 项目选择：'__new__' 表示新建，其它值为 wiki 条目 id
+  const [itemPick, setItemPick] = useState<string>(NEW_ITEM_VALUE);
+  const [name, setName] = useState(defaultName || '');
+  const [catId, setCatId] = useState('');
+  const [newCatName, setNewCatName] = useState('');
+  const [heading, setHeading] = useState('要点');
+  const [excerptText, setExcerptText] = useState(excerpt);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/wiki').then(r => r.json()).then(data => {
+      if (cancelled) return;
+      setCats(data.categories || []);
+      setItems(data.items || []);
+      // 默认分类：第一个
+      if (data.categories?.[0]?.id) setCatId(data.categories[0].id);
+    }).catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const isAppend = itemPick !== NEW_ITEM_VALUE;
+  const targetItem = isAppend ? items.find(i => i.id === itemPick) : null;
+  const lockedCatId = targetItem?.categoryId;
+
+  const canSave = !saving && excerptText.trim().length > 0 && (
+    isAppend
+      ? !!targetItem
+      : (name.trim().length > 0 && (catId || newCatName.trim()))
+  );
+
+  const submit = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setErr(null);
+    const result = await onSave({
+      excerpt: excerptText,
+      name: isAppend ? (targetItem?.name || name) : name.trim(),
+      categoryId: isAppend ? (lockedCatId || '') : (catId || ''),
+      newCategoryName: !isAppend && !catId ? newCatName.trim() : '',
+      appendToItemId: isAppend ? itemPick : undefined,
+      heading: heading.trim() || '要点',
+    });
+    setSaving(false);
+    if (result.ok) onClose();
+    else setErr(result.error);
+  };
+
+  return (
+    <div
+      {...overlayHandlers}
+      className="pipeline-deep"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 30,
+        background: 'rgba(20,17,13,0.78)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        animation: 'pipelineFadeIn 0.18s',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 'min(1040px, 94vw)',
+          maxHeight: '88vh',
+          background: 'var(--panel)',
+          border: '1px solid var(--amber)',
+          boxShadow: '6px 6px 0 rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: '12px 22px', borderBottom: '1px solid var(--rule)', background: 'rgba(232,162,76,0.06)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className="mono" style={{ fontSize: 16, color: 'var(--amber)', letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>
+            § 存入 Wiki
+          </span>
+          <span style={{ flex: 1 }} />
+          <button onClick={onClose} className="mono" style={{ fontSize: 16, color: 'var(--ink3)' }}>× 关闭</button>
+        </div>
+
+        <div className="scroll" style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
+          {/* 上半行：项目名称 / 分类 / 段落标题 三列并排 */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 0.8fr', gap: 14 }}>
+            {/* 项目名称 */}
+            <div>
+              <div className="mono" style={{ fontSize: 13, color: 'var(--ink3)', letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 6 }}>
+                项目名称
+              </div>
+              <select
+                value={itemPick}
+                onChange={e => setItemPick(e.target.value)}
+                className="mono"
+                style={{ width: '100%', padding: '8px 10px', fontSize: 16, background: 'var(--bg2)', border: '1px solid var(--rule)', color: 'var(--ink)', outline: 'none', marginBottom: 6 }}
+              >
+                <option value={NEW_ITEM_VALUE}>＋ 新建条目</option>
+                {items.map(it => (
+                  <option key={it.id} value={it.id}>追加 → {it.name}</option>
+                ))}
+              </select>
+              {!isAppend && (
+                <input
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="新条目名称（必填）"
+                  style={{ width: '100%', padding: '8px 11px', fontSize: 17, background: 'var(--bg2)', border: '1px solid var(--rule)', color: 'var(--ink)', outline: 'none' }}
+                />
+              )}
+            </div>
+
+            {/* 分类选择 */}
+            <div>
+              <div className="mono" style={{ fontSize: 13, color: 'var(--ink3)', letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 6 }}>
+                分类
+              </div>
+              {isAppend ? (
+                <div className="mono" style={{ fontSize: 16, color: 'var(--ink3)', padding: '8px 11px', background: 'var(--bg2)', border: '1px dashed var(--rule)' }}>
+                  {cats.find(c => c.id === lockedCatId)?.name || lockedCatId || '（沿用目标条目分类）'}
+                </div>
+              ) : (
+                <>
+                  <select
+                    value={catId}
+                    onChange={e => { setCatId(e.target.value); if (e.target.value) setNewCatName(''); }}
+                    className="mono"
+                    style={{ width: '100%', padding: '8px 10px', fontSize: 16, background: 'var(--bg2)', border: '1px solid var(--rule)', color: 'var(--ink)', outline: 'none', marginBottom: 6 }}
+                  >
+                    <option value="">— 选择已有分类 —</option>
+                    {cats.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    value={newCatName}
+                    onChange={e => { setNewCatName(e.target.value); if (e.target.value) setCatId(''); }}
+                    placeholder="或填写新分类名"
+                    style={{ width: '100%', padding: '8px 11px', fontSize: 16, background: 'var(--bg2)', border: '1px solid var(--rule)', color: 'var(--ink)', outline: 'none' }}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* 段落标题 */}
+            <div>
+              <div className="mono" style={{ fontSize: 13, color: 'var(--ink3)', letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 6 }}>
+                段落标题
+              </div>
+              <input
+                value={heading}
+                onChange={e => setHeading(e.target.value)}
+                placeholder="要点"
+                style={{ width: '100%', padding: '8px 11px', fontSize: 17, background: 'var(--bg2)', border: '1px solid var(--rule)', color: 'var(--ink)', outline: 'none' }}
+              />
+            </div>
+          </div>
+
+          {/* 存入内容（占满整行） */}
+          <div>
+            <div className="mono" style={{ fontSize: 13, color: 'var(--ink3)', letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+              <span>存入内容</span>
+              <span style={{ color: 'var(--ink4)' }}>{excerptText.length} 字</span>
+            </div>
+            <textarea
+              value={excerptText}
+              onChange={e => setExcerptText(e.target.value)}
+              rows={Math.min(10, Math.max(5, excerptText.split('\n').length + 1))}
+              style={{ width: '100%', padding: '12px 14px', fontSize: 18, lineHeight: 1.75, background: 'var(--bg2)', border: '1px solid var(--rule)', color: 'var(--ink)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+            />
+            {sourceLink && (
+              <div className="mono" style={{ fontSize: 13, color: 'var(--ink4)', marginTop: 5, letterSpacing: 0.3 }}>
+                来源：{sourceLink.title}
+              </div>
+            )}
+          </div>
+
+          {err && (
+            <div className="mono" style={{ fontSize: 14, color: 'var(--red)', padding: '8px 12px', border: '1px solid var(--red)', background: 'rgba(201,74,26,0.08)' }}>
+              × {err}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--rule)', background: 'var(--bg2)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} className="mono" style={{ padding: '8px 18px', fontSize: 15, color: 'var(--ink3)' }}>取消</button>
+          <button
+            onClick={submit}
+            disabled={!canSave}
+            className="mono"
+            style={{
+              padding: '8px 22px',
+              fontSize: 15,
+              fontWeight: 600,
+              letterSpacing: 0.5,
+              background: canSave ? 'var(--amber)' : 'var(--bg2)',
+              color: canSave ? 'var(--bg)' : 'var(--ink4)',
+              border: '1px solid var(--amber)',
+              cursor: canSave ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {saving ? '保存中…' : '✓ 确认存入'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4391,15 +3780,18 @@ function ParseDetailSheet({
   nodeId,
   onClose,
   onDeepDive,
+  onSaveExcerpt,
 }: {
   session: PipelineSession;
   nodeId: string;
   onClose: () => void;
   onDeepDive: (nodeId: string) => void;
+  onSaveExcerpt: (excerpt: string, source: { nodeId: string; sourceUrl?: string; sourceTitle?: string }) => void;
 }) {
   const node = session.nodes.find(n => n.id === nodeId);
   const p = node?.parseEntry;
   const overlayHandlers = useOverlayClose(onClose);
+  const { menu: selMenu, setMenu: setSelMenu, onContextMenu: onSelectionContext } = useSelectionMenu();
 
   if (!node || !p) return null;
 
@@ -4574,19 +3966,34 @@ function ParseDetailSheet({
                   letterSpacing: 1.2,
                   textTransform: 'uppercase',
                   marginBottom: 10,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  gap: 12,
                 }}
               >
-                {p.url?.startsWith('paste://')
-                  ? '── 你粘贴的原文（追问时作为锚点）'
-                  : p.direct
-                    ? '── 原文摘要（未经 agent 分析）'
-                    : '── 解析叙述'}
+                <span>
+                  {p.url?.startsWith('paste://')
+                    ? '── 你粘贴的原文（追问时作为锚点）'
+                    : p.direct
+                      ? '── 原文摘要（未经 agent 分析）'
+                      : '── 解析叙述'}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--ink4)', textTransform: 'none', letterSpacing: 0.3 }}>
+                  选中文字 → 右键 § 存入 Wiki
+                </span>
               </div>
-              {p.narrative.split(/\n\n+/).map((para, i) => (
-                <p key={i} style={{ marginBottom: 14 }}>
-                  <Narrative text={para} size="large" />
-                </p>
-              ))}
+              <div
+                onContextMenu={onSelectionContext}
+                style={{ userSelect: 'text' }}
+                title="选中文字 → 右键存入 Wiki"
+              >
+                {p.narrative.split(/\n\n+/).map((para, i) => (
+                  <p key={i} style={{ marginBottom: 14 }}>
+                    <Narrative text={para} size="large" />
+                  </p>
+                ))}
+              </div>
             </div>
           )}
 
@@ -4669,477 +4076,26 @@ function ParseDetailSheet({
           </button>
         </div>
       </div>
+      {selMenu && (
+        <SelectionContextMenu
+          x={selMenu.x}
+          y={selMenu.y}
+          onClose={() => setSelMenu(null)}
+          onSave={() => {
+            // 从 narrative markdown 源反查保留排版
+            const md = extractMarkdownExcerpt(p.narrative ?? '', selMenu.text);
+            onSaveExcerpt(md, {
+              nodeId: node.id,
+              sourceUrl: p.url && !p.url.startsWith('paste://') ? p.url : undefined,
+              sourceTitle: p.title || undefined,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/* ──────────────────────────────────────────────────────────
-   MarkSheet — 标记弹框：默认全量 Q+A；可切自定义模式选多段摘录
-   ────────────────────────────────────────────────────────── */
-function MarkSheet({
-  session,
-  nodeId,
-  onConfirm,
-  onClose,
-}: {
-  session: PipelineSession;
-  nodeId: string;
-  onConfirm: (options: {
-    text: string;
-    mode: SedimentMode;
-    excerpts: string[];
-    suggestedSection?: string;
-  }) => void;
-  onClose: () => void;
-}) {
-  const node = session.nodes.find(n => n.id === nodeId);
-
-  const paired = useMemo(() => {
-    if (!node) return null;
-    return node.type === 'answer'
-      ? session.nodes.find(n => n.id === node.parent && n.type === 'question')
-      : session.nodes.find(n => n.parent === node.id && n.type === 'answer');
-  }, [node, session.nodes]);
-
-  const fullText = useMemo(() => {
-    if (!node) return '';
-    if (!paired) return node.text;
-    return node.type === 'answer'
-      ? `${paired.text}\n\n${node.text}`
-      : `${node.text}\n\n${paired.text}`;
-  }, [node, paired]);
-
-  const defaultTitle = node?.markedAs || node?.text.split('\n')[0].slice(0, 60) || '新要点';
-
-  const [mode, setMode] = useState<SedimentMode>('full');
-  const [title, setTitle] = useState(defaultTitle);
-  const [suggestedSection, setSuggestedSection] = useState('新要点');
-  const [customExcerpts, setCustomExcerpts] = useState<string[]>([]);
-  const previewRef = useRef<HTMLDivElement>(null);
-
-  const addSelection = () => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) return;
-    const text = sel.toString().trim();
-    if (!text) return;
-    const anchor = sel.anchorNode;
-    if (!anchor || !previewRef.current?.contains(anchor)) return;
-    setCustomExcerpts(prev => [...prev, text]);
-    sel.removeAllRanges();
-  };
-
-  const removeExcerpt = (i: number) => {
-    setCustomExcerpts(prev => prev.filter((_, idx) => idx !== i));
-  };
-
-  const editExcerpt = (i: number, next: string) => {
-    setCustomExcerpts(prev => prev.map((e, idx) => (idx === i ? next : e)));
-  };
-
-  const canSave =
-    mode === 'full' ? fullText.length > 0 : customExcerpts.length > 0;
-
-  const save = () => {
-    const excerpts = mode === 'full' ? [fullText] : customExcerpts;
-    onConfirm({
-      text: title.trim() || defaultTitle,
-      mode,
-      excerpts,
-      suggestedSection: suggestedSection.trim() || undefined,
-    });
-  };
-
-  if (!node) return null;
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 20,
-        background: 'rgba(20,17,13,0.88)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        animation: 'pipelineFadeIn 0.2s',
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 780,
-          maxWidth: '92vw',
-          maxHeight: '88vh',
-          background: 'var(--panel)',
-          border: '1px solid var(--amber)',
-          boxShadow: '0 0 0 1px var(--bg), 8px 8px 0 rgba(0,0,0,0.5)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {/* header */}
-        <div
-          style={{
-            padding: '14px 20px',
-            borderBottom: '1px solid var(--rule)',
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            background: 'rgba(232,162,76,0.06)',
-          }}
-        >
-          <div>
-            <div
-              className="mono"
-              style={{
-                fontSize: 10,
-                color: 'var(--amber)',
-                letterSpacing: 1.4,
-                textTransform: 'uppercase',
-              }}
-            >
-              ◈ 标为要点 · mark
-            </div>
-            <div
-              className="serif"
-              style={{
-                fontSize: 18,
-                color: 'var(--ink)',
-                fontWeight: 500,
-                marginTop: 4,
-                letterSpacing: -0.3,
-              }}
-            >
-              {node.type === 'answer' ? 'A' : 'Q'}[{node.id}]
-              {paired ? ` · 配对 ${paired.type === 'answer' ? 'A' : 'Q'}[${paired.id}]` : ''}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="mono"
-            style={{ fontSize: 14, color: 'var(--ink3)' }}
-          >
-            × 关闭
-          </button>
-        </div>
-
-        {/* mode tabs */}
-        <div
-          style={{
-            padding: '14px 20px 0',
-            display: 'flex',
-            gap: 0,
-            borderBottom: '1px solid var(--rule)',
-          }}
-        >
-          {(['full', 'custom'] as const).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className="mono"
-              style={{
-                padding: '10px 16px',
-                fontSize: 11,
-                letterSpacing: 0.5,
-                color: mode === m ? 'var(--amber)' : 'var(--ink3)',
-                borderBottom:
-                  mode === m
-                    ? '2px solid var(--amber)'
-                    : '2px solid transparent',
-              }}
-            >
-              {m === 'full' ? '全量（整个 Q+A）' : '自定义摘录'}
-            </button>
-          ))}
-        </div>
-
-        {/* body */}
-        <div
-          className="scroll"
-          style={{ flex: 1, overflowY: 'auto', padding: '18px 20px 22px' }}
-        >
-          {/* title + suggestedSection inputs */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-            <div style={{ flex: 2 }}>
-              <div
-                className="mono"
-                style={{
-                  fontSize: 9,
-                  color: 'var(--ink3)',
-                  letterSpacing: 1,
-                  textTransform: 'uppercase',
-                  marginBottom: 4,
-                }}
-              >
-                要点标题
-              </div>
-              <input
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: 13,
-                  background: 'var(--bg2)',
-                  border: '1px solid var(--rule)',
-                  color: 'var(--ink)',
-                  outline: 'none',
-                }}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div
-                className="mono"
-                style={{
-                  fontSize: 9,
-                  color: 'var(--ink3)',
-                  letterSpacing: 1,
-                  textTransform: 'uppercase',
-                  marginBottom: 4,
-                }}
-              >
-                建议段落
-              </div>
-              <input
-                value={suggestedSection}
-                onChange={e => setSuggestedSection(e.target.value)}
-                className="mono"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: 12,
-                  background: 'var(--bg2)',
-                  border: '1px solid var(--rule)',
-                  color: 'var(--ink)',
-                  outline: 'none',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* full mode: 原文预览 */}
-          {mode === 'full' && (
-            <>
-              <div
-                className="mono"
-                style={{
-                  fontSize: 9,
-                  color: 'var(--red)',
-                  letterSpacing: 1.2,
-                  textTransform: 'uppercase',
-                  marginBottom: 8,
-                }}
-              >
-                ─ 原文（将整段无损存入）
-              </div>
-              <div
-                style={{
-                  padding: '14px 16px',
-                  background: 'var(--bg2)',
-                  border: '1px solid var(--rule)',
-                  fontSize: 12.5,
-                  lineHeight: 1.7,
-                  color: 'var(--ink2)',
-                  whiteSpace: 'pre-wrap',
-                  maxHeight: 360,
-                  overflowY: 'auto',
-                }}
-              >
-                {fullText}
-              </div>
-            </>
-          )}
-
-          {/* custom mode: 框选 + 片段列表 */}
-          {mode === 'custom' && (
-            <>
-              <div
-                className="mono"
-                style={{
-                  fontSize: 9,
-                  color: 'var(--red)',
-                  letterSpacing: 1.2,
-                  textTransform: 'uppercase',
-                  marginBottom: 8,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <span>─ 在原文中选中文字，点「添加选中」即可摘录多段</span>
-                <button
-                  onClick={addSelection}
-                  className="mono"
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--amber)',
-                    border: '1px solid var(--amber)',
-                    padding: '3px 10px',
-                    letterSpacing: 0.3,
-                  }}
-                >
-                  ＋ 添加选中
-                </button>
-              </div>
-              <div
-                ref={previewRef}
-                style={{
-                  padding: '14px 16px',
-                  background: 'var(--bg2)',
-                  border: '1px solid var(--rule)',
-                  fontSize: 12.5,
-                  lineHeight: 1.7,
-                  color: 'var(--ink2)',
-                  whiteSpace: 'pre-wrap',
-                  maxHeight: 260,
-                  overflowY: 'auto',
-                  userSelect: 'text',
-                }}
-              >
-                {fullText}
-              </div>
-
-              <div
-                className="mono"
-                style={{
-                  fontSize: 9,
-                  color: 'var(--red)',
-                  letterSpacing: 1.2,
-                  textTransform: 'uppercase',
-                  marginTop: 16,
-                  marginBottom: 8,
-                }}
-              >
-                ─ 已摘录 {customExcerpts.length} 段
-              </div>
-              {customExcerpts.length === 0 ? (
-                <div
-                  className="mono"
-                  style={{
-                    padding: 16,
-                    fontSize: 10,
-                    color: 'var(--ink3)',
-                    textAlign: 'center',
-                    border: '1px dashed var(--rule)',
-                  }}
-                >
-                  暂无摘录 · 上方选中文字后点「添加选中」
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {customExcerpts.map((ex, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        border: '1px solid var(--rule)',
-                        borderLeft: '2px solid var(--amber)',
-                        background: 'var(--bg2)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          padding: '6px 10px',
-                          borderBottom: '1px dashed var(--rule)',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span
-                          className="mono"
-                          style={{
-                            fontSize: 9,
-                            color: 'var(--amber)',
-                            letterSpacing: 0.5,
-                          }}
-                        >
-                          摘录 № {i + 1}
-                        </span>
-                        <button
-                          onClick={() => removeExcerpt(i)}
-                          className="mono"
-                          style={{
-                            fontSize: 10,
-                            color: 'var(--ink3)',
-                            letterSpacing: 0.3,
-                          }}
-                        >
-                          × 删除
-                        </button>
-                      </div>
-                      <textarea
-                        value={ex}
-                        onChange={e => editExcerpt(i, e.target.value)}
-                        rows={Math.min(6, Math.max(2, ex.split('\n').length + 1))}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          fontSize: 12,
-                          lineHeight: 1.6,
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--ink2)',
-                          outline: 'none',
-                          resize: 'vertical',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* footer */}
-        <div
-          style={{
-            padding: '12px 20px',
-            borderTop: '1px solid var(--rule)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            background: 'var(--bg2)',
-          }}
-        >
-          <div className="mono" style={{ fontSize: 10, color: 'var(--ink3)' }}>
-            {mode === 'full'
-              ? `全量 · ${fullText.length} 字`
-              : `自定义 · ${customExcerpts.length} 段摘录`}
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={onClose}
-              className="mono tool-btn"
-              style={{ padding: '8px 14px', fontSize: 11 }}
-            >
-              取消
-            </button>
-            <button
-              onClick={save}
-              disabled={!canSave}
-              className="mono"
-              style={{
-                padding: '8px 18px',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: 0.5,
-                background: canSave ? 'var(--amber)' : 'var(--bg2)',
-                color: canSave ? 'var(--bg)' : 'var(--ink4)',
-                border: '1px solid var(--amber)',
-                cursor: canSave ? 'pointer' : 'not-allowed',
-              }}
-            >
-              ◈ 保存要点 →
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ──────────────────────────────────────────────────────────
    ExperimentSheet — 画布内实验对话弹窗

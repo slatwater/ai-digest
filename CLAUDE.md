@@ -24,7 +24,7 @@ src/
 │   ├── api/triage/route.ts   # 解析 API（POST 创建 / GET 轮询 / DELETE）
 │   ├── api/expand/route.ts   # 定向扩展 SSE（轻量 agent）
 │   ├── api/wiki/route.ts + categories/route.ts # Wiki 条目 + 分类 CRUD
-│   ├── api/pipeline/route.ts + [id]/(ask|save) # 统一画布会话（无 entry 可建） + 追问 SSE + 存 Wiki
+│   ├── api/pipeline/route.ts + [id]/(ask|save) # 统一画布会话 + 追问 SSE + 选区即存 Wiki
 │   ├── api/sandbox/route.ts + skill-import/route.ts # 沙盒 SSE + GitHub SKILL.md 导入
 │   └── api/experiment/route.ts + experiences/route.ts # 实验 SSE + 经验 CRUD
 ├── lib/
@@ -32,15 +32,15 @@ src/
 │   ├── pipeline.ts           # 追问 Agent（沿 parent 回溯到最近 parse 节点取 context）
 │   ├── sandbox.ts            # Skill 沙盒运行时
 │   ├── experiment.ts         # 实验运行时（仅读 wiki 源链接 + WebFetch + Bash coze）
-│   ├── storage.ts            # 数据读写 + 老数据迁移（entrySnapshot 可空）
+│   ├── storage.ts            # 数据读写 + 老数据迁移（读取时丢弃旧 sediment / marked 字段）
 │   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment
 ├── components/
-│   ├── PipelineView.tsx      # 统一画布：input→parse→QA合并卡 + Minimap + ParseDetailSheet
+│   ├── PipelineView.tsx      # 统一画布 + ParseDetailSheet/AskSheet + SaveExcerptDialog（选区→存入 Wiki）
 │   ├── TriageCard.tsx        # 解析卡片（保留为弹窗内的渲染片段，主视图已下线）
 │   ├── WikiBrowseView.tsx    # Wiki 三级钻取
 │   ├── SandboxView.tsx / ExperimentView.tsx / ExperienceView.tsx / BlueprintView.tsx
 ├── hooks/
-│   ├── usePipeline.ts        # 统一生命周期：ensureSession / addInputFlow / submitInput / ask / markNode
+│   ├── usePipeline.ts        # 生命周期：ensureSession / addInputFlow / submitInput / ask / saveExcerptToWiki
 │   ├── useTriage.ts / useSandbox.ts / useExperiment.ts
 data/                         # JSON+MD 持久化（triage/wiki/pipelines/experiences）
 scripts/scrape.py             # Scrapling 抓取
@@ -53,7 +53,9 @@ scripts/scrape.py             # Scrapling 抓取
          连线上实时显示 liveStatus（capture/trace/…）；direct 模式跳过 triage agent 只抓锚点
   双击 parse 卡 → ParseDetailSheet（完整 narrative + 概念 + 溯源） → [深入追问]
   Q/A 合并为单卡（只显示问题，双击进 AskSheet）；派生分支上下偏移；「+ 新流程」上下并排
-  顶栏「◈ 沉淀区 N」统一弹窗（要点一览 / 整理存入 Wiki 两阶段）；answer 卡「❦ 实验」→ teal 色 experiment 节点
+  存入 Wiki：在 ParseDetailSheet 的 narrative 或 AskSheet 的 answer 文本上左键拖选 → 右键 §
+         → SaveExcerptDialog（项目名称下拉新建/追加 + 分类 + 段落标题 + 内容预览 + 确认存入）
+  answer 卡「❦ 实验」→ teal 色 experiment 节点
   右侧栏 Minimap：类型染色 + 视口框拖拽 + 点节点居中 + streaming 涟漪
 Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 ```
@@ -65,6 +67,7 @@ Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
 - 画布水平流：父节点右边中线 → 子节点左边中线 bezier；input→parse 虚线 + 中点标 liveStatus
 - SSE 统一用 buffer + `\n\n` 分割；narrative 标记 `[[技术名]]`
 - Triage batch 内 entry 匹配 PipelineNode 按 URL，不依赖后端 UUID
+- 选区右键菜单：`useSelectionMenu` hook + `SelectionContextMenu` 组件，选区为空则放行浏览器默认菜单
 
 ## 可靠性红线
 - 解析落盘前必过 `validateSourceConsistency`：声明的 original URL 关键词必须在 scrape 原文里出现，否则降级 error 不得留幻觉

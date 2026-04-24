@@ -9,7 +9,6 @@ import type {
   PipelineNode,
   PipelineSession,
   PipelineWikiCandidate,
-  SedimentPoint,
 } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -25,16 +24,12 @@ export async function GET(
   return Response.json({ session });
 }
 
-// 增量更新：只更新允许的字段（nodes/sediment/wikiCandidate/draft）
+// 增量更新：只更新允许的字段（nodes/wikiCandidate/draft）
 // 其它字段（id/entryId/sdkSessionId/createdAt 等）由服务端掌握
 interface PatchBody {
   nodes?: PipelineNode[];
   nodeAdd?: PipelineNode;
   nodePatch?: { id: string; patch: Partial<PipelineNode> };
-  sediment?: SedimentPoint[];
-  sedimentAdd?: SedimentPoint;
-  sedimentRemoveId?: string;
-  sedimentPatch?: { id: string; patch: Partial<SedimentPoint> };
   wikiCandidate?: PipelineWikiCandidate;
   draft?: PipelineDraft;
   // 清理某些分支的孤儿 SDK session（删光了某分支所有 Q/A 后调用）
@@ -66,21 +61,6 @@ export async function PATCH(
   if (body.nodePatch) {
     session.nodes = session.nodes.map(n =>
       n.id === body.nodePatch!.id ? { ...n, ...body.nodePatch!.patch } : n,
-    );
-  }
-  if (body.sediment) {
-    session.sediment = body.sediment;
-  }
-  if (body.sedimentAdd) {
-    const exists = session.sediment.find(s => s.id === body.sedimentAdd!.id);
-    if (!exists) session.sediment.push(body.sedimentAdd);
-  }
-  if (body.sedimentRemoveId) {
-    session.sediment = session.sediment.filter(s => s.id !== body.sedimentRemoveId);
-  }
-  if (body.sedimentPatch) {
-    session.sediment = session.sediment.map(s =>
-      s.id === body.sedimentPatch!.id ? { ...s, ...body.sedimentPatch!.patch } : s,
     );
   }
   if (body.wikiCandidate) {

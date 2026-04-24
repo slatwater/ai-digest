@@ -113,9 +113,7 @@
       "w": 280,
       "createdAt": "22:58:09",
       "model": "sonnet",
-      "duration": "17.8s",
-      "marked": true,
-      "markedAs": "这条分支锚定在 Adam's Law / TFL 论文，问题涉及该论文的录用会议背景，属于锚定范围内的上下文说明。"
+      "duration": "17.8s"
     },
     {
       "id": "n5",
@@ -227,9 +225,7 @@
       "createdAt": "23:41:37",
       "model": "sonnet",
       "duration": "20.0s",
-      "tokens": 16,
-      "marked": false,
-      "markedAs": "锚点及父节点已覆盖 arXiv cs.CL 的基本定位，这里聚焦在「如何高效筛选」这一实操问题上。"
+      "tokens": 16
     },
     {
       "id": "n13",
@@ -1245,27 +1241,202 @@
       "model": "sonnet",
       "duration": "22.3s",
       "tokens": 0
-    }
-  ],
-  "sediment": [
+    },
     {
-      "id": "s-1776927709687",
-      "fromNode": "n4",
-      "mode": "full",
-      "text": "这条分支锚定在 Adam's Law / TFL 论文，问题涉及该论文的录用会议背景，属于锚定范围内的上下文说明。",
-      "excerpts": [
-        "ACL 2026 主会是什么\n\n这条分支锚定在 Adam's Law / TFL 论文，问题涉及该论文的录用会议背景，属于锚定范围内的上下文说明。\n\n---\n\n**ACL（Annual Meeting of the Association for Computational Linguistics）** 是计算语言学与自然语言处理领域**最顶级的学术会议**之一，与 EMNLP、NAACL 并称 NLP 三大顶会，在业内地位相当于 CV 领域的 CVPR/ICCV。\n\n**\"主会（Main Conference）\"** 的含义：\nACL 每年除主会外还附带若干 Workshop（研讨会）和 Findings（扩展轨道）。被 **Main Conference** 录用意味着通过了最严格的同行评审，接受率通常在 20%–25% 左右，是含金量最高的档次；Findings 论文虽也正式发表，但审稿评级略低于主会。\n\n**ACL 2026** 将于 2026 年召开（具体地点尚未在锚点材料中提及）。Adam's Law 论文（arXiv 2604.02176）在 2026 年 4 月提交即获主会录用，说明该工作已经过完整的双盲评审流程并被接受为正式 oral/poster 论文。\n\n对 Adam's Law 这篇论文而言，ACL 2026 主会录用意味着：\n1. 研究质量与实验设计获得了 NLP 顶会审稿人的认可；\n2. 论文提出的 TFL 规律及 CTFT 方法会在主会上正式报告，具备较高的学术影响力基准。"
-      ],
-      "markedAt": "15:01:49",
-      "suggestedSection": "新要点",
-      "order": 0
+      "id": "n56",
+      "type": "question",
+      "state": "done",
+      "text": "他的每日top10会变吗，他的每日top10只统计每日的吗，按照什么数据统计的github？？",
+      "parent": "n55",
+      "branchIdx": 0,
+      "x": 7304,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:12:39",
+      "model": "sonnet"
+    },
+    {
+      "id": "n57",
+      "type": "answer",
+      "state": "done",
+      "text": "三个问题逐一澄清：\n\n---\n\n**① 每日 Top 10 会变吗？**\n\n**会**，而且是实时变动的。Today 榜在一天之内随时有人点赞就会重新排序——上午第 5 的论文，下午可能因为被大 V 转发引爆点赞而冲到第 1。第二天（今日变昨日）这些论文就归档进历史，不再出现在 Today 榜里。\n\n**② 只统计每日的吗？**\n\n是的，**Today 榜只统计当天的提交和当天收到的赞数**。每天是独立的一张榜。如果你昨天没看，今天就看不到昨天的 Top 10（需要手动翻历史或看归档）。\n\n**③ 统计的是 GitHub 数据吗？**\n\n**不是 GitHub**。完全是两个独立的数据源：\n\n| 数据来源 | 是什么 |\n|---|---|\n| **HF Papers 点赞（upvote）** | HF 用户在 huggingface.co/papers 页面点的赞，这才是 Today 榜的排序依据 |\n| **GitHub Stars** | 代码仓库的收藏数，是另一个独立的热度信号，HF Papers 榜单**不依赖**它 |\n\n你可能混淆的原因：部分论文页面会附带 GitHub 链接（如果作者开了源码），但那只是展示，不影响 HF Papers 的排名。\n\n**一句话总结**：Today 榜 = 今天在 HF 平台上被提交且获赞最多的论文，数据来自 **HF 自己的点赞系统**，与 GitHub 无关，一天内实时更新，第二天归档清零重来。",
+      "parent": "n56",
+      "branchIdx": 0,
+      "x": 7648,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:12:39",
+      "model": "sonnet",
+      "duration": "24.1s",
+      "tokens": 12
+    },
+    {
+      "id": "n58",
+      "type": "question",
+      "state": "done",
+      "text": "github如何查看每日热门榜单",
+      "parent": "n57",
+      "branchIdx": 0,
+      "x": 7992,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:18:18",
+      "model": "sonnet"
+    },
+    {
+      "id": "n59",
+      "type": "answer",
+      "state": "done",
+      "text": "这个问题略微偏离了锚点（Adam's Law / 论文追踪），但在本分支「如何发现 AI 领域热门研究」的脉络内仍属相关，直接回答。\n\n---\n\n**GitHub Trending 榜单**\n**`github.com/trending`**\n\nGitHub 官方提供 Trending 页面，按**Star 增速**排序，不是总 Star 数。\n\n**三个时间维度可选**：\n\n| 维度 | 含义 |\n|---|---|\n| **Today** | 今天新增 Star 最多的仓库 |\n| **This week** | 本周累计新增 Star 最多 |\n| **This month** | 本月累计 |\n\n**筛选 AI/NLP 相关**：\n页面左侧可按**语言**和**话题（Topic）**过滤，追 AI 相关建议：\n- 语言选 `Python`（覆盖绝大多数 AI 项目）\n- 或直接访问 `github.com/trending/python?since=daily`\n\n---\n\n**与 HF Papers 的区别**\n\n| 维度 | HF Papers Today 榜 | GitHub Trending Today 榜 |\n|---|---|---|\n| 追踪对象 | **论文**（研究发现） | **代码仓库**（工程实现） |\n| 信号来源 | HF 用户点赞 | GitHub Star 增量 |\n| 适合发现 | 新研究规律（如 TFL） | 新工具/框架/复现代码 |\n\n两者互补：**HF Papers 先发现论文 → GitHub Trending 追对应的代码实现**，是追踪 AI 技术落地的完整链路。",
+      "parent": "n58",
+      "branchIdx": 0,
+      "x": 8336,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:18:18",
+      "model": "sonnet",
+      "duration": "25.3s",
+      "tokens": 0
+    },
+    {
+      "id": "n60",
+      "type": "question",
+      "state": "done",
+      "text": "GitHub Trending如何看ai领域的",
+      "parent": "n59",
+      "branchIdx": 0,
+      "x": 8680,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:23:25",
+      "model": "sonnet"
+    },
+    {
+      "id": "n61",
+      "type": "answer",
+      "state": "done",
+      "text": "直接在父节点答案基础上深入，聚焦 AI 领域的具体筛选方法。\n\n---\n\n**方法一：按语言过滤（最快）**\n\n直接访问：\n```\ngithub.com/trending/python?since=daily\n```\nPython 覆盖 95% 以上的 AI/ML 项目，这一条链接书签收藏，每天打开就是 AI 领域日榜。\n\n---\n\n**方法二：按 Topic 过滤（更精准）**\n\nGitHub Trending 页面左侧有 **Spoken Language** 和 **Language** 下拉，但**没有 Topic 下拉**。要按话题过滤需要用搜索方式：\n\n```\ngithub.com/trending?q=machine-learning&since=daily\n```\n\n常用 AI 相关 Topic：\n\n| 访问链接后缀 | 覆盖方向 |\n|---|---|\n| `?q=llm&since=daily` | 大语言模型 |\n| `?q=machine-learning&since=daily` | 机器学习通用 |\n| `?q=nlp&since=daily` | NLP（Adam's Law 所在领域） |\n| `?q=deep-learning&since=daily` | 深度学习 |\n\n---\n\n**方法三：直接看，不过滤（也够用）**\n\n实际上，AI 项目在 GitHub Trending 今日榜上本来就占主导——过去两年，Python 日榜前 10 里通常有 6–8 个是 AI 相关的。直接看 `github.com/trending/python?since=daily`，不做额外筛选也能覆盖绝大多数热门 AI 项目。\n\n---\n\n**与追踪 TFL/Adam's Law 类论文的关系**\n\nGitHub Trending 不直接显示论文，但如果 Adam's Law 有复现代码仓库并快速获得 Star，就会出现在 Trending 里——这是发现「论文 → 已有可用实现」的捷径。",
+      "parent": "n60",
+      "branchIdx": 0,
+      "x": 9024,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:23:25",
+      "model": "sonnet",
+      "duration": "19.4s",
+      "tokens": 12
+    },
+    {
+      "id": "n62",
+      "type": "question",
+      "state": "done",
+      "text": "github.com/trending/python?since=daily为什么看不到关于claudecode这种热点",
+      "parent": "n61",
+      "branchIdx": 0,
+      "x": 9368,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:25:19",
+      "model": "sonnet"
+    },
+    {
+      "id": "n63",
+      "type": "answer",
+      "state": "done",
+      "text": "这个问题触到了 GitHub Trending 的核心局限，直接解释。\n\n---\n\n**原因一：Claude Code 本身不是 GitHub 上的开源仓库**\n\nAnthropic 的 Claude Code 是一个**商业 CLI 产品**，没有公开的 GitHub 源码仓库（或仅有极小的 stub 仓库）——GitHub Trending 只能追踪**有公开 Star 行为的仓库**，没有仓库就不会出现在榜上。\n\n**原因二：Trending 追的是「今日 Star 增量」，不是「话题热度」**\n\n即使有相关仓库，GitHub Trending 反映的是**代码仓库被新收藏的速度**，而非某个话题的讨论热度。Claude Code 的讨论热点发生在：\n- X/Twitter 上的推文讨论\n- Reddit、Discord 社区\n- 新闻/博客报道\n\n这些都**不产生 GitHub Star**，所以 Trending 榜感知不到。\n\n**原因三：相关生态仓库太分散**\n\n围绕 Claude Code 的社区项目（插件、脚本、配置模板）分散在数百个小仓库，每个单独的 Star 增量都不够上 Trending 榜的门槛。\n\n---\n\n**正确的追踪渠道对比**\n\n| 想追踪的内容 | 正确渠道 |\n|---|---|\n| Claude Code 官方动态 | Anthropic 官网 / X @AnthropicAI |\n| 社区使用技巧/热点讨论 | X 搜索「Claude Code」/ Reddit r/ClaudeAI |\n| TFL 这类**论文研究热点** | HF Papers Today 榜 ← 本分支推荐的方案 |\n| **有代码实现**的 AI 工具 | GitHub Trending Python 日榜 |\n\nGitHub Trending 适合发现「有人写了新代码且获得大量关注」，不适合追踪「某产品/话题正在被热议」。",
+      "parent": "n62",
+      "branchIdx": 0,
+      "x": 9712,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:25:19",
+      "model": "sonnet",
+      "duration": "26.1s",
+      "tokens": 12
+    },
+    {
+      "id": "n64",
+      "type": "question",
+      "state": "done",
+      "text": "zilliztech / claude-context Code search MCP for Claude Code. Make entire codebase the context for any coding agent.   TypeScript  8,219  652 Built by @zc277584121 @Shawnzheng011019 @codingjaguar @jaxkodex @Acren这不是有吗",
+      "parent": "n63",
+      "branchIdx": 0,
+      "x": 10056,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:33:02",
+      "model": "sonnet"
+    },
+    {
+      "id": "n65",
+      "type": "answer",
+      "state": "done",
+      "text": "你说得对，我之前「相关仓库太分散上不了榜」的说法不够准确，需要纠正。\n\n---\n\n**`zilliztech/claude-context` 确实出现在 GitHub Trending 上**\n\n这是一个由 Zilliz（Milvus 向量数据库背后的公司）开发的**第三方 MCP 工具**，功能是为 Claude Code 提供全代码库的向量搜索上下文——8,219 stars、652 forks，规模已足以冲上日榜。\n\n**这修正了我之前的表述**：\n\n| 之前说的（不准确） | 实际情况 |\n|---|---|\n| 「相关仓库太分散，Star 增量不够上榜」 | ❌ 如果某个工具足够热、短期 Star 增速够快，一样能上 Trending |\n| 「Claude Code 相关内容看不到」 | ❌ 第三方生态工具可以出现，只是 Anthropic 官方 Claude Code 本身没有源码仓库 |\n\n**更准确的描述应该是**：\n\n- **Claude Code 官方仓库**（Anthropic 出品）→ 不开源，不在 Trending；\n- **Claude Code 生态工具**（第三方，如 `zilliztech/claude-context`）→ **能出现在 Trending**，前提是 Star 增速足够快；\n- GitHub Trending 追的是增速，不是总量——这个仓库短期内大量被 Star 才上的榜。\n\n所以 `github.com/trending/python?since=daily`（或 TypeScript 榜）**确实能捕捉到 Claude Code 生态的热门工具**，感谢你的纠正。",
+      "parent": "n64",
+      "branchIdx": 0,
+      "x": 10400,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:33:02",
+      "model": "sonnet",
+      "duration": "23.2s",
+      "tokens": 0
+    },
+    {
+      "id": "n66",
+      "type": "question",
+      "state": "done",
+      "text": "github.com/trending/python?since=daily捕捉不到，是https://github.com/trending捕捉到的",
+      "parent": "n65",
+      "branchIdx": 0,
+      "x": 10744,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:36:26",
+      "model": "sonnet"
+    },
+    {
+      "id": "n67",
+      "type": "answer",
+      "state": "done",
+      "text": "完全正确，我之前的表述又混淆了一个细节。\n\n**原因很直接**：`zilliztech/claude-context` 是 **TypeScript** 项目，不是 Python——所以它出现在：\n\n- ✅ `github.com/trending`（全语言榜）\n- ✅ `github.com/trending/typescript?since=daily`（TypeScript 日榜）\n- ❌ `github.com/trending/python?since=daily`（Python 日榜，不会出现）\n\n---\n\n**修正后的实用建议**\n\n追踪 AI 领域不能只盯 Python 榜，因为：\n- **Python** → 模型训练、推理框架、研究代码（如 TFL 复现）\n- **TypeScript** → AI 工具、MCP 服务器、CLI 集成（如 claude-context）\n- **全语言榜** `github.com/trending` → 覆盖最全，但噪声也更多\n\n**实操建议**：\n```\ngithub.com/trending              ← 每日浏览，语言混合，覆盖最广\ngithub.com/trending/python       ← 偏研究/模型\ngithub.com/trending/typescript   ← 偏工具/Agent 生态\n```\n\n三个链接各自书签，每天轮看一遍，3 分钟内可完成——这才是发现 Claude Code 生态新工具（如 `zilliztech/claude-context`）和 TFL 类研究复现代码的完整组合。感谢你的二次纠正。",
+      "parent": "n66",
+      "branchIdx": 0,
+      "x": 11088,
+      "y": 80,
+      "w": 280,
+      "createdAt": "00:36:26",
+      "model": "sonnet",
+      "duration": "23.0s",
+      "tokens": 0
     }
   ],
   "model": "sonnet",
   "createdAt": "2026-04-21T14:50:33.238Z",
-  "updatedAt": "2026-04-23T16:08:42.766Z",
+  "updatedAt": "2026-04-24T06:41:04.269Z",
   "branchSessionIds": {
     "0": "a9dacf26-4332-4afd-bc5b-343c02bcd5a8"
   },
-  "sdkSessionId": "a9dacf26-4332-4afd-bc5b-343c02bcd5a8"
+  "sdkSessionId": "a9dacf26-4332-4afd-bc5b-343c02bcd5a8",
+  "savedWikiItemId": "94b52a82-774b-44df-91e7-a51cb7e5d145",
+  "draft": {
+    "name": "Adam's Law：文本频率定律与大语言模型",
+    "categoryId": "ai-工具与技能包",
+    "newCategory": null,
+    "sections": [
+      {
+        "heading": "要点",
+        "excerpts": [
+          "```\ngithub.com/trending              ← 每日浏览，语言混合，覆盖最广\ngithub.com/trending/python       ← 偏研究/模型\ngithub.com/trending/typescript   ← 偏工具/Agent 生态\n```"
+        ]
+      }
+    ],
+    "sourceLinks": [
+      {
+        "url": "https://x.com/vista8/status/2046254553151262822",
+        "title": "Adam's Law：文本频率定律与大语言模型",
+        "type": "original"
+      }
+    ]
+  }
 }

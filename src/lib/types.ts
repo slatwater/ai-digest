@@ -574,8 +574,6 @@ export interface PipelineNode {
   duration?: string;             // 如 "8.3s"
   tokens?: number;               // output tokens
   sources?: string[];            // 模型引用的来源
-  marked?: boolean;
-  markedAs?: string;             // 标记后的简要标题
   model?: TriageModel;
   error?: string;
   // input 节点字段
@@ -587,19 +585,6 @@ export interface PipelineNode {
   experimentPayload?: ExperimentNodePayload; // 实验节点持久化（对话+coze）
 }
 
-export type SedimentMode = 'full' | 'custom';
-
-export interface SedimentPoint {
-  id: string;
-  fromNode: string;              // 来自哪个 node
-  mode: SedimentMode;            // full=整个 Q+A 原文；custom=用户手动框选的多段
-  text: string;                  // 标题（简短）
-  excerpts: string[];            // 无损原文片段；full 模式 length=1，custom 可多段
-  markedAt: string;              // HH:MM:SS
-  suggestedSection?: string;     // 建议归入段落名
-  order: number;
-}
-
 export interface PipelineWikiCandidate {
   action: 'append' | 'new';
   entryId?: string;              // append 时的目标 WikiItem.id
@@ -607,18 +592,17 @@ export interface PipelineWikiCandidate {
   categoryId?: string;
 }
 
-// Compose 阶段的段落：只含分组（由哪些 sedimentIds 组成），无 content
-// 后端 save 时按 sedimentIds 查原文，拼接成最终 WikiSection.content
-export interface ComposeDraftSection {
+// 新流程：每个段落直接带原文 excerpts（用户右键选区即时存入，无需经过 sediment 暂存）
+export interface PipelineDraftSection {
   heading: string;
-  sedimentIds: string[];
+  excerpts: string[];
 }
 
 export interface PipelineDraft {
   name: string;
   categoryId: string;
   newCategory?: { name: string } | null;
-  sections: ComposeDraftSection[];
+  sections: PipelineDraftSection[];
   sourceLinks: WikiSourceLink[];
   appendToItemId?: string;       // 若为追加，目标条目 id
 }
@@ -636,7 +620,6 @@ export interface PipelineSession {
   entryId?: string;                        // 旧字段：首个 parse 节点对应的 triage entry，兼容老数据
   entrySnapshot?: PipelineSessionSnapshot; // 旧字段：冻结的上下文；新模型下每个 parse 节点自带 payload
   nodes: PipelineNode[];
-  sediment: SedimentPoint[];
   wikiCandidate?: PipelineWikiCandidate;
   draft?: PipelineDraft;
   sdkSessionId?: string;                   // 旧字段：单一共享 SDK session（兼容老数据，作为 branchIdx=0 的兜底）
@@ -652,7 +635,6 @@ export interface PipelineSessionSummary {
   entryId?: string;
   title: string;
   nodeCount: number;
-  sedimentCount: number;
   savedWikiItemId?: string;
   updatedAt: string;
 }

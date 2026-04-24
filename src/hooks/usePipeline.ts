@@ -5,8 +5,7 @@ import type {
   PipelineSession,
   PipelineNode,
   ParseNodePayload,
-  SedimentPoint,
-  SedimentMode,
+  PipelineDraft,
   TriageEntry,
   TriageModel,
   TriageBatch,
@@ -14,6 +13,7 @@ import type {
   ExperimentToolTrace,
   ChatMessage,
   CozeRun,
+  WikiSourceLink,
 } from '@/lib/types';
 
 // ── 画布布局常量 ──
@@ -549,90 +549,56 @@ export function usePipeline() {
     }
   }
 
-  // ── 标记/取消标记 ──
-  const markNode = useCallback(async (
-    nodeId: string,
-    options?: {
-      text?: string;
-      mode?: SedimentMode;
-      excerpts?: string[];
-      suggestedSection?: string;
-    },
-  ) => {
+  // ── 选区直接存入 Wiki（即选即存，不入暂存）──
+  // payload.append: 选已有条目追加；否则按 name+categoryId 新建
+  const saveExcerptToWiki = useCallback(async (payload: {
+    excerpt: string;
+    heading: string;
+    name: string;
+    categoryId?: string;
+    newCategory?: { name: string } | null;
+    appendToItemId?: string;
+    sourceLink?: WikiSourceLink | null;
+  }): Promise<{ ok: true; itemId: string } | { ok: false; error: string }> => {
     const current = sessionRef.current;
-    if (!current) return;
-    const node = current.nodes.find(n => n.id === nodeId);
-    if (!node) return;
+    if (!current) return { ok: false, error: 'session 未就绪' };
 
-    const mode: SedimentMode = options?.mode ?? 'full';
-    const title = options?.text || node.markedAs || node.text.split('\n')[0].slice(0, 60);
+    // 收集来源：优先用调用方传的（来自当前所在 parse/answer 节点），兜底用首个 parse
+    const fallbackLinks: WikiSourceLink[] = current.nodes
+      .filter(n => n.type === 'parse' && n.parseEntry?.url && !n.parseEntry.url.startsWith('paste://'))
+      .map(n => ({
+        url: n.parseEntry!.url,
+        title: n.parseEntry!.title || n.parseEntry!.url,
+        type: 'original' as const,
+      }));
+    const sourceLinks = payload.sourceLink ? [payload.sourceLink] : fallbackLinks.slice(0, 1);
 
-    let excerpts: string[];
-    if (mode === 'custom' && options?.excerpts?.length) {
-      excerpts = options.excerpts;
-    } else {
-      const paired = node.type === 'answer'
-        ? current.nodes.find(n => n.id === node.parent && n.type === 'question')
-        : current.nodes.find(n => n.parent === node.id && n.type === 'answer');
-      const merged = paired
-        ? (node.type === 'answer'
-            ? `${paired.text}\n\n${node.text}`
-            : `${node.text}\n\n${paired.text}`)
-        : node.text;
-      excerpts = [merged];
-    }
-
-    const sediment: SedimentPoint = {
-      id: `s-${Date.now()}`,
-      fromNode: nodeId,
-      mode,
-      text: title,
-      excerpts,
-      markedAt: nowClock(),
-      suggestedSection: options?.suggestedSection ?? '新要点',
-      order: current.sediment.length,
+    const draft: PipelineDraft = {
+      name: payload.name.trim(),
+      categoryId: payload.categoryId || '',
+      newCategory: payload.newCategory ?? null,
+      appendToItemId: payload.appendToItemId,
+      sections: [{ heading: payload.heading.trim() || '未命名段落', excerpts: [payload.excerpt] }],
+      sourceLinks,
     };
 
-    setSessionBoth({
-      ...current,
-      nodes: current.nodes.map(n =>
-        n.id === nodeId ? { ...n, marked: true, markedAs: title } : n,
-      ),
-      sediment: [...current.sediment, sediment],
-    });
-
-    await fetch(`/api/pipeline/${current.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nodePatch: { id: nodeId, patch: { marked: true, markedAs: title } },
-        sedimentAdd: sediment,
-      }),
-    });
+    try {
+      const res = await fetch(`/api/pipeline/${current.id}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draft }),
+      });
+      const json = await res.json();
+      if (!res.ok) return { ok: false, error: json.error || '保存失败' };
+      // 同步 session.savedWikiItemId 到本地状态（save API 已落盘）
+      setSessionBoth({ ...current, savedWikiItemId: json.itemId });
+      return { ok: true, itemId: json.itemId };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   }, [setSessionBoth]);
 
-  const unmarkNode = useCallback(async (nodeId: string) => {
-    const current = sessionRef.current;
-    if (!current) return;
-    const sedId = current.sediment.find(s => s.fromNode === nodeId)?.id;
-    setSessionBoth({
-      ...current,
-      nodes: current.nodes.map(n =>
-        n.id === nodeId ? { ...n, marked: false } : n,
-      ),
-      sediment: current.sediment.filter(s => s.fromNode !== nodeId),
-    });
-    await fetch(`/api/pipeline/${current.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nodePatch: { id: nodeId, patch: { marked: false } },
-        sedimentRemoveId: sedId,
-      }),
-    });
-  }, [setSessionBoth]);
-
-  // 删除节点：级联删除其所有后代节点，同时清理指向这些节点的 sediment
+  // 删除节点：级联删除其所有后代节点
   // 若某分支（branchIdx）在删除后已无任何 question/answer 节点，该分支的 SDK session 一并作废
   const deleteNode = useCallback(async (nodeId: string) => {
     const current = sessionRef.current;
@@ -650,7 +616,6 @@ export function usePipeline() {
       }
     }
     const nextNodes = current.nodes.filter(n => !toDelete.has(n.id));
-    const nextSediment = current.sediment.filter(s => !toDelete.has(s.fromNode));
 
     // 找出"删完后已无 Q/A 节点"的 branchIdx：这些分支的 SDK session 要清理
     const activeBranchIdxs = new Set<number>();
@@ -677,7 +642,6 @@ export function usePipeline() {
     setSessionBoth({
       ...current,
       nodes: nextNodes,
-      sediment: nextSediment,
       branchSessionIds: nextBranchSessionIds && Object.keys(nextBranchSessionIds).length > 0
         ? nextBranchSessionIds
         : undefined,
@@ -688,7 +652,6 @@ export function usePipeline() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         nodes: nextNodes,
-        sediment: nextSediment,
         clearBranchSessionIds: clearBranchSessionIds.length > 0 ? clearBranchSessionIds : undefined,
       }),
     });
@@ -705,7 +668,7 @@ export function usePipeline() {
     const existing = current.nodes.find(n => n.parent === answerNodeId && n.type === 'experiment');
     if (existing) return existing.id;
 
-    const seedTitle = answer.markedAs || answer.text.split('\n').find(l => l.trim())?.slice(0, 60) || '';
+    const seedTitle = answer.text.split('\n').find(l => l.trim())?.slice(0, 60) || '';
     const payload: ExperimentNodePayload = {
       sourceNodeId: answerNodeId,
       seedTitle,
@@ -1019,27 +982,6 @@ export function usePipeline() {
     }
   }, [patchExperimentPayload]);
 
-  const removeSediment = useCallback(async (sedimentId: string) => {
-    const current = sessionRef.current;
-    if (!current) return;
-    const s = current.sediment.find(x => x.id === sedimentId);
-    setSessionBoth({
-      ...current,
-      sediment: current.sediment.filter(x => x.id !== sedimentId),
-      nodes: s
-        ? current.nodes.map(n => (n.id === s.fromNode ? { ...n, marked: false } : n))
-        : current.nodes,
-    });
-    await fetch(`/api/pipeline/${current.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sedimentRemoveId: sedimentId,
-        nodePatch: s ? { id: s.fromNode, patch: { marked: false } } : undefined,
-      }),
-    });
-  }, [setSessionBoth]);
-
   return {
     session,
     active: session !== null,
@@ -1053,9 +995,7 @@ export function usePipeline() {
     submitInput,
     startFromEntry,
     ask,
-    markNode,
-    unmarkNode,
-    removeSediment,
+    saveExcerptToWiki,
     deleteNode,
     startExperiment,
     sendExperimentMessage,

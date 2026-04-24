@@ -1,82 +1,13 @@
 [
   {
-    "id": "9aa3f6c1-e007-4641-b9d3-fee90ac5169a",
-    "name": "// Heartfelt - by Martijn Steinrucken ak",
+    "id": "94b52a82-774b-44df-91e7-a51cb7e5d145",
+    "name": "Adam's Law：文本频率定律与大语言模型",
     "categoryId": "ai-工具与技能包",
     "sectionHeadings": [
-      "其他"
+      "要点"
     ],
     "sourceCount": 2,
     "skillFileCount": 0,
-    "updatedAt": "2026-04-20T14:49:59.295Z"
-  },
-  {
-    "id": "681d4bfe-7670-493d-9fb3-a721090535eb",
-    "name": "HTML 设计助手通用系统提示词（模型无关版）",
-    "categoryId": "ai-工具与技能包",
-    "sectionHeadings": [
-      "完整提示词正文"
-    ],
-    "sourceCount": 3,
-    "skillFileCount": 0,
-    "updatedAt": "2026-04-19T13:22:21.582Z"
-  },
-  {
-    "id": "4e143fa5-a60d-4629-a532-f241bf9c5ec4",
-    "name": "Claude Design（Anthropic 设计工具）",
-    "categoryId": "ai-工具与技能包",
-    "sectionHeadings": [
-      "新要点"
-    ],
-    "sourceCount": 2,
-    "skillFileCount": 0,
-    "updatedAt": "2026-04-19T11:25:46.550Z"
-  },
-  {
-    "id": "51ca2c93-cf26-46da-a397-b53c9d538c25",
-    "name": "DESIGN.md：AI 代理的品牌设计规范格式与工具链",
-    "categoryId": "ai-工具与技能包",
-    "sectionHeadings": [
-      "是什么",
-      "标准 9 章节结构",
-      "生成方式：半自动提取 + 社区众包",
-      "逆向提取工具链",
-      "推荐工作流"
-    ],
-    "sourceCount": 7,
-    "skillFileCount": 0,
-    "updatedAt": "2026-04-16T14:38:19.862Z"
-  },
-  {
-    "id": "261fc092-7b32-46f0-a473-ceb142097a3d",
-    "name": "Spark 2.0 — Web 端大规模 3D 高斯泼溅流式渲染引擎",
-    "categoryId": "3d-与可视化技术",
-    "sectionHeadings": [
-      "一句话定义",
-      "解决什么问题",
-      "核心技术架构",
-      "使用门槛与成本",
-      "适用场景与目标用户",
-      "与 AI Agent 的关系"
-    ],
-    "sourceCount": 5,
-    "skillFileCount": 0,
-    "updatedAt": "2026-04-16T04:20:29.884Z"
-  },
-  {
-    "id": "0cebd980-d76b-4317-9d21-bdcb3dc7b08d",
-    "name": "dbskill：Claude Code 商业诊断技能包",
-    "categoryId": "ai-工具与技能包",
-    "sectionHeadings": [
-      "概述",
-      "技能清单与用途",
-      "核心设计：知识蒸馏 + 公式匹配",
-      "小红书内容优化工作流",
-      "安装与部署",
-      "依赖技术"
-    ],
-    "sourceCount": 3,
-    "skillFileCount": 12,
-    "updatedAt": "2026-04-15T06:27:34.421Z"
+    "updatedAt": "2026-04-24T06:41:04.265Z"
   }
 ]

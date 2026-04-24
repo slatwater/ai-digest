@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection, ExperienceEntry, ExperienceSummary, PipelineSession, PipelineSessionSummary, SedimentPoint } from './types';
+import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection, ExperienceEntry, ExperienceSummary, PipelineSession, PipelineSessionSummary } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -373,7 +373,6 @@ function toPipelineSummary(s: PipelineSession): PipelineSessionSummary {
     entryId: s.entryId,
     title,
     nodeCount: s.nodes.length,
-    sedimentCount: s.sediment.length,
     savedWikiItemId: s.savedWikiItemId,
     updatedAt: s.updatedAt,
   };
@@ -389,27 +388,17 @@ export async function getPipelineIndex(): Promise<PipelineSessionSummary[]> {
 
 export async function getPipelineSession(id: string): Promise<PipelineSession | null> {
   try {
-    const raw = JSON.parse(await fs.readFile(path.join(PIPELINE_ITEMS_DIR, `${id}.json`), 'utf-8')) as PipelineSession;
-    // 老数据迁移：把 detail: string 升级为 mode='full' + excerpts=[detail]
-    if (Array.isArray(raw.sediment)) {
-      raw.sediment = raw.sediment.map(s => {
-        const legacy = s as SedimentPoint & { detail?: string };
-        if (!legacy.mode || !Array.isArray(legacy.excerpts)) {
-          return {
-            id: legacy.id,
-            fromNode: legacy.fromNode,
-            mode: 'full',
-            text: legacy.text,
-            excerpts: legacy.detail ? [legacy.detail] : [],
-            markedAt: legacy.markedAt,
-            suggestedSection: legacy.suggestedSection,
-            order: legacy.order,
-          };
-        }
-        return legacy;
+    // 老数据可能带 sediment / 节点上 marked / markedAs 等字段，已废弃，读出来时丢弃
+    const raw = JSON.parse(await fs.readFile(path.join(PIPELINE_ITEMS_DIR, `${id}.json`), 'utf-8'));
+    delete raw.sediment;
+    if (Array.isArray(raw.nodes)) {
+      raw.nodes = raw.nodes.map((n: Record<string, unknown>) => {
+        const { marked: _m, markedAs: _ma, ...rest } = n;
+        void _m; void _ma;
+        return rest;
       });
     }
-    return raw;
+    return raw as PipelineSession;
   } catch {
     return null;
   }
