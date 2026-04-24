@@ -37,7 +37,7 @@ src/
 ├── components/
 │   ├── PipelineView.tsx      # 统一画布 + ParseDetailSheet/AskSheet + SaveExcerptDialog（选区→存入 Wiki）
 │   ├── TriageCard.tsx        # 解析卡片（保留为弹窗内的渲染片段，主视图已下线）
-│   ├── WikiBrowseView.tsx    # Wiki 三级钻取
+│   ├── WikiBrowseView.tsx    # Wiki 扁平卡片墙（分类 chip 过滤 + 管理面板）
 │   ├── SandboxView.tsx / ExperimentView.tsx / ExperienceView.tsx / BlueprintView.tsx
 ├── hooks/
 │   ├── usePipeline.ts        # 生命周期：ensureSession / addInputFlow / submitInput / ask / saveExcerptToWiki

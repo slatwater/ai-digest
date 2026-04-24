@@ -5,17 +5,18 @@ import { WikiCategory, WikiItem, WikiItemSummary, WikiSection, WikiSourceLink } 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Level = 'categories' | 'items' | 'detail';
+type Level = 'list' | 'detail';
 
 export function WikiBrowseView() {
-  const [level, setLevel] = useState<Level>('categories');
+  const [level, setLevel] = useState<Level>('list');
   const [categories, setCategories] = useState<WikiCategory[]>([]);
-  const [items, setItems] = useState<WikiItemSummary[]>([]);
   const [allItems, setAllItems] = useState<WikiItemSummary[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<WikiCategory | null>(null);
+  // 过滤器：null 表示「全部」，否则是某个 categoryId
+  const [filterCatId, setFilterCatId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<WikiItem | null>(null);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showManageCats, setShowManageCats] = useState(false);
 
   // 加载全量数据
   const loadAll = useCallback(async () => {
@@ -31,12 +32,11 @@ export function WikiBrowseView() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // 进入分类
-  const enterCategory = useCallback((cat: WikiCategory) => {
-    setSelectedCategory(cat);
-    setItems(allItems.filter(i => i.categoryId === cat.id));
-    setLevel('items');
-  }, [allItems]);
+  // 过滤后的条目列表（按 updatedAt 倒序）
+  const visibleItems = (filterCatId
+    ? allItems.filter(i => i.categoryId === filterCatId)
+    : allItems
+  ).slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
   // 进入条目详情
   const enterDetail = useCallback(async (id: string) => {
@@ -51,17 +51,12 @@ export function WikiBrowseView() {
     } catch { /* */ }
   }, []);
 
-  // 返回
-  const goBack = useCallback(() => {
-    if (level === 'detail') {
-      setLevel('items');
-      setSelectedItem(null);
-      setEditing(false);
-    } else if (level === 'items') {
-      setLevel('categories');
-      setSelectedCategory(null);
-    }
-  }, [level]);
+  // 返回列表
+  const backToList = useCallback(() => {
+    setLevel('list');
+    setSelectedItem(null);
+    setEditing(false);
+  }, []);
 
   // 分类管理
   const [newCatName, setNewCatName] = useState('');
@@ -126,7 +121,7 @@ export function WikiBrowseView() {
   const deleteItem = useCallback(async () => {
     if (!selectedItem) return;
     await fetch(`/api/wiki?itemId=${selectedItem.id}`, { method: 'DELETE' });
-    setLevel('items');
+    setLevel('list');
     setSelectedItem(null);
     loadAll();
   }, [selectedItem, loadAll]);
@@ -168,131 +163,146 @@ export function WikiBrowseView() {
     );
   }
 
+  const catNameById = (id: string) => categories.find(c => c.id === id)?.name || id;
+
   return (
-    <div className="max-w-[860px] mx-auto px-8 py-10">
-      {/* 面包屑 */}
-      <nav className="flex items-center gap-2 mb-8" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-        <button onClick={() => { setLevel('categories'); setSelectedCategory(null); setSelectedItem(null); }}
-          style={{ color: level === 'categories' ? 'var(--text-secondary)' : 'var(--text-quaternary)' }}>
-          Wiki
-        </button>
-        {selectedCategory && (
-          <>
-            <span>/</span>
-            <button onClick={goBack}
-              style={{ color: level === 'items' ? 'var(--text-secondary)' : 'var(--text-quaternary)' }}>
-              {selectedCategory.name}
-            </button>
-          </>
-        )}
-        {selectedItem && (
-          <>
-            <span>/</span>
-            <span style={{ color: 'var(--text-secondary)' }}>{selectedItem.name}</span>
-          </>
-        )}
-      </nav>
-
-      {/* Level 1: 分类 */}
-      {level === 'categories' && (
+    <div className="max-w-[1100px] mx-auto px-8 py-10">
+      {/* 列表层：扁平卡片墙 */}
+      {level === 'list' && (
         <div>
-          <h2 className="font-semibold tracking-tight mb-6" style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>
-            Wiki
-          </h2>
+          {/* 顶部：标题 + 管理分类按钮 */}
+          <div className="flex items-baseline justify-between mb-5">
+            <h2 className="font-semibold tracking-tight" style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>
+              Wiki
+              <span className="ml-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontWeight: 400 }}>
+                {allItems.length} 个条目
+              </span>
+            </h2>
+            <button
+              onClick={() => setShowManageCats(v => !v)}
+              style={{ fontSize: 'var(--text-xs)', color: showManageCats ? 'var(--accent)' : 'var(--text-quaternary)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+              onMouseLeave={e => (e.currentTarget.style.color = showManageCats ? 'var(--accent)' : 'var(--text-quaternary)')}
+            >
+              {showManageCats ? '收起 ×' : '管理分类'}
+            </button>
+          </div>
 
-          {categories.length === 0 && allItems.length === 0 ? (
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', lineHeight: '1.8' }}>
-              还没有内容。在解析卡片深入对话后，可以将知识存入 Wiki。
-            </p>
-          ) : (
-            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+          {/* 分类管理面板（折叠） */}
+          {showManageCats && (
+            <div className="mb-5 p-4 rounded-lg" style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-subtle, var(--bg))' }}>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {categories.map(cat => {
+                  const count = allItems.filter(i => i.categoryId === cat.id).length;
+                  if (renamingId === cat.id) {
+                    return (
+                      <form key={cat.id} onSubmit={e => { e.preventDefault(); renameCategory(cat.id); }}
+                        className="flex items-center gap-1 px-2 py-1 rounded" style={{ border: '1px solid var(--accent)' }}>
+                        <input value={renameValue} onChange={e => setRenameValue(e.target.value)} autoFocus
+                          className="bg-transparent outline-none"
+                          style={{ fontSize: 'var(--text-xs)', color: 'var(--text-primary)', width: 120 }} />
+                        <button type="submit" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)' }}>保存</button>
+                        <button type="button" onClick={() => setRenamingId(null)} style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>×</button>
+                      </form>
+                    );
+                  }
+                  return (
+                    <div key={cat.id} className="group inline-flex items-center gap-1 px-2 py-1 rounded"
+                      style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg)' }}>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{cat.name}</span>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>· {count}</span>
+                      <button onClick={() => { setRenamingId(cat.id); setRenameValue(cat.name); }}
+                        className="opacity-0 group-hover:opacity-100 ml-1"
+                        style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)', transition: 'opacity 0.15s' }}>改</button>
+                      {count === 0 && (
+                        <button onClick={() => deleteCategory(cat.id)}
+                          className="opacity-0 group-hover:opacity-100"
+                          style={{ fontSize: '0.625rem', color: 'var(--error)', transition: 'opacity 0.15s' }}>删</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <form onSubmit={e => { e.preventDefault(); createCategory(); }} className="flex items-center gap-2">
+                <input value={newCatName} onChange={e => setNewCatName(e.target.value)}
+                  placeholder="新建分类..."
+                  className="py-1 px-2 rounded"
+                  style={{ fontSize: 'var(--text-xs)', color: 'var(--text-primary)', background: 'var(--bg)', border: '1px solid var(--border-subtle)', outline: 'none' }} />
+                {newCatName.trim() && (
+                  <button type="submit" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', fontWeight: 500 }}>创建</button>
+                )}
+              </form>
+            </div>
+          )}
+
+          {/* 分类过滤 chip 栏 */}
+          {categories.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-5">
+              <button onClick={() => setFilterCatId(null)}
+                className="px-3 py-1 rounded-full transition-colors"
+                style={{
+                  fontSize: 'var(--text-xs)',
+                  color: filterCatId === null ? 'var(--bg)' : 'var(--text-secondary)',
+                  background: filterCatId === null ? 'var(--accent)' : 'var(--bg)',
+                  border: `1px solid ${filterCatId === null ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  fontWeight: filterCatId === null ? 500 : 400,
+                }}>
+                全部 · {allItems.length}
+              </button>
               {categories.map(cat => {
                 const count = allItems.filter(i => i.categoryId === cat.id).length;
+                if (count === 0) return null;
+                const active = filterCatId === cat.id;
                 return (
-                  <div key={cat.id} className="group relative">
-                    {renamingId === cat.id ? (
-                      <form onSubmit={e => { e.preventDefault(); renameCategory(cat.id); }}
-                        className="p-4 rounded-lg" style={{ border: '1px solid var(--accent)' }}>
-                        <input value={renameValue} onChange={e => setRenameValue(e.target.value)}
-                          autoFocus className="w-full bg-transparent outline-none"
-                          style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }} />
-                        <div className="flex gap-2 mt-2">
-                          <button type="submit" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)' }}>保存</button>
-                          <button type="button" onClick={() => setRenamingId(null)} style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>取消</button>
-                        </div>
-                      </form>
-                    ) : (
-                      <button onClick={() => enterCategory(cat)}
-                        className="w-full text-left p-4 rounded-lg transition-colors"
-                        style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg)' }}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}>
-                        <span className="font-medium block" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-                          {cat.name}
-                        </span>
-                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-                          {count} 个条目
-                        </span>
-                      </button>
-                    )}
-                    {/* 分类操作 */}
-                    {renamingId !== cat.id && (
-                      <div className="absolute top-2 right-2 hidden group-hover:flex gap-1">
-                        <button onClick={e => { e.stopPropagation(); setRenamingId(cat.id); setRenameValue(cat.name); }}
-                          style={{ fontSize: '0.625rem', color: 'var(--text-quaternary)' }}>改名</button>
-                        {count === 0 && (
-                          <button onClick={e => { e.stopPropagation(); deleteCategory(cat.id); }}
-                            style={{ fontSize: '0.625rem', color: 'var(--error)' }}>删除</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <button key={cat.id} onClick={() => setFilterCatId(active ? null : cat.id)}
+                    className="px-3 py-1 rounded-full transition-colors"
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: active ? 'var(--bg)' : 'var(--text-secondary)',
+                      background: active ? 'var(--accent)' : 'var(--bg)',
+                      border: `1px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                      fontWeight: active ? 500 : 400,
+                    }}>
+                    {cat.name} · {count}
+                  </button>
                 );
               })}
             </div>
           )}
 
-          {/* 新建分类 */}
-          <form onSubmit={e => { e.preventDefault(); createCategory(); }}
-            className="flex items-center gap-2 mt-6">
-            <input value={newCatName} onChange={e => setNewCatName(e.target.value)}
-              placeholder="新建分类..."
-              className="py-1.5 px-3 rounded-lg"
-              style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', background: 'var(--bg)', border: '1px solid var(--border-subtle)', outline: 'none' }} />
-            {newCatName.trim() && (
-              <button type="submit" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', fontWeight: 500 }}>创建</button>
-            )}
-          </form>
-        </div>
-      )}
-
-      {/* Level 2: 条目列表 */}
-      {level === 'items' && selectedCategory && (
-        <div>
-          <h2 className="font-semibold tracking-tight mb-6" style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>
-            {selectedCategory.name}
-          </h2>
-
-          {items.length === 0 ? (
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>该分类下还没有条目</p>
+          {/* 卡片墙 */}
+          {visibleItems.length === 0 ? (
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', lineHeight: '1.8' }}>
+              {allItems.length === 0
+                ? '还没有内容。在解析详情或对话弹窗里左键拖选 → 右键 § 存入 Wiki。'
+                : '该分类下还没有条目'}
+            </p>
           ) : (
-            <div className="space-y-2">
-              {items.map(item => (
+            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+              {visibleItems.map(item => (
                 <button key={item.id} onClick={() => enterDetail(item.id)}
-                  className="w-full text-left py-3 px-4 rounded-lg transition-colors flex items-center justify-between"
-                  style={{ border: '1px solid var(--border-subtle)' }}
+                  className="text-left p-4 rounded-lg transition-colors flex flex-col gap-2"
+                  style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg)', minHeight: 120 }}
                   onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border)')}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}>
-                  <div className="min-w-0">
-                    <span className="font-medium block truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-                      {item.name}
+                  <span className="inline-block self-start px-1.5 py-0.5 rounded"
+                    style={{ fontSize: '0.6875rem', color: 'var(--accent)', background: 'var(--accent-subtle)', fontWeight: 500 }}>
+                    {catNameById(item.categoryId)}
+                  </span>
+                  <span className="font-medium block" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                    {item.name}
+                  </span>
+                  {item.sectionHeadings.length > 0 && (
+                    <span className="block" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', lineHeight: 1.5,
+                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      § {item.sectionHeadings.join(' · ')}
                     </span>
-                    <span className="truncate block mt-0.5" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-                      {item.sectionHeadings.join(' · ')}
-                    </span>
-                  </div>
-                  <span className="shrink-0 ml-4" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>
-                    {item.sourceCount} 来源
+                  )}
+                  <span className="mt-auto flex items-center gap-2"
+                    style={{ fontSize: '0.6875rem', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>
+                    <span>{item.sourceCount} 来源</span>
+                    {(item.skillFileCount ?? 0) > 0 && <span>· {item.skillFileCount} skill</span>}
+                    <span className="ml-auto">{(item.updatedAt || '').slice(0, 10)}</span>
                   </span>
                 </button>
               ))}
@@ -301,32 +311,40 @@ export function WikiBrowseView() {
         </div>
       )}
 
-      {/* Level 3: 条目详情 / 编辑 */}
+      {/* 详情层：保留 */}
       {level === 'detail' && selectedItem && (
-        editing && editForm ? (
-          <WikiItemEdit
-            item={editForm}
-            categories={categories}
-            onChange={setEditForm}
-            onSave={saveEdit}
-            onCancel={() => setEditing(false)}
-          />
-        ) : (
-          <>
-            <WikiItemView
-              item={selectedItem}
-              categoryName={categories.find(c => c.id === selectedItem.categoryId)?.name || ''}
-              onEdit={startEdit}
-              onDelete={deleteItem}
-              onImportSkill={importSkill}
+        <div>
+          <button onClick={backToList} className="mb-5"
+            style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-quaternary)')}>
+            ← 返回列表
+          </button>
+          {editing && editForm ? (
+            <WikiItemEdit
+              item={editForm}
+              categories={categories}
+              onChange={setEditForm}
+              onSave={saveEdit}
+              onCancel={() => setEditing(false)}
             />
-            {(importing || importResult) && (
-              <div className="mt-4 py-2" style={{ fontSize: 'var(--text-xs)', color: importing ? 'var(--text-tertiary)' : 'var(--accent-text)' }}>
-                {importing ? '正在从 GitHub 导入 Skill 源文件...' : importResult}
-              </div>
-            )}
-          </>
-        )
+          ) : (
+            <>
+              <WikiItemView
+                item={selectedItem}
+                categoryName={categories.find(c => c.id === selectedItem.categoryId)?.name || ''}
+                onEdit={startEdit}
+                onDelete={deleteItem}
+                onImportSkill={importSkill}
+              />
+              {(importing || importResult) && (
+                <div className="mt-4 py-2" style={{ fontSize: 'var(--text-xs)', color: importing ? 'var(--text-tertiary)' : 'var(--accent-text)' }}>
+                  {importing ? '正在从 GitHub 导入 Skill 源文件...' : importResult}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
     </div>
   );
