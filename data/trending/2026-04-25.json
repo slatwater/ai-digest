@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "repo": "Alishahryar1/free-claude-code",
+      "url": "https://github.com/Alishahryar1/free-claude-code",
+      "category": "all"
+    },
+    {
+      "repo": "mattpocock/skills",
+      "url": "https://github.com/mattpocock/skills",
+      "category": "all"
+    },
+    {
+      "repo": "Z4nzu/hackingtool",
+      "url": "https://github.com/Z4nzu/hackingtool",
+      "category": "all"
+    },
+    {
+      "repo": "RooCodeInc/Roo-Code",
+      "url": "https://github.com/RooCodeInc/Roo-Code",
+      "category": "typescript"
+    },
+    {
+      "repo": "lobehub/lobehub",
+      "url": "https://github.com/lobehub/lobehub",
+      "category": "typescript"
+    },
+    {
+      "repo": "clash-verge-rev/clash-verge-rev",
+      "url": "https://github.com/clash-verge-rev/clash-verge-rev",
+      "category": "typescript"
+    },
+    {
+      "repo": "PostHog/posthog",
+      "url": "https://github.com/PostHog/posthog",
+      "category": "python"
+    }
+  ],
+  "fetchedAt": "2026-04-25T20:11:34.986813",
+  "date": "2026-04-25"
+}

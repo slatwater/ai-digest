@@ -14,6 +14,7 @@ import type {
   ChatMessage,
   CozeRun,
   WikiSourceLink,
+  GithubTrendingPayload,
 } from '@/lib/types';
 
 // ── 画布布局常量 ──
@@ -26,6 +27,11 @@ const BRANCH_DY = NODE_H + ROW_GAP; // 分支上下偏移
 const FLOW_ROW = NODE_H + 80;       // 每条流占据的纵向带宽（紧凑：一屏能看到多条流）
 const FLOW_Y_BASE = 80;
 const TRUNK_X = 80;
+// github 节点布局：固定在 trunk 左侧（x 负坐标），y 与 flow 0 起点对齐
+// 这样它跟主干 input/parse 处于同一水平带，但落在画布原点左方的"零号槽位"
+const GITHUB_NODE_H = 360;
+const GITHUB_NODE_X = -320;
+const GITHUB_NODE_Y = FLOW_Y_BASE;
 
 const LS_LAST_SESSION = 'aidigest.lastPipelineId';
 
@@ -99,6 +105,8 @@ export function usePipeline() {
     urlToNode: Map<string, string>;
   }>>(new Map());
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // github 节点检查锁：每个 session 仅检查一次（避免重复触发抓取）
+  const githubCheckedRef = useRef<string | null>(null);
 
   const setSessionBoth = useCallback((next: PipelineSession | null) => {
     sessionRef.current = next;
@@ -204,6 +212,88 @@ export function usePipeline() {
     return node.id;
   }, [ensureSession, model, setSessionBoth]);
 
+  // ── GitHub trending 节点：每天打开应用时检查一次，今日数据没有则触发抓取 ──
+  // 用户选择 Q1=B（打开自检）+ Q2=A（每天覆盖）：每个 session 永远只有一个 github 节点
+  const ensureGithubNode = useCallback(async () => {
+    const s = sessionRef.current;
+    if (!s) return;
+    if (githubCheckedRef.current === s.id) return;
+    githubCheckedRef.current = s.id;
+
+    let payload: GithubTrendingPayload | null = null;
+    try {
+      const r = await fetch('/api/trending');
+      if (r.ok) {
+        const j = await r.json();
+        payload = (j.payload as GithubTrendingPayload) || null;
+      }
+    } catch { /* 静默失败：trending 是辅助功能，挂了不影响主流程 */ }
+    if (!payload) return;
+
+    const fresh = sessionRef.current;
+    if (!fresh) return;
+    const existing = fresh.nodes.find(n => n.type === 'github');
+
+    if (existing) {
+      // 坐标和 payload 分开判断，避免"fetchedAt 一致就完全跳过"导致旧坐标无法迁移
+      // （早期版本把 github 节点放在主干上方 y=-400，现在统一改为左侧 x=-320, y=80）
+      const samePayload = existing.githubPayload?.fetchedAt === payload.fetchedAt;
+      const sameCoord =
+        existing.x === GITHUB_NODE_X &&
+        existing.y === GITHUB_NODE_Y &&
+        existing.h === GITHUB_NODE_H;
+      if (samePayload && sameCoord) return;
+
+      const patch: Partial<PipelineNode> = {
+        x: GITHUB_NODE_X,
+        y: GITHUB_NODE_Y,
+        h: GITHUB_NODE_H,
+      };
+      if (!samePayload) patch.githubPayload = payload;
+
+      const nextNodes = fresh.nodes.map(n =>
+        n.id === existing.id ? { ...n, ...patch } : n,
+      );
+      setSessionBoth({ ...fresh, nodes: nextNodes });
+      await fetch(`/api/pipeline/${fresh.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodePatch: { id: existing.id, patch } }),
+      }).catch(() => {});
+      return;
+    }
+
+    // 新建 github 节点（x 负坐标，落在主干 input 列左侧，跟 flow 0 同一行）
+    const node: PipelineNode = {
+      id: nextNodeId(fresh),
+      type: 'github',
+      state: 'done',
+      text: '今日 GitHub 热榜',
+      parent: null,
+      branchIdx: 0,
+      x: GITHUB_NODE_X,
+      y: GITHUB_NODE_Y,
+      w: NODE_W,
+      h: GITHUB_NODE_H,
+      createdAt: nowClock(),
+      githubPayload: payload,
+    };
+    setSessionBoth({ ...fresh, nodes: [...fresh.nodes, node] });
+    await fetch(`/api/pipeline/${fresh.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodeAdd: node }),
+    }).catch(() => {});
+  }, [setSessionBoth]);
+
+  // session 加载完毕后自动触发一次 github 节点检查（只在 sessionId 变化时跑，
+  // 否则每次 setSession 都会重复触发）
+  const sessionId = session?.id;
+  useEffect(() => {
+    if (!sessionId) return;
+    ensureGithubNode().catch(() => {});
+  }, [sessionId, ensureGithubNode]);
+
   // ── 提交 input 节点的 URL 列表：创建解析 batch + 并列 parse 占位节点 ──
   //   texts: 可选，url → 原文（原文粘贴模式）。命中时走 direct 分支 + 后端跳过 scrape
   const submitInput = useCallback(async (
@@ -294,6 +384,14 @@ export function usePipeline() {
     // 5. 注册轮询映射（按 URL 匹配后端 entry）
     parsePollMapRef.current.set(batchId!, { inputNodeId, urlToNode });
   }, [model, setSessionBoth]);
+
+  // ── 从 github 节点选中的链接进入解析流：复用 addInputFlow + submitInput ──
+  const submitFromGithub = useCallback(async (urls: string[]) => {
+    if (!urls.length) return;
+    const inputId = await addInputFlow();
+    if (!inputId) return;
+    await submitInput(inputId, urls);
+  }, [addInputFlow, submitInput]);
 
   // ── 合并 triage entry → parse 节点 payload ──
   const mergeEntryIntoNode = useCallback((entry: TriageEntry, nodeId: string) => {
@@ -993,6 +1091,7 @@ export function usePipeline() {
     ensureSession,
     addInputFlow,
     submitInput,
+    submitFromGithub,
     startFromEntry,
     ask,
     saveExcerptToWiki,

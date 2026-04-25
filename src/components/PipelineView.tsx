@@ -17,6 +17,8 @@ import type {
   TriageModel,
   CozeRun,
   WikiSourceLink,
+  GithubTrendingPayload,
+  GithubTrendingCategory,
 } from '@/lib/types';
 import type { usePipeline } from '@/hooks/usePipeline';
 
@@ -545,6 +547,7 @@ const Canvas = forwardRef<CanvasHandle, {
   setSelectedNode: (id: string | null) => void;
   onOpen: (nodeId: string) => void;
   onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
+  onSubmitFromGithub: (urls: string[]) => void;
   onStartExperiment: (answerNodeId: string) => void;
   onDelete: (nodeId: string) => void;
   onViewChange?: (view: CanvasView, rect: CanvasRect) => void;
@@ -556,6 +559,7 @@ const Canvas = forwardRef<CanvasHandle, {
   setSelectedNode,
   onOpen,
   onSubmitInput,
+  onSubmitFromGithub,
   onStartExperiment,
   onDelete,
   onViewChange,
@@ -570,6 +574,22 @@ const Canvas = forwardRef<CanvasHandle, {
   const ref = useRef<HTMLDivElement>(null);
   const nodesRef = useRef<PipelineNode[]>(nodes);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
+  // github 节点位于 trunk 左侧（x=-320）。session 首次出现 github 节点时自动横向平移，
+  // 让左侧的 github 卡片露出；用户后续手动平移不会被覆盖
+  const hasGithub = nodes.some(n => n.type === 'github');
+  const githubFocusedRef = useRef(false);
+  useEffect(() => {
+    if (githubFocusedRef.current) return;
+    if (!hasGithub) return;
+    githubFocusedRef.current = true;
+    // view.x 调整：让 github 节点（x=-320, zoom=1.6）的左边落在屏幕 left≈40
+    //   屏幕 x = view.x + node.x * zoom = view.x + (-320)*1.6 = view.x - 512
+    //   要 ≈ 40 → view.x ≈ 552
+    // 异步执行避免 set-state-in-effect 警告 + 让首次 layout 先完成再平移
+    const t = setTimeout(() => setView(v => ({ ...v, x: 552 })), 0);
+    return () => clearTimeout(t);
+  }, [hasGithub]);
 
   // 追踪画布容器尺寸（minimap 需要用来算视口框）
   useEffect(() => {
@@ -952,6 +972,7 @@ const Canvas = forwardRef<CanvasHandle, {
               onSelect={() => setSelectedNode(n.id)}
               onOpen={() => onOpen(n.id)}
               onSubmitInput={onSubmitInput}
+              onSubmitFromGithub={onSubmitFromGithub}
               onStartExperiment={onStartExperiment}
               onContextMenu={(x, y) => setCtxMenu({ x, y, nodeId: n.id })}
             />
@@ -975,7 +996,7 @@ const Canvas = forwardRef<CanvasHandle, {
           frontier = next;
         }
         const descCount = descendants.size;
-        const typeLabel = target ? ({ input: '输入', parse: '解析', question: '问题', answer: '回答', experiment: '实验' } as const)[target.type] : '节点';
+        const typeLabel = target ? ({ input: '输入', parse: '解析', question: '问题', answer: '回答', experiment: '实验', github: 'GitHub 热榜' } as const)[target.type] : '节点';
         return (
           <div
             onClick={e => e.stopPropagation()}
@@ -1284,6 +1305,8 @@ function nodeMiniFill(node: PipelineNode): string {
       return 'var(--amber)';
     case 'experiment':
       return 'var(--teal)';
+    case 'github':
+      return 'var(--branch)';
     default:
       return 'var(--ink3)';
   }
@@ -1722,6 +1745,15 @@ function nodeVisuals(node: PipelineNode, selected: boolean): {
         labelColor: 'var(--teal)',
         clickTitle: '双击展开实验对话',
       };
+    case 'github':
+      return {
+        bg: 'var(--panel)',
+        headerBg: 'rgba(232,162,76,0.08)',
+        leftBar: 'var(--branch)',
+        label: '★ 今日热榜',
+        labelColor: 'var(--branch)',
+        clickTitle: '勾选项目后点「解析选中」进入解析流',
+      };
     default: // answer
       return {
         bg: 'var(--panel)',
@@ -1744,6 +1776,7 @@ function CanvasNode({
   onSelect,
   onOpen,
   onSubmitInput,
+  onSubmitFromGithub,
   onStartExperiment,
   onContextMenu,
 }: {
@@ -1754,6 +1787,7 @@ function CanvasNode({
   onSelect: () => void;
   onOpen: () => void;
   onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
+  onSubmitFromGithub: (urls: string[]) => void;
   onStartExperiment: (answerNodeId: string) => void;
   onContextMenu: (x: number, y: number) => void;
 }) {
@@ -1764,15 +1798,18 @@ function CanvasNode({
   const isInput = node.type === 'input';
   const isParse = node.type === 'parse';
   const isExperiment = node.type === 'experiment';
+  const isGithub = node.type === 'github';
   const isStreaming = node.state === 'streaming' || streaming;
 
-  const stateLabel = isStreaming
-    ? (isParse ? '● 解析中' : isExperiment ? '● 对话中' : '● 正在写')
-    : node.state === 'error'
-      ? '× 失败'
-      : node.state === 'pending'
-        ? '等待'
-        : 'done';
+  const stateLabel = isGithub
+    ? (node.githubPayload?.date ? node.githubPayload.date.slice(5) : 'today')
+    : isStreaming
+      ? (isParse ? '● 解析中' : isExperiment ? '● 对话中' : '● 正在写')
+      : node.state === 'error'
+        ? '× 失败'
+        : node.state === 'pending'
+          ? '等待'
+          : 'done';
   const stateColor = isStreaming
     ? 'var(--red)'
     : node.state === 'error'
@@ -1807,7 +1844,7 @@ function CanvasNode({
     ];
   }
 
-  const summaryText = !isInput && !isParse && !isExperiment
+  const summaryText = !isInput && !isParse && !isExperiment && !isGithub
     ? (isQ
         ? truncate(node.text, 90)
         : node.text
@@ -1865,7 +1902,7 @@ function CanvasNode({
         left: node.x ?? 0,
         top: node.y ?? 0,
         width: node.w ?? NODE_W,
-        height: NODE_H,
+        height: node.h ?? NODE_H,
         background: v.bg,
         borderTop: `1px solid ${borderColor}`,
         borderRight: `1px solid ${borderColor}`,
@@ -2011,7 +2048,7 @@ function CanvasNode({
           </>
         )}
 
-        {!isInput && !isParse && !isExperiment && (
+        {!isInput && !isParse && !isExperiment && !isGithub && (
           <div
             className={isQ ? 'serif' : undefined}
             style={{
@@ -2029,6 +2066,13 @@ function CanvasNode({
           >
             {summaryText}
           </div>
+        )}
+
+        {isGithub && node.githubPayload && (
+          <GithubNodeBody
+            payload={node.githubPayload}
+            onSubmit={(urls) => onSubmitFromGithub(urls)}
+          />
         )}
 
         {isExperiment && (
@@ -2479,6 +2523,120 @@ function MergedQACard({
           双击 ⇱
         </span>
       </div>
+    </div>
+  );
+}
+
+// GithubNodeBody — 今日 GitHub trending 列表 + 复选框 + 解析按钮
+// 数据每天 9 点抓取（Q1=B：打开自检），同一节点直接覆盖（Q2=A：不堆叠历史）
+function GithubNodeBody({
+  payload,
+  onSubmit,
+}: {
+  payload: GithubTrendingPayload;
+  onSubmit: (urls: string[]) => void;
+}) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const groups: Array<{ key: GithubTrendingCategory; label: string }> = [
+    { key: 'all', label: '全站' },
+    { key: 'typescript', label: 'TypeScript' },
+    { key: 'python', label: 'Python' },
+  ];
+  const toggle = (url: string) => {
+    setPicked(prev => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  };
+  return (
+    <div
+      onClick={e => e.stopPropagation()}
+      onDoubleClick={e => e.stopPropagation()}
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}
+    >
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {groups.map(g => {
+          const items = payload.items.filter(i => i.category === g.key);
+          if (items.length === 0) return null;
+          return (
+            <div key={g.key} style={{ marginBottom: 4 }}>
+              <div
+                className="mono"
+                style={{
+                  fontSize: 9,
+                  color: 'var(--ink3)',
+                  letterSpacing: 0.6,
+                  textTransform: 'uppercase',
+                  marginTop: 4,
+                  marginBottom: 2,
+                }}
+              >
+                ◆ {g.label}
+              </div>
+              {items.map(it => {
+                const checked = picked.has(it.url);
+                return (
+                  <label
+                    key={it.url}
+                    className="mono"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '2px 0',
+                      fontSize: 11,
+                      color: checked ? 'var(--ink)' : 'var(--ink2)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(it.url)}
+                      style={{ accentColor: 'var(--branch)', cursor: 'pointer' }}
+                    />
+                    <span
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                      }}
+                      title={it.url}
+                    >
+                      {it.repo}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        disabled={picked.size === 0}
+        onClick={() => {
+          if (picked.size === 0) return;
+          onSubmit(Array.from(picked));
+          setPicked(new Set());
+        }}
+        className="mono"
+        style={{
+          padding: '6px 8px',
+          fontSize: 10,
+          letterSpacing: 0.5,
+          color: picked.size ? 'var(--bg)' : 'var(--ink3)',
+          background: picked.size ? 'var(--branch)' : 'transparent',
+          border: `1px solid ${picked.size ? 'var(--branch)' : 'var(--rule)'}`,
+          cursor: picked.size ? 'pointer' : 'default',
+          flexShrink: 0,
+        }}
+      >
+        {picked.size ? `→ 解析选中 ${picked.size} 个` : '勾选项目以解析'}
+      </button>
     </div>
   );
 }
@@ -3447,6 +3605,7 @@ export function PipelineView({ pipeline, onExit }: Props) {
             setSelectedNode={setSelectedNode}
             onOpen={nodeId => openSheet(nodeId)}
             onSubmitInput={(id, urls, opts) => pipeline.submitInput(id, urls, undefined, opts)}
+            onSubmitFromGithub={(urls) => pipeline.submitFromGithub(urls)}
             onStartExperiment={async (answerId: string) => {
               const newId = await pipeline.startExperiment(answerId);
               if (newId) {

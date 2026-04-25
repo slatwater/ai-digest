@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection, ExperienceEntry, ExperienceSummary, PipelineSession, PipelineSessionSummary } from './types';
+import { DigestEntry, ChatMessage, TriageBatch, WikiCategory, WikiItem, WikiItemSummary, WikiSection, ExperienceEntry, ExperienceSummary, PipelineSession, PipelineSessionSummary, GithubTrendingPayload } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -416,6 +416,28 @@ export async function savePipelineSession(session: PipelineSession): Promise<voi
   index = index.filter(i => i.id !== session.id);
   index.unshift(toPipelineSummary(session));
   await fs.writeFile(PIPELINE_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+}
+
+// === GitHub trending（每日缓存，按本地日期判断是否需要重抓） ===
+
+const TRENDING_DIR = path.join(DATA_DIR, 'trending');
+
+export async function getTrendingByDate(date: string): Promise<GithubTrendingPayload | null> {
+  try {
+    const raw = await fs.readFile(path.join(TRENDING_DIR, `${date}.json`), 'utf-8');
+    return JSON.parse(raw) as GithubTrendingPayload;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveTrending(payload: GithubTrendingPayload): Promise<void> {
+  await fs.mkdir(TRENDING_DIR, { recursive: true });
+  await fs.writeFile(
+    path.join(TRENDING_DIR, `${payload.date}.json`),
+    JSON.stringify(payload, null, 2),
+    'utf-8',
+  );
 }
 
 export async function deletePipelineSession(id: string): Promise<boolean> {

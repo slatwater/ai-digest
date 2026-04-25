@@ -76,226 +76,6 @@
       }
     },
     {
-      "id": "n50",
-      "type": "input",
-      "state": "done",
-      "text": "",
-      "parent": null,
-      "branchIdx": 0,
-      "flowIdx": 4,
-      "x": 80,
-      "y": 1040,
-      "w": 280,
-      "createdAt": "14:54:39",
-      "inputUrls": [
-        "https://blog.google/innovation-and-ai/technology/ai/"
-      ],
-      "inputModel": "sonnet"
-    },
-    {
-      "id": "n51",
-      "type": "parse",
-      "state": "done",
-      "text": "https://blog.google/innovation-and-ai/technology/ai/",
-      "parent": "n50",
-      "branchIdx": 0,
-      "flowIdx": 4,
-      "x": 424,
-      "y": 1040,
-      "w": 280,
-      "createdAt": "14:54:43",
-      "model": "sonnet",
-      "parseEntry": {
-        "entryId": "604b6073-868f-47ad-be23-6c5a7348e14d",
-        "batchId": "cfd9512b-731a-424a-aaab-d56fd96eea9b",
-        "url": "https://blog.google/innovation-and-ai/technology/ai/",
-        "title": "Google AI 博客索引页",
-        "livePhases": [
-          "采集页面",
-          "分析内容"
-        ],
-        "verdict": "skip",
-        "verdictReason": "提交的是博客分类索引页，无任何具名技术的实质内容，每条新闻仅有一句简介，达不到分析门槛",
-        "narrative": "一手来源，作者/组织是 Google 官方博客。\n\n未能溯源到一手来源。该 URL 是 Google AI 博客的**分类索引页**，仅罗列文章标题和摘要句（如 [[Gemini app]]、[[Learn Mode]]、[[Groundsource]] 等），每条均无实质技术内容，正文可读字数不足 500 字，无法基于此页做有效技术分析。",
-        "concepts": [],
-        "sources": [
-          {
-            "url": "https://blog.google/innovation-and-ai/technology/ai/",
-            "title": "Official Google AI news and updates | Google Blog",
-            "type": "original"
-          }
-        ],
-        "relatedEntries": [],
-        "delta": {
-          "gap": "这是一个内容聚合索引页，不含任何具体技术的一手描述，无增量信息"
-        },
-        "tokenUsage": {
-          "model": "sonnet",
-          "turns": 1,
-          "inputTokens": 3,
-          "outputTokens": 962,
-          "cacheReadTokens": 0,
-          "costUsd": 0.04619025,
-          "durationMs": 19657
-        }
-      }
-    },
-    {
-      "id": "n52",
-      "type": "input",
-      "state": "done",
-      "text": "",
-      "parent": null,
-      "branchIdx": 0,
-      "flowIdx": 5,
-      "x": 80,
-      "y": 1280,
-      "w": 280,
-      "createdAt": "14:56:15",
-      "inputUrls": [
-        "https://github.com/nexu-io/auto-github-contributor"
-      ],
-      "inputModel": "sonnet"
-    },
-    {
-      "id": "n53",
-      "type": "parse",
-      "state": "done",
-      "text": "https://github.com/nexu-io/auto-github-contributor",
-      "parent": "n52",
-      "branchIdx": 0,
-      "flowIdx": 5,
-      "x": 424,
-      "y": 1280,
-      "w": 280,
-      "createdAt": "14:56:16",
-      "model": "sonnet",
-      "parseEntry": {
-        "entryId": "1ca34d12-94e2-4dfb-883f-aafafbbbb872",
-        "batchId": "da1debec-c658-46a8-8c74-eb0b43d6b03b",
-        "url": "https://github.com/nexu-io/auto-github-contributor",
-        "title": "auto-github-contributor：一条命令完成 OSS 贡献全流程",
-        "livePhases": [
-          "采集页面",
-          "分析内容"
-        ],
-        "verdict": "save",
-        "verdictReason": "具名开源项目，有完整可安装的技术实现，解决了「从零到 PR」的端到端自动化问题",
-        "narrative": "一手来源，作者/组织是 nexu-io，项目直接托管在 GitHub。\n\nnexu-io 做了一个叫 [[auto-github-contributor]] 的 Claude Code 技能包，让任何人输入一条 `/auto-contribute owner/repo` 就能走完从「找活儿干」到「PR 合并候选」的全部步骤。具体流程是：并行扫描仓库的 labeled issues（`good first issue` / `help wanted` 等）和仓库内的 typo、缺失测试、i18n 漏洞、可操作 TODO，生成带时间/成本估算的候选清单，等用户确认后在隔离目录克隆仓库、建 feature 分支，然后跑 TDD 循环直到 lint、typecheck、tests 三项全绿，最后用 `gh pr create` 开 PR 并打印链接。安全限制硬编码在流程里：禁止 force-push，禁止直接提交到 main/master/develop 分支。",
-        "concepts": [
-          {
-            "name": "auto-github-contributor",
-            "role": "subject",
-            "root": "nexu-io 开源项目 → 将「发现贡献机会 → TDD 开发循环 → 开 PR」封装成一个 Claude Code skill 和 /auto-contribute 斜杠命令",
-            "whatItEnables": "对任意 GitHub 仓库一键跑完 OSS 贡献全流水线，自动发现 quick-win、写代码直到测试全绿、提交 PR",
-            "sourceUrl": "https://github.com/nexu-io/auto-github-contributor"
-          }
-        ],
-        "sources": [
-          {
-            "url": "https://github.com/nexu-io/auto-github-contributor",
-            "title": "GitHub - nexu-io/auto-github-contributor",
-            "type": "original"
-          }
-        ],
-        "relatedEntries": [],
-        "delta": {
-          "gap": "首个把「OSS 贡献选题 + TDD 开发循环 + PR 提交」打包成单条 Claude Code 斜杠命令的开源工具，提供可独立测试的三层验证方案"
-        },
-        "tokenUsage": {
-          "model": "sonnet",
-          "turns": 1,
-          "inputTokens": 3,
-          "outputTokens": 1327,
-          "cacheReadTokens": 5911,
-          "costUsd": 0.033589799999999996,
-          "durationMs": 25904
-        }
-      }
-    },
-    {
-      "id": "n54",
-      "type": "input",
-      "state": "done",
-      "text": "",
-      "parent": null,
-      "branchIdx": 0,
-      "flowIdx": 6,
-      "x": 80,
-      "y": 1520,
-      "w": 280,
-      "createdAt": "14:56:46",
-      "inputUrls": [
-        "https://x.com/op7418/status/2047486744875139295"
-      ],
-      "inputModel": "sonnet"
-    },
-    {
-      "id": "n55",
-      "type": "parse",
-      "state": "done",
-      "text": "https://x.com/op7418/status/2047486744875139295",
-      "parent": "n54",
-      "branchIdx": 0,
-      "flowIdx": 6,
-      "x": 424,
-      "y": 1520,
-      "w": 280,
-      "createdAt": "14:56:48",
-      "model": "sonnet",
-      "parseEntry": {
-        "entryId": "77827a45-9cb1-406c-ba33-d842f734cb38",
-        "batchId": "6720b857-30c7-488d-94c2-dee3629da487",
-        "url": "https://x.com/op7418/status/2047486744875139295",
-        "title": "guizang-ppt-skill：电子杂志风单文件 HTML 演示文稿生成技能",
-        "livePhases": [
-          "采集页面",
-          "分析内容",
-          "溯源搜索",
-          "读取来源"
-        ],
-        "verdict": "save",
-        "verdictReason": "有具名可安装项目 guizang-ppt-skill，技术实现（Skill 框架 + WebGL + 单文件 HTML）清晰，解决了从 AI 对话到可用演示文稿的完整链路问题",
-        "narrative": "从 @op7418 推文发现，一手来源是 GitHub 仓库 op7418/guizang-ppt-skill。\n\nop7418 把多年做演示文稿的排版经验打包成一个 [[Claude Code Skills]] 模块，命名为 [[guizang-ppt-skill]]，用户安装后直接用对话描述需求就能拿到一个可在浏览器打开的 HTML 文件。输出结果内置 10 种页面版式（封面、数据展示、左文右图、对比页等）和 5 套主题色，首页附有 WebGL 流体动画背景，其余页面风格克制。安装方式是一行 npx 命令，整个文件是纯 HTML 单文件，不依赖任何构建工具。",
-        "concepts": [
-          {
-            "name": "guizang-ppt-skill",
-            "role": "subject",
-            "root": "op7418 / MIT © 2026 → 一个可安装到 Claude Code 的 Skill，接收用户需求后自动生成单文件 HTML 横向翻页演示文稿，内置 10 种版式和 5 套主题色",
-            "whatItEnables": "用对话指令直接生成可在浏览器打开的演示文稿，无需任何构建工具或服务器",
-            "sourceUrl": "https://github.com/op7418/guizang-ppt-skill"
-          },
-          {
-            "name": "Claude Code Skills",
-            "role": "component",
-            "root": "Anthropic / Claude Code → 允许用户在 ~/.claude/skills/ 目录下安装自定义任务工作流，供 Claude Code 或 Claude Agent 直接调用",
-            "whatItEnables": "将可复用的 AI 任务打包成可安装、可分发的技能模块",
-            "sourceUrl": "https://github.com/op7418/guizang-ppt-skill"
-          }
-        ],
-        "sources": [
-          {
-            "url": "https://github.com/op7418/guizang-ppt-skill",
-            "title": "GitHub - op7418/guizang-ppt-skill: A Claude Code Skill that turns prompts into horizontal-swipe magazine-style HTML decks",
-            "type": "original"
-          }
-        ],
-        "relatedEntries": [],
-        "delta": {
-          "gap": "一个可直接通过 npx 安装的开箱即用 Claude Code Skill，把演示文稿制作收敛到单次对话、单文件输出"
-        },
-        "tokenUsage": {
-          "model": "sonnet",
-          "turns": 4,
-          "inputTokens": 8,
-          "outputTokens": 2285,
-          "cacheReadTokens": 34030,
-          "costUsd": 0.1238475,
-          "durationMs": 69030
-        }
-      }
-    },
-    {
       "id": "n56",
       "type": "question",
       "state": "done",
@@ -322,11 +102,165 @@
       "model": "sonnet",
       "duration": "16.3s",
       "tokens": 0
+    },
+    {
+      "id": "n58",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 4,
+      "x": 80,
+      "y": 1040,
+      "w": 280,
+      "createdAt": "19:34:25",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n59",
+      "type": "github",
+      "state": "done",
+      "text": "今日 GitHub 热榜",
+      "parent": null,
+      "branchIdx": 0,
+      "x": -320,
+      "y": 80,
+      "w": 280,
+      "h": 360,
+      "createdAt": "19:53:51",
+      "githubPayload": {
+        "items": [
+          {
+            "repo": "Alishahryar1/free-claude-code",
+            "url": "https://github.com/Alishahryar1/free-claude-code",
+            "category": "all"
+          },
+          {
+            "repo": "mattpocock/skills",
+            "url": "https://github.com/mattpocock/skills",
+            "category": "all"
+          },
+          {
+            "repo": "Z4nzu/hackingtool",
+            "url": "https://github.com/Z4nzu/hackingtool",
+            "category": "all"
+          },
+          {
+            "repo": "RooCodeInc/Roo-Code",
+            "url": "https://github.com/RooCodeInc/Roo-Code",
+            "category": "typescript"
+          },
+          {
+            "repo": "lobehub/lobehub",
+            "url": "https://github.com/lobehub/lobehub",
+            "category": "typescript"
+          },
+          {
+            "repo": "clash-verge-rev/clash-verge-rev",
+            "url": "https://github.com/clash-verge-rev/clash-verge-rev",
+            "category": "typescript"
+          },
+          {
+            "repo": "PostHog/posthog",
+            "url": "https://github.com/PostHog/posthog",
+            "category": "python"
+          }
+        ],
+        "fetchedAt": "2026-04-25T20:11:34.986813",
+        "date": "2026-04-25"
+      }
+    },
+    {
+      "id": "n60",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 5,
+      "x": 80,
+      "y": 1280,
+      "w": 280,
+      "createdAt": "20:24:41",
+      "inputUrls": [
+        "https://github.com/mattpocock/skills"
+      ],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n61",
+      "type": "parse",
+      "state": "done",
+      "text": "https://github.com/mattpocock/skills",
+      "parent": "n60",
+      "branchIdx": 0,
+      "flowIdx": 5,
+      "x": 424,
+      "y": 1280,
+      "w": 280,
+      "createdAt": "20:24:41",
+      "model": "sonnet",
+      "parseEntry": {
+        "entryId": "747b14a5-68db-40a4-bfad-7093e324ab35",
+        "batchId": "7aaba546-1d8b-4520-870a-4526085a29e8",
+        "url": "https://github.com/mattpocock/skills",
+        "title": "mattpocock/skills：Matt Pocock 的 Claude Code 技能包集合",
+        "livePhases": [
+          "采集页面",
+          "分析内容",
+          "读取来源",
+          "溯源搜索"
+        ],
+        "verdict": "save",
+        "verdictReason": "具名 GitHub 项目，包含多个有实际机制的技能模块（钩子、并行子 Agent、TDD 循环），可直接安装使用",
+        "narrative": "一手来源，作者是 Matt Pocock，仓库描述为「My personal directory of skills, straight from my .claude directory」。\n\nMatt Pocock 把自己日常真实使用的 Claude Code 技能整理成公开仓库 [[mattpocock/skills]]，共 15 个模块，覆盖规划、开发、工具链、知识管理四类。每个技能用 `npx skills@latest add mattpocock/skills/<技能名>` 一行安装。其中 `git-guardrails-claude-code` 通过 Claude Code 钩子拦截 push / reset --hard / clean 等危险 git 命令；`design-an-interface` 并行启动多个子 Agent 生成多套差异化方案；`tdd` 内置红绿重构循环，按垂直切片逐块推进功能开发；`to-issues` 把 PRD 拆成可独立认领的 GitHub issue 块。",
+        "concepts": [
+          {
+            "name": "mattpocock/skills",
+            "role": "subject",
+            "root": "Matt Pocock 本人 → 从其个人 .claude 目录整理并公开发布的 15 个 Claude Code 技能模块，通过 npx skills@latest add 安装后存入项目 .claude/skills/ 目录",
+            "whatItEnables": "一行命令把经过验证的工作流（TDD 循环、PRD 生成、git 安全钩子、并行界面设计等）装进任意项目的 Claude Code 里",
+            "sourceUrl": "https://github.com/mattpocock/skills"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://github.com/mattpocock/skills",
+            "title": "GitHub - mattpocock/skills: My personal directory of skills, straight from my .claude directory.",
+            "type": "original"
+          },
+          {
+            "url": "https://code.claude.com/docs/en/skills",
+            "title": "Extend Claude with skills - Claude Code Docs",
+            "type": "docs"
+          },
+          {
+            "url": "https://www.npmjs.com/package/skills",
+            "title": "skills - npm",
+            "type": "related"
+          }
+        ],
+        "relatedEntries": [],
+        "delta": {
+          "gap": "提供了一位知名 TypeScript 社区作者真实在用的 Claude Code 技能全集，含具体钩子机制和并行子 Agent 设计模式，可直接 npx 安装复用"
+        },
+        "tokenUsage": {
+          "model": "sonnet",
+          "turns": 4,
+          "inputTokens": 7,
+          "outputTokens": 2590,
+          "cacheReadTokens": 19060,
+          "costUsd": 0.12244775000000001,
+          "durationMs": 63384
+        }
+      }
     }
   ],
   "model": "sonnet",
   "createdAt": "2026-04-21T14:50:33.238Z",
-  "updatedAt": "2026-04-25T07:12:00.656Z",
+  "updatedAt": "2026-04-25T12:29:49.108Z",
   "savedWikiItemId": "94b52a82-774b-44df-91e7-a51cb7e5d145",
   "draft": {
     "name": "Adam's Law：文本频率定律与大语言模型",

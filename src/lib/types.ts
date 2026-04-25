@@ -505,9 +505,22 @@ export interface ExperienceSummary {
 
 // === 深入追问 Pipeline（分支画布 + 沉淀区） ===
 
-// 节点类型：input=URL 输入卡；parse=解析结果卡；question/answer=追问链；experiment=以某个 answer 为种子的实验节点
-export type PipelineNodeType = 'input' | 'parse' | 'question' | 'answer' | 'experiment';
+// 节点类型：input=URL 输入卡；parse=解析结果卡；question/answer=追问链；experiment=以某个 answer 为种子的实验节点；github=每日 GitHub trending 候选池（勾选后转为 input 流）
+export type PipelineNodeType = 'input' | 'parse' | 'question' | 'answer' | 'experiment' | 'github';
 export type PipelineNodeState = 'pending' | 'streaming' | 'done' | 'error';
+
+// GitHub trending 候选项（每日 9 点定时抓取，每天覆盖）
+export type GithubTrendingCategory = 'all' | 'typescript' | 'python';
+export interface GithubTrendItem {
+  repo: string;                    // owner/name
+  url: string;                     // 绝对 URL
+  category: GithubTrendingCategory;
+}
+export interface GithubTrendingPayload {
+  items: GithubTrendItem[];        // 9 条（all/ts/python 各 3）
+  fetchedAt: string;               // ISO；按本地日期判断是否需要刷新
+  date: string;                    // YYYY-MM-DD（fetchedAt 当天）
+}
 
 // 实验节点内嵌：对话 + coze 运行记录（刷新/重启后从此恢复）
 export interface ExperimentToolTrace {
@@ -561,6 +574,7 @@ export interface PipelineNode {
   x?: number;
   y?: number;
   w?: number;
+  h?: number;                    // 自定义高度；未设则用默认 NODE_H（github 节点列表更长，需要 h=360）
   createdAt: string;
   duration?: string;             // 如 "8.3s"
   tokens?: number;               // output tokens
@@ -574,6 +588,8 @@ export interface PipelineNode {
   parseEntry?: ParseNodePayload; // 解析完成后填充
   // experiment 节点字段
   experimentPayload?: ExperimentNodePayload; // 实验节点持久化（对话+coze）
+  // github 节点字段
+  githubPayload?: GithubTrendingPayload;     // 每日 GitHub trending 候选池
 }
 
 export interface PipelineWikiCandidate {

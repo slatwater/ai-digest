@@ -21,8 +21,7 @@ src/
 ├── app/
 │   ├── page.tsx              # 主页面（默认进入 PipelineView 统一画布）
 │   ├── globals.css           # OKLCH 色彩系统 + 设计 tokens
-│   ├── api/triage/route.ts   # 解析 API（POST 创建 / GET 轮询 / DELETE）
-│   ├── api/expand/route.ts   # 定向扩展 SSE（轻量 agent）
+│   ├── api/(triage|expand|trending)/route.ts # 解析 / 定向扩展 SSE / 每日 GitHub trending（按日缓存，?force=1 强抓）
 │   ├── api/wiki/route.ts + categories/route.ts # Wiki 条目 + 分类 CRUD
 │   ├── api/pipeline/route.ts + [id]/(ask|save) # 统一画布会话 + 追问 SSE + 选区即存 Wiki
 │   └── api/experiment/route.ts + experiences/route.ts # 实验 SSE + 经验 CRUD
@@ -30,23 +29,23 @@ src/
 │   ├── triage.ts             # 解析 Agent（溯源 + 具名技术识别）
 │   ├── pipeline.ts           # 追问 Agent（沿 parent 回溯到最近 parse 节点取 context）
 │   ├── experiment.ts         # 实验运行时（仅读 wiki 源链接 + WebFetch + Bash coze）
-│   ├── storage.ts            # 数据读写 + 老数据迁移（读取时丢弃旧 sediment / marked / skillFiles 字段）
-│   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment
+│   ├── storage.ts            # 数据读写 + 老数据迁移 + trending 按日缓存（data/trending/{YYYY-MM-DD}.json）
+│   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment|github
 ├── components/
-│   ├── PipelineView.tsx      # 统一画布 + ParseDetailSheet/AskSheet + SaveExcerptDialog（选区→存入 Wiki）
-│   ├── TriageCard.tsx        # 解析卡片（保留为弹窗内的渲染片段，主视图已下线）
+│   ├── PipelineView.tsx      # 统一画布 + ParseDetailSheet/AskSheet + SaveExcerptDialog + GithubNodeBody；TriageCard 仅作弹窗渲染片段
 │   ├── WikiBrowseView.tsx    # Wiki/经验 双 tab 扁平卡片墙（分类 chip 过滤 + 管理面板，经验 tab 嵌入 ExperienceView）
 │   ├── ExperienceView.tsx / BlueprintView.tsx
 ├── hooks/
-│   ├── usePipeline.ts        # 生命周期：ensureSession / addInputFlow / submitInput / ask / saveExcerptToWiki
+│   ├── usePipeline.ts        # 生命周期：ensureSession / ensureGithubNode / addInputFlow / submitInput / submitFromGithub / ask / saveExcerptToWiki
 │   ├── useTriage.ts
 data/                         # JSON+MD 持久化（triage/wiki/pipelines/experiences）
-scripts/scrape.py             # Scrapling 抓取
+scripts/(scrape|fetch-github-trending).py # 网页抓取 + 每日 GitHub trending（each top3 跨分类去重，重复直接丢）
 ```
 
 ## 产品流程
 ```
 统一画布（默认进入，无需切视图）：
+  [github 卡]（trunk 左侧，x=-320 y=80 紫边）今日 trending 三分类前 3 跨分类去重 → 勾选 N 个 → 自动新 input flow
   [input 卡] 粘贴 URL / 勾「直接深入」/ 粘原文（paste://）→ [parse 卡] × N（同 batch 并列，左边条朱砂红）
          连线上实时显示 liveStatus（capture/trace/…）；direct 模式跳过 triage agent 只抓锚点
   双击 parse 卡 → ParseDetailSheet（完整 narrative + 概念 + 溯源） → [深入追问]
@@ -59,7 +58,7 @@ Wiki（含经验 tab）/ 运行原理：顶导切换（实验已并入画布 ans
 ```
 ## 代码规范
 - 中文注释，英文变量名；色彩 OKLCH；方向 B 视觉：#f4ede0 纸底 + #c94a1a 朱砂红 + #1a1713 墨线 + Fraunces 衬线 + 硬阴影
-- 节点左边条区分类型：input=墨黑 / parse=朱砂红 / question=琥珀 / experiment=青绿 / answer=墨灰
+- 节点左边条区分类型：input=墨黑 / parse=朱砂红 / question=琥珀 / experiment=青绿 / answer=墨灰 / github=紫
 - 渲染层压紧坐标：`effectiveX` DFS 累积左移（每遇 hidden answer 减 NODE_W+COL_GAP）；`effectiveY` 按存活 flowIdx 连续编号（删除中间流下方自动上移），Minimap 同步
 - Narrative 检测到 md 表格时整段走 ReactMarkdown + remarkGfm + `.aidigest-md` 暗底样式，否则用轻量 regex parser；所有 md `<a>` 统一 `target="_blank"`
 - 画布水平流：父节点右边中线 → 子节点左边中线 bezier；input→parse 虚线 + 中点标 liveStatus
@@ -75,3 +74,4 @@ Wiki（含经验 tab）/ 运行原理：顶导切换（实验已并入画布 ans
 - flex-column 弹窗必须固定高度（非 auto），内部 flex:1 子区要 `minHeight:0`；长列表默认折叠或限高 + overflowY，避免撑破父布局把输入框挤出视口
 - 实验弹窗流式 token 只在「用户粘底」时才 scrollTo，否则保持当前位置让用户可上翻查看历史
 - SSE 完成/错误分支必须把节点 `state` PATCH 落盘（仅改内存会导致刷新后残留 `streaming`，画布/缩略图持续显示"正在生成/对话中"）
+- github 节点 `ensureGithubNode` 用 fetchedAt 比对 + 坐标兜底迁移：fetchedAt 不一致才覆盖 payload，但 x/y/h 永远校正到最新常量（避免老 session 节点卡在旧坐标）
