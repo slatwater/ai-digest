@@ -233,6 +233,16 @@ export async function runPipelineAsk(
   const branchIdx = newBranch
     ? session.nodes.reduce((m, n) => Math.max(m, n.branchIdx ?? 0), 0) + 1
     : (parentNode?.branchIdx ?? 0);
+  // 沿 parent 链回溯找最近一个带 flowIdx 的祖先（input/parse），
+  // 让 q/a 跟随父流参与 effectiveY 重映射，避免删除其它流后错行
+  const flowIdx = (() => {
+    let cur: PipelineNode | null | undefined = parentNode;
+    while (cur) {
+      if (cur.flowIdx !== undefined) return cur.flowIdx;
+      cur = cur.parent ? session.nodes.find(n => n.id === cur!.parent) : null;
+    }
+    return undefined;
+  })();
   const questionId = nextNodeId(session);
   const questionNode: PipelineNode = {
     id: questionId,
@@ -242,6 +252,7 @@ export async function runPipelineAsk(
     parent: parentId,
     branchIdx,
     branchLabel: args.branchLabel,
+    flowIdx,
     x: args.questionPos?.x,
     y: args.questionPos?.y,
     w: args.questionPos?.w,
@@ -257,6 +268,7 @@ export async function runPipelineAsk(
     text: '',
     parent: questionId,
     branchIdx,
+    flowIdx,
     x: args.answerPos?.x,
     y: args.answerPos?.y,
     w: args.answerPos?.w,

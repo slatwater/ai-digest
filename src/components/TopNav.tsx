@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-type View = 'triage' | 'wiki' | 'sandbox' | 'experiment' | 'experience' | 'blueprint';
+type View = 'triage' | 'wiki' | 'blueprint';
 
 interface TopNavProps {
   active: string;
@@ -14,9 +14,6 @@ interface TopNavProps {
 const NAV: { key: View; zh: string; en: string }[] = [
   { key: 'triage', zh: '解析', en: 'triage' },
   { key: 'wiki', zh: 'Wiki', en: 'wiki' },
-  { key: 'sandbox', zh: '沙盒', en: 'sandbox' },
-  { key: 'experiment', zh: '实验', en: 'experiment' },
-  { key: 'experience', zh: '经验', en: 'experience' },
 ];
 
 const INK = '#1a1713';

@@ -4,10 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { WikiCategory, WikiItem, WikiItemSummary, WikiSection, WikiSourceLink } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ExperienceView } from './ExperienceView';
 
 type Level = 'list' | 'detail';
+type Tab = 'wiki' | 'experience';
 
 export function WikiBrowseView() {
+  const [tab, setTab] = useState<Tab>('wiki');
   const [level, setLevel] = useState<Level>('list');
   const [categories, setCategories] = useState<WikiCategory[]>([]);
   const [allItems, setAllItems] = useState<WikiItemSummary[]>([]);
@@ -126,35 +129,6 @@ export function WikiBrowseView() {
     loadAll();
   }, [selectedItem, loadAll]);
 
-  // 导入 GitHub skill 源文件
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<string | null>(null);
-
-  const importSkill = useCallback(async (repoUrl: string) => {
-    if (!selectedItem || importing) return;
-    setImporting(true);
-    setImportResult(null);
-    try {
-      const res = await fetch('/api/skill-import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoUrl, itemId: selectedItem.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setImportResult(`已导入 ${data.total} 个 Skill 源文件`);
-      // 重新加载条目详情以显示 skillFiles
-      const freshRes = await fetch(`/api/wiki?itemId=${selectedItem.id}`);
-      const freshItem = await freshRes.json();
-      if (freshItem && !freshItem.error) setSelectedItem(freshItem);
-      loadAll();
-    } catch (e) {
-      setImportResult(`导入失败: ${(e as Error).message}`);
-    } finally {
-      setImporting(false);
-    }
-  }, [selectedItem, importing, loadAll]);
-
   if (loading) {
     return (
       <div className="max-w-[860px] mx-auto px-8 py-10">
@@ -170,26 +144,57 @@ export function WikiBrowseView() {
       {/* 列表层：扁平卡片墙 */}
       {level === 'list' && (
         <div>
-          {/* 顶部：标题 + 管理分类按钮 */}
+          {/* 顶部：Wiki / 经验 tab + 管理分类按钮（仅 Wiki tab） */}
           <div className="flex items-baseline justify-between mb-5">
-            <h2 className="font-semibold tracking-tight" style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>
-              Wiki
-              <span className="ml-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontWeight: 400 }}>
-                {allItems.length} 个条目
-              </span>
-            </h2>
-            <button
-              onClick={() => setShowManageCats(v => !v)}
-              style={{ fontSize: 'var(--text-xs)', color: showManageCats ? 'var(--accent)' : 'var(--text-quaternary)' }}
-              onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
-              onMouseLeave={e => (e.currentTarget.style.color = showManageCats ? 'var(--accent)' : 'var(--text-quaternary)')}
-            >
-              {showManageCats ? '收起 ×' : '管理分类'}
-            </button>
+            <div className="flex items-baseline gap-5">
+              <button
+                onClick={() => setTab('wiki')}
+                className="font-semibold tracking-tight"
+                style={{
+                  fontSize: 'var(--text-lg)',
+                  color: tab === 'wiki' ? 'var(--text-primary)' : 'var(--text-quaternary)',
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                Wiki
+                <span className="ml-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)', fontWeight: 400 }}>
+                  {allItems.length}
+                </span>
+              </button>
+              <button
+                onClick={() => setTab('experience')}
+                className="font-semibold tracking-tight"
+                style={{
+                  fontSize: 'var(--text-lg)',
+                  color: tab === 'experience' ? 'var(--text-primary)' : 'var(--text-quaternary)',
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                经验
+              </button>
+            </div>
+            {tab === 'wiki' && (
+              <button
+                onClick={() => setShowManageCats(v => !v)}
+                style={{ fontSize: 'var(--text-xs)', color: showManageCats ? 'var(--accent)' : 'var(--text-quaternary)' }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+                onMouseLeave={e => (e.currentTarget.style.color = showManageCats ? 'var(--accent)' : 'var(--text-quaternary)')}
+              >
+                {showManageCats ? '收起 ×' : '管理分类'}
+              </button>
+            )}
           </div>
 
+          {tab === 'experience' && <ExperienceView embedded />}
+
           {/* 分类管理面板（折叠） */}
-          {showManageCats && (
+          {tab === 'wiki' && showManageCats && (
             <div className="mb-5 p-4 rounded-lg" style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-subtle, var(--bg))' }}>
               <div className="flex flex-wrap gap-2 mb-3">
                 {categories.map(cat => {
@@ -236,7 +241,7 @@ export function WikiBrowseView() {
           )}
 
           {/* 分类过滤 chip 栏 */}
-          {categories.length > 0 && (
+          {tab === 'wiki' && categories.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-5">
               <button onClick={() => setFilterCatId(null)}
                 className="px-3 py-1 rounded-full transition-colors"
@@ -271,7 +276,7 @@ export function WikiBrowseView() {
           )}
 
           {/* 卡片墙 */}
-          {visibleItems.length === 0 ? (
+          {tab === 'wiki' && (visibleItems.length === 0 ? (
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', lineHeight: '1.8' }}>
               {allItems.length === 0
                 ? '还没有内容。在解析详情或对话弹窗里左键拖选 → 右键 § 存入 Wiki。'
@@ -301,13 +306,12 @@ export function WikiBrowseView() {
                   <span className="mt-auto flex items-center gap-2"
                     style={{ fontSize: '0.6875rem', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>
                     <span>{item.sourceCount} 来源</span>
-                    {(item.skillFileCount ?? 0) > 0 && <span>· {item.skillFileCount} skill</span>}
                     <span className="ml-auto">{(item.updatedAt || '').slice(0, 10)}</span>
                   </span>
                 </button>
               ))}
             </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -329,20 +333,12 @@ export function WikiBrowseView() {
               onCancel={() => setEditing(false)}
             />
           ) : (
-            <>
-              <WikiItemView
-                item={selectedItem}
-                categoryName={categories.find(c => c.id === selectedItem.categoryId)?.name || ''}
-                onEdit={startEdit}
-                onDelete={deleteItem}
-                onImportSkill={importSkill}
-              />
-              {(importing || importResult) && (
-                <div className="mt-4 py-2" style={{ fontSize: 'var(--text-xs)', color: importing ? 'var(--text-tertiary)' : 'var(--accent-text)' }}>
-                  {importing ? '正在从 GitHub 导入 Skill 源文件...' : importResult}
-                </div>
-              )}
-            </>
+            <WikiItemView
+              item={selectedItem}
+              categoryName={categories.find(c => c.id === selectedItem.categoryId)?.name || ''}
+              onEdit={startEdit}
+              onDelete={deleteItem}
+            />
           )}
         </div>
       )}
@@ -351,24 +347,12 @@ export function WikiBrowseView() {
 }
 
 // ── 条目详情 ──
-function WikiItemView({ item, categoryName, onEdit, onDelete, onImportSkill }: {
+function WikiItemView({ item, categoryName, onEdit, onDelete }: {
   item: WikiItem;
   categoryName: string;
   onEdit: () => void;
   onDelete: () => void;
-  onImportSkill?: (repoUrl: string) => void;
 }) {
-  const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
-
-  // 检测是否有 GitHub skill 仓库链接
-  // 只对链接 URL 或标题包含 skill 关键词的仓库显示导入按钮
-  const githubLink = item.sourceLinks.find(l =>
-    /github\.com\/[^/]+\/[^/]+/.test(l.url) &&
-    (/skill/i.test(l.url) || /skill/i.test(l.title || ''))
-  );
-  const hasSkillFiles = (item.skillFiles?.length || 0) > 0;
-  const showImportBtn = !hasSkillFiles && !!githubLink && !!onImportSkill;
-
   return (
     <article className="space-y-8">
       <header>
@@ -390,16 +374,6 @@ function WikiItemView({ item, categoryName, onEdit, onDelete, onImportSkill }: {
             onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-quaternary)')}>
             删除
           </button>
-          {showImportBtn && (
-            <button
-              onClick={() => onImportSkill!(githubLink!.url)}
-              style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)', fontWeight: 500 }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.7')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-            >
-              导入 Skill 源文件
-            </button>
-          )}
         </div>
       </header>
 
@@ -413,56 +387,6 @@ function WikiItemView({ item, categoryName, onEdit, onDelete, onImportSkill }: {
           </div>
         </section>
       ))}
-
-      {/* 附属 Skill 源文件 */}
-      {hasSkillFiles && (
-        <section>
-          <h3 className="font-semibold tracking-tight mb-3" style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)' }}>
-            Skill 源文件
-            <span className="ml-2 font-normal" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-              {item.skillFiles!.length} 个
-            </span>
-          </h3>
-          <div className="space-y-1">
-            {item.skillFiles!.map(sf => {
-              const isOpen = expandedSkill === sf.command;
-              return (
-                <div key={sf.command}>
-                  <button
-                    onClick={() => setExpandedSkill(isOpen ? null : sf.command)}
-                    className="flex items-center gap-2 w-full text-left px-3 py-2 rounded"
-                    style={{
-                      background: isOpen ? 'var(--bg-subtle)' : 'transparent',
-                      transition: 'background var(--duration-fast) var(--ease-out)',
-                    }}
-                    onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = 'var(--bg-subtle)'; }}
-                    onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-                      style={{ color: 'var(--text-quaternary)', transform: isOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                    <span style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)', fontWeight: 500, color: 'var(--accent-text)' }}>
-                      /{sf.command}
-                    </span>
-                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-                      {sf.name !== sf.command ? sf.name : ''}
-                    </span>
-                  </button>
-                  {isOpen && (
-                    <div className="mt-1 ml-5 mb-3 p-4 rounded overflow-x-auto"
-                      style={{ background: 'oklch(14% 0.005 260)', border: '1px solid oklch(20% 0.005 260)' }}>
-                      <pre style={{ fontSize: '0.8rem', lineHeight: '1.6', color: 'oklch(80% 0.003 260)', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', margin: 0 }}>
-                        {sf.content}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {item.sourceLinks.length > 0 && (
         <section>

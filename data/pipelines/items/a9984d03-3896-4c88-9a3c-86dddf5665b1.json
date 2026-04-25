@@ -1,0 +1,23 @@
+{
+  "id": "a9984d03-3896-4c88-9a3c-86dddf5665b1",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "14:51:16",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-25T06:51:16.239Z",
+  "updatedAt": "2026-04-25T06:51:16.627Z"
+}

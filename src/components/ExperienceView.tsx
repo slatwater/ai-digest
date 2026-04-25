@@ -7,6 +7,8 @@ import { ExperienceEntry, ExperienceSummary } from '@/lib/types';
 
 interface ExperienceViewProps {
   focusId?: string | null;
+  /** 嵌入到其它视图（如 Wiki 内 tab）时省略外层标题 */
+  embedded?: boolean;
 }
 
 // 单条经验：默认折叠，点开才加载详情并就地展开
@@ -222,7 +224,7 @@ function ExperienceRow({
   );
 }
 
-export function ExperienceView({ focusId }: ExperienceViewProps) {
+export function ExperienceView({ focusId, embedded = false }: ExperienceViewProps) {
   const [list, setList] = useState<ExperienceSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -240,20 +242,22 @@ export function ExperienceView({ focusId }: ExperienceViewProps) {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="font-semibold tracking-tight" style={{ fontSize: 'var(--text-xl)', color: 'var(--text-primary)' }}>
-          经验
-        </h1>
-        <p className="mt-1" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
-          沉淀自「实验」板块的可复用方案
-        </p>
-      </div>
+      {!embedded && (
+        <div className="mb-8">
+          <h1 className="font-semibold tracking-tight" style={{ fontSize: 'var(--text-xl)', color: 'var(--text-primary)' }}>
+            经验
+          </h1>
+          <p className="mt-1" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-quaternary)' }}>
+            沉淀自画布实验节点的可复用方案
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>加载中...</p>
       ) : list.length === 0 ? (
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>
-          还没有经验条目。去「实验」板块跑一次，把好的产物保存过来。
+          还没有经验条目。在画布的 answer 卡上点「❦ 实验」跑一次，把好的产物保存过来。
         </p>
       ) : (
         <div className="space-y-2">

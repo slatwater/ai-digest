@@ -685,15 +685,27 @@ const Canvas = forwardRef<CanvasHandle, {
   }, [nodes, hiddenIds]);
 
   // 删除中间流后上移下方：按存活 flowIdx 压缩到连续行号
+  // q/a 节点历史数据可能没设 flowIdx，沿 parent 链回溯继承祖先 flowIdx，
+  // 否则会被当作 0 与父节点错行
   const effectiveY = useMemo(() => {
     const result = new Map<string, number>();
-    const flowIdxs = Array.from(new Set(nodes.map(n => n.flowIdx ?? 0))).sort((a, b) => a - b);
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const resolveFlowIdx = (n: PipelineNode): number => {
+      let cur: PipelineNode | undefined = n;
+      while (cur) {
+        if (cur.flowIdx !== undefined) return cur.flowIdx;
+        cur = cur.parent ? byId.get(cur.parent) : undefined;
+      }
+      return 0;
+    };
+    const flowOf = new Map(nodes.map(n => [n.id, resolveFlowIdx(n)]));
+    const flowIdxs = Array.from(new Set(flowOf.values())).sort((a, b) => a - b);
     const shiftByFlow = new Map<number, number>();
     flowIdxs.forEach((fi, newRow) => {
       shiftByFlow.set(fi, (newRow - fi) * FLOW_ROW);
     });
     for (const n of nodes) {
-      const dy = shiftByFlow.get(n.flowIdx ?? 0) ?? 0;
+      const dy = shiftByFlow.get(flowOf.get(n.id) ?? 0) ?? 0;
       result.set(n.id, (n.y ?? FLOW_Y_BASE) + dy);
     }
     return result;
@@ -1330,14 +1342,24 @@ function Minimap({
     for (const r of nodes.filter(n => !n.parent)) visit(r.id, 0);
 
     // y 压紧：按存活 flowIdx 连续编号，让中间流被删后下方自动上移
+    // q/a 历史数据可能没 flowIdx，沿 parent 回溯继承祖先 flowIdx
     const yMap = new Map<string, number>();
-    const flowIdxs = Array.from(new Set(nodes.map(n => n.flowIdx ?? 0))).sort((a, b) => a - b);
+    const resolveFlowIdx = (n: PipelineNode): number => {
+      let cur: PipelineNode | undefined = n;
+      while (cur) {
+        if (cur.flowIdx !== undefined) return cur.flowIdx;
+        cur = cur.parent ? byId.get(cur.parent) : undefined;
+      }
+      return 0;
+    };
+    const flowOf = new Map(nodes.map(n => [n.id, resolveFlowIdx(n)]));
+    const flowIdxs = Array.from(new Set(flowOf.values())).sort((a, b) => a - b);
     const shiftByFlow = new Map<number, number>();
     flowIdxs.forEach((fi, newRow) => {
       shiftByFlow.set(fi, (newRow - fi) * FLOW_ROW);
     });
     for (const n of nodes) {
-      const dy = shiftByFlow.get(n.flowIdx ?? 0) ?? 0;
+      const dy = shiftByFlow.get(flowOf.get(n.id) ?? 0) ?? 0;
       yMap.set(n.id, (n.y ?? FLOW_Y_BASE) + dy);
     }
 

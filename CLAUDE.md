@@ -25,23 +25,21 @@ src/
 │   ├── api/expand/route.ts   # 定向扩展 SSE（轻量 agent）
 │   ├── api/wiki/route.ts + categories/route.ts # Wiki 条目 + 分类 CRUD
 │   ├── api/pipeline/route.ts + [id]/(ask|save) # 统一画布会话 + 追问 SSE + 选区即存 Wiki
-│   ├── api/sandbox/route.ts + skill-import/route.ts # 沙盒 SSE + GitHub SKILL.md 导入
 │   └── api/experiment/route.ts + experiences/route.ts # 实验 SSE + 经验 CRUD
 ├── lib/
 │   ├── triage.ts             # 解析 Agent（溯源 + 具名技术识别）
 │   ├── pipeline.ts           # 追问 Agent（沿 parent 回溯到最近 parse 节点取 context）
-│   ├── sandbox.ts            # Skill 沙盒运行时
 │   ├── experiment.ts         # 实验运行时（仅读 wiki 源链接 + WebFetch + Bash coze）
-│   ├── storage.ts            # 数据读写 + 老数据迁移（读取时丢弃旧 sediment / marked 字段）
+│   ├── storage.ts            # 数据读写 + 老数据迁移（读取时丢弃旧 sediment / marked / skillFiles 字段）
 │   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment
 ├── components/
 │   ├── PipelineView.tsx      # 统一画布 + ParseDetailSheet/AskSheet + SaveExcerptDialog（选区→存入 Wiki）
 │   ├── TriageCard.tsx        # 解析卡片（保留为弹窗内的渲染片段，主视图已下线）
-│   ├── WikiBrowseView.tsx    # Wiki 扁平卡片墙（分类 chip 过滤 + 管理面板）
-│   ├── SandboxView.tsx / ExperimentView.tsx / ExperienceView.tsx / BlueprintView.tsx
+│   ├── WikiBrowseView.tsx    # Wiki/经验 双 tab 扁平卡片墙（分类 chip 过滤 + 管理面板，经验 tab 嵌入 ExperienceView）
+│   ├── ExperienceView.tsx / BlueprintView.tsx
 ├── hooks/
 │   ├── usePipeline.ts        # 生命周期：ensureSession / addInputFlow / submitInput / ask / saveExcerptToWiki
-│   ├── useTriage.ts / useSandbox.ts / useExperiment.ts
+│   ├── useTriage.ts
 data/                         # JSON+MD 持久化（triage/wiki/pipelines/experiences）
 scripts/scrape.py             # Scrapling 抓取
 ```
@@ -57,7 +55,7 @@ scripts/scrape.py             # Scrapling 抓取
          → SaveExcerptDialog（项目名称下拉新建/追加 + 分类 + 段落标题 + 内容预览 + 确认存入）
   answer 卡「❦ 实验」→ teal 色 experiment 节点
   右侧栏 Minimap：类型染色 + 视口框拖拽 + 点节点居中 + streaming 涟漪
-Wiki / Skill 沙盒 / 实验 / 经验 / 运行原理：顶导切换
+Wiki（含经验 tab）/ 运行原理：顶导切换（实验已并入画布 answer 卡操作；Skill 沙盒已下线）
 ```
 ## 代码规范
 - 中文注释，英文变量名；色彩 OKLCH；方向 B 视觉：#f4ede0 纸底 + #c94a1a 朱砂红 + #1a1713 墨线 + Fraunces 衬线 + 硬阴影

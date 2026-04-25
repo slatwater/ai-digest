@@ -69,7 +69,7 @@ function shellQuote(s: string): string {
 }
 
 // 进程启动时扫描并清理孤儿临时目录 + SDK 会话文件（上次 server 崩溃或 dev hot-reload 遗留）
-// prefix 为目录前缀，例如 "aidigest-experiment-" / "aidigest-sandbox-"
+// prefix 为目录前缀，例如 "aidigest-experiment-"
 export async function cleanupOrphanWorkDirs(prefix: string): Promise<void> {
   const tmp = os.tmpdir();
   let entries: string[] = [];

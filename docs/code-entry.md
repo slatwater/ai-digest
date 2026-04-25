@@ -54,27 +54,19 @@
 
 | 文件 | 职责 |
 |------|------|
-| `TopNav.tsx` | 顶部导航（5 个 view 切换） |
-| `TriageView.tsx` | 解析空态 + 批量解析容器 |
-| `TriageSection.tsx` | 解析后展开式叙述视图（含深入入口） |
-| `TriageCard.tsx` | 解析卡片（含内置聊天） |
-| `PipelineView.tsx` | 深入提问对话（多轮 Q&A） |
-| `WikiBrowseView.tsx` | Wiki 三级钻取浏览 |
-| `WikiSaveInline.tsx` | 解析后存入 Wiki 的内联对话 |
-| `SandboxView.tsx` | Skill 沙盒选择 + 运行 |
-| `ExperimentView.tsx` | 实验研究员对话 + Coze 进程 |
-| `ExperienceView.tsx` | 经验列表（手风琴折叠） |
+| `TopNav.tsx` | 顶部导航（解析 / Wiki / 运行原理） |
+| `TriageCard.tsx` | 解析卡片（保留为弹窗内的渲染片段） |
+| `PipelineView.tsx` | 统一画布：解析 + 深入追问 + 实验（answer 卡触发） |
+| `WikiBrowseView.tsx` | Wiki/经验双 tab 扁平卡片墙 |
+| `ExperienceView.tsx` | 经验列表（嵌入 Wiki 的经验 tab） |
 | `BlueprintView.tsx` | 运行原理静态页 |
-| `StreamView.tsx` / `PhaseIndicator.tsx` / `PhaseSummaryView.tsx` | 流式状态辅助组件 |
 
 ## 完整页面样本（建议作为风格基线）
-**`src/components/TriageCard.tsx`** —— 这是项目里最复杂的卡片组件，含：
-- 折叠/展开
-- 概念 chip 列表
-- 带 [[]] 内嵌跳转的 narrative 文本
-- 来源链接 grid
-- 内置聊天（流式 SSE）
-- 多种状态：pending / processing / done / error
+**`src/components/PipelineView.tsx`** —— 主画布组件，含：
+- 节点类型染色（input/parse/question/answer/experiment）
+- effectiveX/effectiveY 压紧坐标 + Minimap 同步
+- ParseDetailSheet / AskSheet / SaveExcerptDialog（选区→存入 Wiki）
+- 流式 SSE 状态 + 工具轨迹
 
 读这一个文件足以理解项目的视觉语言、状态系统、交互节奏。
 
