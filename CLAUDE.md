@@ -24,13 +24,15 @@ src/
 │   ├── api/(triage|expand|trending)/route.ts # 解析 / 定向扩展 SSE / 每日 GitHub trending（按日缓存，?force=1 强抓）
 │   ├── api/wiki/route.ts + categories/route.ts # Wiki 条目 + 分类 CRUD
 │   ├── api/pipeline/route.ts + [id]/(ask|save) # 统一画布会话 + 追问 SSE + 选区即存 Wiki
-│   └── api/experiment/route.ts + experiences/route.ts # 实验 SSE + 经验 CRUD
+│   ├── api/experiment/route.ts + experiences/route.ts # 实验 SSE + 经验 CRUD
+│   └── api/distill/route.ts + parse-file/route.ts # 经验沉淀 SSE + 文件解析（pdf/docx/text）
 ├── lib/
 │   ├── triage.ts             # 解析 Agent（溯源 + 具名技术识别）
 │   ├── pipeline.ts           # 追问 Agent（沿 parent 回溯到最近 parse 节点取 context）
-│   ├── experiment.ts         # 实验运行时（仅读 wiki 源链接 + WebFetch + Bash coze）
+│   ├── experiment.ts         # 实验运行时（wiki 源链接 + WebFetch + Bash coze）
+│   ├── distill.ts            # 经验沉淀 agent（导入文档 → cwd 落地 → Read/WebFetch + 多轮对话 → 存经验区）
 │   ├── storage.ts            # 数据读写 + 老数据迁移 + trending 按日缓存（data/trending/{YYYY-MM-DD}.json）
-│   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment|github
+│   └── types.ts              # PipelineNode.type = input|parse|question|answer|experiment|github|distill
 ├── components/
 │   ├── PipelineView.tsx      # 统一画布 + ParseDetailSheet/AskSheet + SaveExcerptDialog + GithubNodeBody；TriageCard 仅作弹窗渲染片段
 │   ├── WikiBrowseView.tsx    # Wiki/经验 双 tab 扁平卡片墙（分类 chip 过滤 + 管理面板，经验 tab 嵌入 ExperienceView）
@@ -52,13 +54,13 @@ scripts/(scrape|fetch-github-trending).py # 网页抓取 + 每日 GitHub trendin
   Q/A 合并为单卡（只显示问题，双击进 AskSheet）；派生分支上下偏移；「+ 新流程」上下并排
   存入 Wiki：在 ParseDetailSheet 的 narrative 或 AskSheet 的 answer 文本上左键拖选 → 右键 §
          → SaveExcerptDialog（项目名称下拉新建/追加 + 分类 + 段落标题 + 内容预览 + 确认存入）
-  answer 卡「❦ 实验」→ teal 色 experiment 节点
+  answer 卡「❦ 实验」→ teal experiment 节点；顶部「⌬ 经验沉淀」→ 绿 distill 节点（导入 txt/md/json/pdf/docx + 多轮对话 → 直接存经验区）
   右侧栏 Minimap：类型染色 + 视口框拖拽 + 点节点居中 + streaming 涟漪
 Wiki（含经验 tab）/ 运行原理：顶导切换（实验已并入画布 answer 卡操作；Skill 沙盒已下线）
 ```
 ## 代码规范
-- 中文注释，英文变量名；色彩 OKLCH；方向 B 视觉：#f4ede0 纸底 + #c94a1a 朱砂红 + #1a1713 墨线 + Fraunces 衬线 + 硬阴影
-- 节点左边条区分类型：input=墨黑 / parse=朱砂红 / question=琥珀 / experiment=青绿 / answer=墨灰 / github=紫
+- 中文注释，英文变量名；方向 B 视觉（全站统一）：#14110d 暗纸底 + #e05d35/c94a1a 朱砂红 + #f4ede0 浅墨字 + amber/teal/branch/ok 强调 + Fraunces 衬线 + 硬边；TopNav/Wiki/画布共用同一色板（globals.css `.wiki-deep` / `.pipeline-deep`）
+- 节点左边条区分类型：input=墨黑 / parse=朱砂红 / question=琥珀 / experiment=青绿 / distill=ok 绿 / answer=墨灰 / github=紫
 - 渲染层压紧坐标：`effectiveX` DFS 累积左移（每遇 hidden answer 减 NODE_W+COL_GAP）；`effectiveY` 按存活 flowIdx 连续编号（删除中间流下方自动上移），Minimap 同步
 - Narrative 检测到 md 表格时整段走 ReactMarkdown + remarkGfm + `.aidigest-md` 暗底样式，否则用轻量 regex parser；所有 md `<a>` 统一 `target="_blank"`
 - 画布水平流：父节点右边中线 → 子节点左边中线 bezier；input→parse 虚线 + 中点标 liveStatus

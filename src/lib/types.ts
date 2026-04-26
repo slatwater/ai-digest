@@ -505,8 +505,8 @@ export interface ExperienceSummary {
 
 // === 深入追问 Pipeline（分支画布 + 沉淀区） ===
 
-// 节点类型：input=URL 输入卡；parse=解析结果卡；question/answer=追问链；experiment=以某个 answer 为种子的实验节点；github=每日 GitHub trending 候选池（勾选后转为 input 流）
-export type PipelineNodeType = 'input' | 'parse' | 'question' | 'answer' | 'experiment' | 'github';
+// 节点类型：input=URL 输入卡；parse=解析结果卡；question/answer=追问链；experiment=以某个 answer 为种子的实验节点；github=每日 GitHub trending 候选池（勾选后转为 input 流）；distill=经验沉淀 agent（导入文档+多轮对话→存为经验）
+export type PipelineNodeType = 'input' | 'parse' | 'question' | 'answer' | 'experiment' | 'github' | 'distill';
 export type PipelineNodeState = 'pending' | 'streaming' | 'done' | 'error';
 
 // GitHub trending 候选项（每日 9 点定时抓取，每天覆盖）
@@ -539,6 +539,25 @@ export interface ExperimentNodePayload {
   messages: ChatMessage[];         // 对话历史（真相源）
   cozeRuns: CozeRun[];             // coze 运行记录
   toolTraces?: ExperimentToolTrace[];
+  savedExperienceId?: string;      // 存为经验后的 id
+}
+
+// 经验沉淀节点内嵌：导入的文档 + 多轮对话 + 草稿
+// 文件 content 直接是文本（前端原文 / 后端 pdf-parse / mammoth 解析后的纯文本）
+export interface DistillFile {
+  name: string;                    // 文件名
+  size: number;                    // 原始字节数
+  mime?: string;                   // 原始 MIME（仅展示用）
+  content: string;                 // 解析后的纯文本（pdf/word 转 text）
+  addedAt: number;
+}
+
+export interface DistillNodePayload {
+  files: DistillFile[];            // 已导入文档（可空：纯对话也允许）
+  messages: ChatMessage[];         // 多轮对话历史
+  sdkSessionId?: string | null;    // 后端会话 id（resume 用）
+  model?: TriageModel;
+  resolvedModel?: string;
   savedExperienceId?: string;      // 存为经验后的 id
 }
 
@@ -590,6 +609,8 @@ export interface PipelineNode {
   experimentPayload?: ExperimentNodePayload; // 实验节点持久化（对话+coze）
   // github 节点字段
   githubPayload?: GithubTrendingPayload;     // 每日 GitHub trending 候选池
+  // distill 节点字段
+  distillPayload?: DistillNodePayload;       // 经验沉淀节点（文件+多轮对话+草稿）
 }
 
 export interface PipelineWikiCandidate {

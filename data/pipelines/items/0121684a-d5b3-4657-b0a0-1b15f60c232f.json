@@ -1,0 +1,77 @@
+{
+  "id": "0121684a-d5b3-4657-b0a0-1b15f60c232f",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "17:12:35",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "github",
+      "state": "done",
+      "text": "今日 GitHub 热榜",
+      "parent": null,
+      "branchIdx": 0,
+      "x": -320,
+      "y": 80,
+      "w": 280,
+      "h": 360,
+      "createdAt": "17:12:36",
+      "githubPayload": {
+        "items": [
+          {
+            "repo": "Alishahryar1/free-claude-code",
+            "url": "https://github.com/Alishahryar1/free-claude-code",
+            "category": "all"
+          },
+          {
+            "repo": "mattpocock/skills",
+            "url": "https://github.com/mattpocock/skills",
+            "category": "all"
+          },
+          {
+            "repo": "Z4nzu/hackingtool",
+            "url": "https://github.com/Z4nzu/hackingtool",
+            "category": "all"
+          },
+          {
+            "repo": "RooCodeInc/Roo-Code",
+            "url": "https://github.com/RooCodeInc/Roo-Code",
+            "category": "typescript"
+          },
+          {
+            "repo": "lobehub/lobehub",
+            "url": "https://github.com/lobehub/lobehub",
+            "category": "typescript"
+          },
+          {
+            "repo": "clash-verge-rev/clash-verge-rev",
+            "url": "https://github.com/clash-verge-rev/clash-verge-rev",
+            "category": "typescript"
+          },
+          {
+            "repo": "PostHog/posthog",
+            "url": "https://github.com/PostHog/posthog",
+            "category": "python"
+          }
+        ],
+        "fetchedAt": "2026-04-26T01:24:23.586319",
+        "date": "2026-04-26"
+      }
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-26T09:12:35.949Z",
+  "updatedAt": "2026-04-26T09:12:36.067Z"
+}

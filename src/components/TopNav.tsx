@@ -16,10 +16,14 @@ const NAV: { key: View; zh: string; en: string }[] = [
   { key: 'wiki', zh: 'Wiki', en: 'wiki' },
 ];
 
-const INK = '#1a1713';
-const RED = '#c94a1a';
-const PAPER = '#f4ede0';
-const MUTE = '#7a6f60';
+// 暗纸底版（与画布 / Wiki 同色系）
+const PAPER = '#14110d';   // 暗纸底
+const INK = '#f4ede0';     // 浅墨字
+const INK_SOFT = '#c9bfae';
+const MUTE = '#8a7f6d';
+const RULE = '#3a3428';
+const RED = '#e05d35';     // 暗底用更亮朱砂
+const RED_DEEP = '#c94a1a';
 
 // NavB · 报纸报头式
 export function TopNav({ active, onNavigate, triageProcessing }: TopNavProps) {
@@ -32,7 +36,7 @@ export function TopNav({ active, onNavigate, triageProcessing }: TopNavProps) {
     <nav
       className="shrink-0 flex items-end justify-between"
       style={{
-        borderBottom: `1px solid ${INK}`,
+        borderBottom: `1px solid ${RULE}`,
         padding: '18px 40px 14px',
         background: PAPER,
         fontFamily: 'Inter, var(--font-geist-sans), sans-serif',
@@ -75,18 +79,19 @@ export function TopNav({ active, onNavigate, triageProcessing }: TopNavProps) {
                 onClick={() => onNavigate(key)}
                 style={{
                   padding: '6px 14px',
-                  background: isActive ? INK : 'transparent',
-                  color: isActive ? PAPER : '#4a4238',
-                  border: `1px solid ${INK}`,
+                  background: isActive ? RED_DEEP : 'transparent',
+                  color: isActive ? '#fff5e8' : INK_SOFT,
+                  border: `1px solid ${isActive ? RED_DEEP : RULE}`,
                   marginLeft: i === 0 ? 0 : -1,
                   cursor: 'pointer',
                   position: 'relative',
                   fontFamily: 'inherit',
                   fontSize: 'inherit',
+                  transition: 'color 120ms ease, border-color 120ms ease, background 120ms ease',
                 }}
               >
                 {zh}
-                <span style={{ opacity: 0.5, marginLeft: 6, fontSize: 10 }}>/{en}</span>
+                <span style={{ opacity: 0.55, marginLeft: 6, fontSize: 10 }}>/{en}</span>
                 {key === 'triage' && triageProcessing && !isActive && (
                   <span
                     className="absolute"
@@ -104,10 +109,11 @@ export function TopNav({ active, onNavigate, triageProcessing }: TopNavProps) {
           onClick={() => onNavigate('blueprint')}
           style={{
             width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            border: `1px solid ${INK}`, marginLeft: -1,
-            background: active === 'blueprint' ? INK : 'transparent',
-            color: active === 'blueprint' ? PAPER : '#4a4238',
+            border: `1px solid ${active === 'blueprint' ? RED_DEEP : RULE}`, marginLeft: -1,
+            background: active === 'blueprint' ? RED_DEEP : 'transparent',
+            color: active === 'blueprint' ? '#fff5e8' : INK_SOFT,
             cursor: 'pointer',
+            transition: 'color 120ms ease, border-color 120ms ease, background 120ms ease',
           }}
           title="运行原理"
         >

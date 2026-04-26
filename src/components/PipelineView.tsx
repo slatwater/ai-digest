@@ -370,12 +370,14 @@ function TopBar({
   session,
   onExit,
   onNewFlow,
+  onNewDistill,
   model,
   onModelChange,
 }: {
   session: PipelineSession;
   onExit?: () => void;
   onNewFlow: () => void;
+  onNewDistill: () => void;
   model: TriageModel;
   onModelChange: (m: TriageModel) => void;
 }) {
@@ -433,6 +435,25 @@ function TopBar({
           title="在画布下方新增一条解析流"
         >
           + 新流程
+        </button>
+        <button
+          onClick={onNewDistill}
+          className="mono"
+          style={{
+            fontSize: 11,
+            padding: '6px 12px',
+            letterSpacing: 0.3,
+            color: 'var(--ok)',
+            border: '1px solid var(--ok)',
+            background: 'rgba(143,192,122,0.1)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+          title="新增一个经验沉淀节点：导入文档 + 多轮对话 → 存为经验"
+        >
+          ⌬ 经验沉淀
         </button>
         {onExit && (
           <button
@@ -996,7 +1017,7 @@ const Canvas = forwardRef<CanvasHandle, {
           frontier = next;
         }
         const descCount = descendants.size;
-        const typeLabel = target ? ({ input: '输入', parse: '解析', question: '问题', answer: '回答', experiment: '实验', github: 'GitHub 热榜' } as const)[target.type] : '节点';
+        const typeLabel = target ? ({ input: '输入', parse: '解析', question: '问题', answer: '回答', experiment: '实验', github: 'GitHub 热榜', distill: '经验沉淀' } as const)[target.type] : '节点';
         return (
           <div
             onClick={e => e.stopPropagation()}
@@ -1307,6 +1328,8 @@ function nodeMiniFill(node: PipelineNode): string {
       return 'var(--teal)';
     case 'github':
       return 'var(--branch)';
+    case 'distill':
+      return 'var(--ok)';
     default:
       return 'var(--ink3)';
   }
@@ -1754,6 +1777,15 @@ function nodeVisuals(node: PipelineNode, selected: boolean): {
         labelColor: 'var(--branch)',
         clickTitle: '勾选项目后点「解析选中」进入解析流',
       };
+    case 'distill':
+      return {
+        bg: 'var(--panel)',
+        headerBg: 'rgba(143,192,122,0.08)',
+        leftBar: 'var(--ok)',
+        label: '⌬ 经验沉淀',
+        labelColor: 'var(--ok)',
+        clickTitle: '双击导入文档并对话沉淀经验',
+      };
     default: // answer
       return {
         bg: 'var(--panel)',
@@ -1799,12 +1831,13 @@ function CanvasNode({
   const isParse = node.type === 'parse';
   const isExperiment = node.type === 'experiment';
   const isGithub = node.type === 'github';
+  const isDistill = node.type === 'distill';
   const isStreaming = node.state === 'streaming' || streaming;
 
   const stateLabel = isGithub
     ? (node.githubPayload?.date ? node.githubPayload.date.slice(5) : 'today')
     : isStreaming
-      ? (isParse ? '● 解析中' : isExperiment ? '● 对话中' : '● 正在写')
+      ? (isParse ? '● 解析中' : isExperiment ? '● 对话中' : isDistill ? '● 沉淀中' : '● 正在写')
       : node.state === 'error'
         ? '× 失败'
         : node.state === 'pending'
@@ -1844,7 +1877,7 @@ function CanvasNode({
     ];
   }
 
-  const summaryText = !isInput && !isParse && !isExperiment && !isGithub
+  const summaryText = !isInput && !isParse && !isExperiment && !isGithub && !isDistill
     ? (isQ
         ? truncate(node.text, 90)
         : node.text
@@ -1853,6 +1886,26 @@ function CanvasNode({
             ? '正在生成…'
             : '')
     : '';
+
+  // distill 节点：标题（"经验沉淀"）+ 文件数 / 轮数 / 最新 AI 首行
+  let distillLines: string[] = [];
+  if (isDistill) {
+    const dp = node.distillPayload;
+    const fileCount = dp?.files?.length ?? 0;
+    const roundCount = Math.ceil(((dp?.messages?.length) ?? 0) / 2);
+    const lastAssistant = [...(dp?.messages ?? [])].reverse().find(m => m.role === 'assistant');
+    const firstLine = lastAssistant
+      ? (lastAssistant.content.split('\n').map(l => l.trim()).find(Boolean) || '').replace(/^#+\s*/, '')
+      : '';
+    const stats = roundCount === 0 && fileCount === 0
+      ? '导入文档 + 对话沉淀 · 双击进入'
+      : `${fileCount} 文档${roundCount ? ` · ${roundCount} 轮` : ''}${dp?.savedExperienceId ? ' · 已存经验' : ''}`;
+    distillLines = [
+      '经验沉淀',
+      firstLine ? truncate(firstLine, 90) : stats,
+      firstLine ? stats : '',
+    ].filter(Boolean);
+  }
 
   // experiment 节点：标题（seedTitle）+ 摘要（对话轮数 · coze 次数 · 最新 AI 回复首行）
   let experimentLines: string[] = [];
@@ -2048,7 +2101,7 @@ function CanvasNode({
           </>
         )}
 
-        {!isInput && !isParse && !isExperiment && !isGithub && (
+        {!isInput && !isParse && !isExperiment && !isGithub && !isDistill && (
           <div
             className={isQ ? 'serif' : undefined}
             style={{
@@ -2119,7 +2172,51 @@ function CanvasNode({
           </>
         )}
 
-        {isStreaming && (isAnswer || isExperiment) && (
+        {isDistill && (
+          <>
+            <div
+              className="serif"
+              style={{
+                fontSize: 13,
+                lineHeight: 1.35,
+                color: 'var(--ink)',
+                fontWeight: 600,
+                letterSpacing: -0.2,
+                display: '-webkit-box',
+                WebkitLineClamp: 1,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {distillLines[0]}
+            </div>
+            {distillLines[1] && (
+              <div
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.5,
+                  color: 'var(--ink2)',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {distillLines[1]}
+              </div>
+            )}
+            {distillLines[2] && (
+              <div
+                className="mono"
+                style={{ fontSize: 10, color: 'var(--ink3)', marginTop: 'auto' }}
+              >
+                {distillLines[2]}
+              </div>
+            )}
+          </>
+        )}
+
+        {isStreaming && (isAnswer || isExperiment || isDistill) && (
           <div
             style={{
               display: 'flex',
@@ -3466,6 +3563,7 @@ export function PipelineView({ pipeline, onExit }: Props) {
   const [askTarget, setAskTarget] = useState<AskTarget | null>(null);
   const [parseTarget, setParseTarget] = useState<string | null>(null);
   const [experimentTarget, setExperimentTarget] = useState<string | null>(null);
+  const [distillTarget, setDistillTarget] = useState<string | null>(null);
   // 选区右键 → 存入 wiki：弹窗承载的状态（excerpt 文本 + 可选来源链接）
   const [saveDialog, setSaveDialog] = useState<{
     excerpt: string;
@@ -3563,6 +3661,10 @@ export function PipelineView({ pipeline, onExit }: Props) {
       setExperimentTarget(nodeId);
       return;
     }
+    if (n.type === 'distill') {
+      setDistillTarget(nodeId);
+      return;
+    }
     setAskTarget({ parentId: nodeId, focusId: nodeId });
   };
 
@@ -3583,6 +3685,13 @@ export function PipelineView({ pipeline, onExit }: Props) {
         session={session}
         onExit={onExit}
         onNewFlow={() => pipeline.addInputFlow()}
+        onNewDistill={async () => {
+          const id = await pipeline.ensureDistillNode();
+          if (id) {
+            setSelectedNode(id);
+            setDistillTarget(id);
+          }
+        }}
         model={pipeline.model}
         onModelChange={pipeline.setModel}
       />
@@ -3668,6 +3777,15 @@ export function PipelineView({ pipeline, onExit }: Props) {
           pipeline={pipeline}
           nodeId={experimentTarget}
           onClose={() => setExperimentTarget(null)}
+        />
+      )}
+
+      {distillTarget && (
+        <DistillSheet
+          session={session}
+          pipeline={pipeline}
+          nodeId={distillTarget}
+          onClose={() => setDistillTarget(null)}
         />
       )}
 
@@ -4700,6 +4818,451 @@ function ExperimentSheet({
           defaultContent={lastAssistant.content}
           onClose={() => setSaveOpen(false)}
           onSave={async (body) => pipeline.saveExperimentAsExperience(nodeId, body)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+   DistillSheet — 经验沉淀对话弹窗
+   导入文档（txt/md/json/csv/pdf/docx）+ 多轮对话 → 一键存为经验
+   ────────────────────────────────────────────────────────── */
+function DistillSheet({
+  session,
+  pipeline,
+  nodeId,
+  onClose,
+}: {
+  session: PipelineSession;
+  pipeline: PipelineCtx;
+  nodeId: string;
+  onClose: () => void;
+}) {
+  const node = session.nodes.find(n => n.id === nodeId);
+  const payload = node?.distillPayload;
+
+  const [input, setInput] = useState('');
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const isStreamingHere = pipeline.streamingNodeId === nodeId;
+  const streamingText = isStreamingHere ? pipeline.distillStreamingText : '';
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [payload?.messages.length]);
+
+  useEffect(() => {
+    if (!streamingText) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  }, [streamingText]);
+
+  useEffect(() => {
+    if (!isStreamingHere) inputRef.current?.focus();
+  }, [isStreamingHere]);
+
+  const overlayHandlers = useOverlayClose(onClose);
+
+  if (!node || !payload) return null;
+
+  const lastAssistant = [...payload.messages].reverse().find(m => m.role === 'assistant');
+
+  const pickFiles = () => fileInputRef.current?.click();
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setUploadError(null);
+    const arr = Array.from(files);
+    const res = await pipeline.addDistillFiles(nodeId, arr);
+    setUploading(false);
+    if (!res.ok) {
+      setUploadError(res.errors.map(e => `${e.name}: ${e.error}`).join('；') || '上传失败');
+    } else if (res.errors.length > 0) {
+      setUploadError('部分失败：' + res.errors.map(e => `${e.name}: ${e.error}`).join('；'));
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isStreamingHere) return;
+    pipeline.sendDistillMessage(nodeId, input);
+    setInput('');
+  };
+
+  // textarea 回车发送（Shift+Enter 换行）
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      if (input.trim() && !isStreamingHere) {
+        pipeline.sendDistillMessage(nodeId, input);
+        setInput('');
+      }
+    }
+  };
+
+  const totalChars = payload.files.reduce((sum, f) => sum + (f.content?.length || 0), 0);
+
+  return (
+    <div
+      {...overlayHandlers}
+      className="pipeline-deep"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        background: 'rgba(20,17,13,0.72)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        animation: 'pipelineFadeIn 0.15s',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="pipeline-sheet-resizable"
+        style={{
+          width: 'min(1200px, 94vw)',
+          height: 'min(820px, 90vh)',
+          minWidth: 560,
+          minHeight: 320,
+          maxWidth: '98vw',
+          maxHeight: '96vh',
+          resize: 'both',
+          background: 'var(--panel)',
+          border: '1px solid var(--ink2)',
+          boxShadow: '0 0 0 1px var(--bg), 6px 6px 0 rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '8px 14px',
+            borderBottom: '1px solid var(--rule)',
+            background: 'rgba(143,192,122,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span className="mono" style={{ fontSize: 14, color: 'var(--ok)', letterSpacing: 1.3, fontWeight: 600, textTransform: 'uppercase' }}>
+            ⌬ 经验沉淀
+          </span>
+          <span className="mono" style={{ fontSize: 14, color: 'var(--ink4)' }}>
+            {node.id}
+          </span>
+          {payload.resolvedModel && (
+            <span className="mono" style={{ fontSize: 13, color: 'var(--ink3)' }}>
+              {payload.resolvedModel}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          {lastAssistant && (
+            <button
+              onClick={() => setSaveOpen(true)}
+              className="mono"
+              style={{
+                fontSize: 15,
+                color: 'var(--ok)',
+                border: '1px solid var(--ok)',
+                padding: '3px 10px',
+                letterSpacing: 0.4,
+                background: 'transparent',
+                cursor: 'pointer',
+              }}
+            >
+              ◈ 存入经验区
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="mono"
+            style={{ fontSize: 15, color: 'var(--ink3)', letterSpacing: 0.4, background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            × 关闭
+          </button>
+        </div>
+
+        {/* Files panel */}
+        <div style={{ padding: '6px 14px', borderBottom: '1px solid var(--rule)', background: 'var(--bg2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => setFilesOpen(v => !v)}
+              className="mono"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--ink3)',
+                fontSize: 14,
+                letterSpacing: 0.8,
+                cursor: 'pointer',
+                padding: 0,
+                textTransform: 'uppercase',
+              }}
+            >
+              <span style={{ transform: filesOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▸</span>
+              已导入 {payload.files.length} 文档{totalChars ? ` · 共 ${totalChars} 字` : ''}
+            </button>
+            <span style={{ flex: 1 }} />
+            <button
+              onClick={pickFiles}
+              disabled={uploading}
+              className="mono"
+              style={{
+                fontSize: 12,
+                color: uploading ? 'var(--ink4)' : 'var(--ok)',
+                border: `1px solid ${uploading ? 'var(--rule)' : 'var(--ok)'}`,
+                padding: '3px 10px',
+                letterSpacing: 0.3,
+                background: 'transparent',
+                cursor: uploading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {uploading ? '上传中…' : '+ 添加文档'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".txt,.md,.markdown,.json,.csv,.tsv,.log,.html,.htm,.xml,.yml,.yaml,.ts,.tsx,.js,.jsx,.py,.go,.rs,.java,.cpp,.c,.h,.hpp,.sh,.bash,.zsh,.toml,.ini,.env,.sql,.css,.scss,.sass,.pdf,.docx"
+              style={{ display: 'none' }}
+              onChange={e => handleFiles(e.target.files)}
+            />
+          </div>
+          {uploadError && (
+            <div className="mono" style={{ marginTop: 6, fontSize: 12, color: 'var(--red)' }}>
+              {uploadError}
+            </div>
+          )}
+          {filesOpen && (
+            <div
+              style={{
+                marginTop: 8,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                maxHeight: 180,
+                overflowY: 'auto',
+              }}
+            >
+              {payload.files.length === 0 && (
+                <div className="mono" style={{ color: 'var(--ink3)', fontSize: 13, padding: '4px 0' }}>
+                  尚未导入文档。可拖拽或点击右上「+ 添加文档」上传 txt / md / json / csv / pdf / docx 等。
+                </div>
+              )}
+              {payload.files.map(f => (
+                <div
+                  key={f.name}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '4px 8px',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--rule)',
+                  }}
+                >
+                  <span className="mono" style={{ fontSize: 12, color: 'var(--ink2)', flex: 1, minWidth: 0, wordBreak: 'break-all' }}>
+                    {f.name}
+                  </span>
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--ink3)' }}>
+                    {f.content.length} 字
+                  </span>
+                  <button
+                    onClick={() => pipeline.removeDistillFile(nodeId, f.name)}
+                    className="mono"
+                    title="移除该文档"
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--ink3)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '0 4px',
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Messages */}
+        <div
+          ref={scrollRef}
+          style={{
+            flex: '1 1 0',
+            minHeight: 0,
+            overflowY: 'auto',
+            padding: '11px 18px',
+          }}
+        >
+          {payload.messages.length === 0 && !isStreamingHere && (
+            <div className="mono" style={{ color: 'var(--ink3)', fontSize: 16, lineHeight: 1.8, letterSpacing: 0.3 }}>
+              导入文档后，告诉 agent 你想沉淀什么样的经验：<br />
+              比如「把这几篇文档的核心方法整理成一份操作 checklist」<br />
+              或「提取里面踩坑案例，按因果归纳」
+            </div>
+          )}
+          {payload.messages.map((m, i) => (
+            <div key={i} style={{ marginBottom: 18 }}>
+              {m.role === 'user' ? (
+                <p className="serif" style={{ fontSize: 18, color: 'var(--ink)', fontWeight: 500, margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                  {m.content}
+                </p>
+              ) : (
+                <div
+                  className="experiment-markdown aidigest-md"
+                  style={{
+                    fontSize: 17,
+                    color: 'var(--ink2)',
+                    paddingLeft: 12,
+                    borderLeft: '1px solid var(--rule)',
+                    lineHeight: 1.7,
+                  }}
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{m.content}</ReactMarkdown>
+                </div>
+              )}
+            </div>
+          ))}
+          {isStreamingHere && streamingText && (
+            <div
+              className="experiment-markdown aidigest-md"
+              style={{
+                fontSize: 17,
+                color: 'var(--ink2)',
+                paddingLeft: 12,
+                borderLeft: '1px solid var(--ok)',
+                lineHeight: 1.7,
+                marginBottom: 18,
+              }}
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{streamingText}</ReactMarkdown>
+            </div>
+          )}
+          {isStreamingHere && !streamingText && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0' }}>
+              {[0, 1, 2].map(i => (
+                <span
+                  key={i}
+                  style={{
+                    width: 4,
+                    height: 4,
+                    borderRadius: '50%',
+                    background: 'var(--ok)',
+                    animation: `pipelineTypingDot 1s infinite ${i * 0.15}s`,
+                  }}
+                />
+              ))}
+              {pipeline.toolStatus && (
+                <span className="mono" style={{ fontSize: 14, color: 'var(--ok)', marginLeft: 6 }}>
+                  {pipeline.toolStatus}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 10,
+            padding: '8px 14px',
+            borderTop: '1px solid var(--rule)',
+            background: 'var(--bg2)',
+          }}
+        >
+          <span className="mono" style={{ color: isStreamingHere ? 'var(--ink4)' : 'var(--ok)', fontSize: 17, paddingTop: 6 }}>
+            {isStreamingHere ? '…' : '>'}
+          </span>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isStreamingHere ? '正在生成，请稍候…' : '说说你想沉淀什么样的经验（Enter 发送，Shift+Enter 换行）'}
+            disabled={isStreamingHere}
+            rows={2}
+            className="mono"
+            style={{
+              flex: 1,
+              fontSize: 16,
+              lineHeight: 1.5,
+              color: 'var(--ink)',
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              resize: 'vertical',
+              minHeight: 36,
+              maxHeight: 200,
+              fontFamily: 'inherit',
+            }}
+          />
+          {isStreamingHere ? (
+            <button
+              type="button"
+              onClick={() => pipeline.abortDistill(nodeId)}
+              className="mono"
+              style={{
+                padding: '5px 12px',
+                fontSize: 16,
+                letterSpacing: 0.4,
+                background: 'var(--red)',
+                color: 'var(--bg)',
+                border: '1px solid var(--red)',
+                cursor: 'pointer',
+              }}
+            >
+              × 中止
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="mono"
+              style={{
+                padding: '5px 12px',
+                fontSize: 16,
+                letterSpacing: 0.4,
+                color: input.trim() ? 'var(--ok)' : 'var(--ink4)',
+                background: 'transparent',
+                border: `1px solid ${input.trim() ? 'var(--ok)' : 'var(--rule)'}`,
+                cursor: input.trim() ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ↵ 发送
+            </button>
+          )}
+        </form>
+      </div>
+
+      {saveOpen && lastAssistant && (
+        <SaveExperienceInline
+          defaultContent={lastAssistant.content}
+          onClose={() => setSaveOpen(false)}
+          onSave={async (body) => pipeline.saveDistillAsExperience(nodeId, body)}
         />
       )}
     </div>

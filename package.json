@@ -1,6 +1,6 @@
 {
   "name": "aidigest",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,7 +13,9 @@
     "@anthropic-ai/claude-code": "^2.1.85",
     "@openai/codex": "^0.118.0",
     "date-fns": "^4.1.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.1",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
@@ -24,6 +26,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",

@@ -1,0 +1,65 @@
+{
+  "id": "9fb65c78-9037-4c2a-95f4-dbe36a99a593",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "12:27:50",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-26T04:27:50.786Z",
+  "updatedAt": "2026-04-26T04:27:51.200Z"
+}shahryar1/free-claude-code",
+            "category": "all"
+          },
+          {
+            "repo": "mattpocock/skills",
+            "url": "https://github.com/mattpocock/skills",
+            "category": "all"
+          },
+          {
+            "repo": "Z4nzu/hackingtool",
+            "url": "https://github.com/Z4nzu/hackingtool",
+            "category": "all"
+          },
+          {
+            "repo": "RooCodeInc/Roo-Code",
+            "url": "https://github.com/RooCodeInc/Roo-Code",
+            "category": "typescript"
+          },
+          {
+            "repo": "lobehub/lobehub",
+            "url": "https://github.com/lobehub/lobehub",
+            "category": "typescript"
+          },
+          {
+            "repo": "clash-verge-rev/clash-verge-rev",
+            "url": "https://github.com/clash-verge-rev/clash-verge-rev",
+            "category": "typescript"
+          },
+          {
+            "repo": "PostHog/posthog",
+            "url": "https://github.com/PostHog/posthog",
+            "category": "python"
+          }
+        ],
+        "fetchedAt": "2026-04-26T01:24:23.586319",
+        "date": "2026-04-26"
+      }
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-26T04:27:50.786Z",
+  "updatedAt": "2026-04-26T04:27:51.200Z"
+}

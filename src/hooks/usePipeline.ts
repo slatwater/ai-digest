@@ -15,6 +15,8 @@ import type {
   CozeRun,
   WikiSourceLink,
   GithubTrendingPayload,
+  DistillFile,
+  DistillNodePayload,
 } from '@/lib/types';
 
 // ── 画布布局常量 ──
@@ -1080,12 +1082,311 @@ export function usePipeline() {
     }
   }, [patchExperimentPayload]);
 
+  // ── 经验沉淀（distill）：独立节点，不依赖 parent ──
+  // 流式 token 累积（仿 experimentStreamingText）
+  const [distillStreamingText, setDistillStreamingText] = useState<string>('');
+  const distillAbortRef = useRef<Map<string, AbortController>>(new Map());
+
+  const ensureDistillNode = useCallback(async (): Promise<string | null> => {
+    const current = (await ensureSession()) ?? sessionRef.current;
+    if (!current) return null;
+    const y = nextFlowY(current);
+    const flowIdx = Math.round((y - FLOW_Y_BASE) / FLOW_ROW);
+    const payload: DistillNodePayload = {
+      files: [],
+      messages: [],
+      sdkSessionId: null,
+      model,
+    };
+    const node: PipelineNode = {
+      id: nextNodeId(current),
+      type: 'distill',
+      state: 'done',
+      text: '经验沉淀',
+      parent: null,
+      branchIdx: 0,
+      flowIdx,
+      x: TRUNK_X,
+      y,
+      w: NODE_W,
+      createdAt: nowClock(),
+      model,
+      distillPayload: payload,
+    };
+    setSessionBoth({ ...current, nodes: [...current.nodes, node] });
+    await fetch(`/api/pipeline/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodeAdd: node }),
+    }).catch(() => {});
+    return node.id;
+  }, [ensureSession, model, setSessionBoth]);
+
+  const patchDistillPayload = useCallback(async (nodeId: string, patch: Partial<DistillNodePayload>) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.distillPayload) return;
+    const merged: DistillNodePayload = { ...node.distillPayload, ...patch };
+    const nextNodes = current.nodes.map(n => n.id === nodeId ? { ...n, distillPayload: merged } : n);
+    setSessionBoth({ ...current, nodes: nextNodes });
+    await fetch(`/api/pipeline/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodePatch: { id: nodeId, patch: { distillPayload: merged } } }),
+    }).catch(() => {});
+  }, [setSessionBoth]);
+
+  // 上传文件 → 后端解析 → 写入节点 distillPayload.files
+  const addDistillFiles = useCallback(async (
+    nodeId: string,
+    files: File[],
+  ): Promise<{ ok: boolean; added: number; errors: { name: string; error: string }[] }> => {
+    if (files.length === 0) return { ok: true, added: 0, errors: [] };
+    const current = sessionRef.current;
+    if (!current) return { ok: false, added: 0, errors: [{ name: '*', error: 'no session' }] };
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.distillPayload) return { ok: false, added: 0, errors: [{ name: '*', error: 'no distill node' }] };
+
+    const form = new FormData();
+    for (const f of files) form.append('files', f, f.name);
+    let body: { files: DistillFile[]; errors: { name: string; error: string }[] };
+    try {
+      const res = await fetch('/api/distill/parse-file', { method: 'POST', body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return { ok: false, added: 0, errors: [{ name: '*', error: err.error || `HTTP ${res.status}` }] };
+      }
+      const json = await res.json();
+      body = {
+        files: (json.files || []).map((f: Omit<DistillFile, 'addedAt'>) => ({ ...f, addedAt: Date.now() })),
+        errors: json.errors || [],
+      };
+    } catch (e) {
+      return { ok: false, added: 0, errors: [{ name: '*', error: (e as Error).message }] };
+    }
+
+    // 与现有同名文件去重（保留旧的）
+    const existingNames = new Set(node.distillPayload.files.map(f => f.name));
+    const newOnes = body.files.filter(f => !existingNames.has(f.name));
+    await patchDistillPayload(nodeId, {
+      files: [...node.distillPayload.files, ...newOnes],
+    });
+    return { ok: true, added: newOnes.length, errors: body.errors };
+  }, [patchDistillPayload]);
+
+  const removeDistillFile = useCallback(async (nodeId: string, fileName: string) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.distillPayload) return;
+    await patchDistillPayload(nodeId, {
+      files: node.distillPayload.files.filter(f => f.name !== fileName),
+    });
+  }, [patchDistillPayload]);
+
+  const sendDistillMessage = useCallback(async (nodeId: string, message: string) => {
+    if (!message.trim()) return;
+    const current = sessionRef.current;
+    if (!current) return;
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.distillPayload) return;
+
+    const userMsg: ChatMessage = { role: 'user', content: message.trim(), timestamp: Date.now() };
+    const history = node.distillPayload.messages;
+    const startSessionId = node.distillPayload.sdkSessionId ?? null;
+    const runModel = node.distillPayload.model ?? model;
+    const files = node.distillPayload.files;
+
+    const payloadAfterUser: DistillNodePayload = {
+      ...node.distillPayload,
+      messages: [...history, userMsg],
+    };
+    setSessionBoth({
+      ...current,
+      nodes: current.nodes.map(n => n.id === nodeId
+        ? { ...n, state: 'streaming', distillPayload: payloadAfterUser }
+        : n),
+    });
+    setStreamingNodeId(nodeId);
+    setToolStatus(null);
+
+    const abort = new AbortController();
+    distillAbortRef.current.set(nodeId, abort);
+
+    let streamingSessionId: string | null = startSessionId;
+    let resolvedModel: string | undefined;
+    let assistantText = '';
+
+    try {
+      const res = await fetch('/api/distill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files,
+          message: message.trim(),
+          history,
+          sessionId: startSessionId,
+          model: runModel,
+        }),
+        signal: abort.signal,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('no stream');
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const parseEvent = (line: string) => {
+        if (!line.startsWith('data: ')) return;
+        let event: { type: string; data: Record<string, unknown> };
+        try { event = JSON.parse(line.slice(6)); } catch { return; }
+        const data = event.data || {};
+        switch (event.type) {
+          case 'session':
+            if (typeof data.sessionId === 'string') streamingSessionId = data.sessionId;
+            break;
+          case 'resolved_model':
+            if (typeof data.model === 'string') resolvedModel = data.model;
+            break;
+          case 'text':
+            if (typeof data.content === 'string') {
+              assistantText += data.content;
+              setDistillStreamingText(assistantText);
+              setToolStatus(null);
+            }
+            break;
+          case 'tool_status':
+            if (typeof data.label === 'string') setToolStatus(data.label);
+            break;
+          case 'tool_trace':
+            // distill 节点不保留 traces（沉淀场景不重要），只显示状态
+            break;
+          case 'error':
+            throw new Error(String(data.message || 'distill error'));
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (buffer.trim()) parseEvent(buffer.trim());
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) parseEvent(line);
+      }
+
+      const finalMessages = assistantText
+        ? [...payloadAfterUser.messages, { role: 'assistant' as const, content: assistantText, timestamp: Date.now() }]
+        : payloadAfterUser.messages;
+      await patchDistillPayload(nodeId, {
+        messages: finalMessages,
+        sdkSessionId: streamingSessionId,
+        resolvedModel,
+      });
+      const s = sessionRef.current;
+      if (s) {
+        setSessionBoth({
+          ...s,
+          nodes: s.nodes.map(n => n.id === nodeId ? { ...n, state: 'done' } : n),
+        });
+        await fetch(`/api/pipeline/${s.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodePatch: { id: nodeId, patch: { state: 'done' } } }),
+        }).catch(() => {});
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const finalMessages = assistantText
+        ? [...payloadAfterUser.messages, { role: 'assistant' as const, content: assistantText + '\n\n_（中断）_', timestamp: Date.now() }]
+        : payloadAfterUser.messages;
+      await patchDistillPayload(nodeId, {
+        messages: finalMessages,
+        sdkSessionId: streamingSessionId,
+        resolvedModel,
+      });
+      const s = sessionRef.current;
+      if (s) {
+        const finalState: PipelineNode['state'] = abort.signal.aborted ? 'done' : 'error';
+        setSessionBoth({
+          ...s,
+          nodes: s.nodes.map(n => n.id === nodeId
+            ? { ...n, state: finalState, error: finalState === 'error' ? msg : undefined }
+            : n),
+        });
+        await fetch(`/api/pipeline/${s.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodePatch: { id: nodeId, patch: { state: finalState, error: finalState === 'error' ? msg : undefined } } }),
+        }).catch(() => {});
+      }
+    } finally {
+      distillAbortRef.current.delete(nodeId);
+      setStreamingNodeId(cur => (cur === nodeId ? null : cur));
+      setToolStatus(null);
+      setDistillStreamingText('');
+    }
+  }, [model, patchDistillPayload, setSessionBoth]);
+
+  const abortDistill = useCallback(async (nodeId: string) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    const node = current.nodes.find(n => n.id === nodeId);
+    const sid = node?.distillPayload?.sdkSessionId;
+    if (sid) {
+      fetch('/api/distill', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid }),
+      }).catch(() => {});
+    }
+    distillAbortRef.current.get(nodeId)?.abort();
+  }, []);
+
+  const saveDistillAsExperience = useCallback(async (
+    nodeId: string,
+    payload: { title: string; summary: string; content: string },
+  ): Promise<{ ok: boolean; id?: string; error?: string }> => {
+    const current = sessionRef.current;
+    if (!current) return { ok: false, error: '无 session' };
+    const node = current.nodes.find(n => n.id === nodeId);
+    if (!node?.distillPayload) return { ok: false, error: '无沉淀节点' };
+    try {
+      const res = await fetch('/api/experiences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: payload.title,
+          summary: payload.summary,
+          content: payload.content,
+          wikiItemIds: [],
+          wikiItemNames: node.distillPayload.files.map(f => f.name),
+          cozeRuns: [],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error || '保存失败' };
+      await patchDistillPayload(nodeId, { savedExperienceId: data.id });
+      return { ok: true, id: data.id };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, [patchDistillPayload]);
+
   return {
     session,
     active: session !== null,
     streamingNodeId,
     toolStatus,
     experimentStreamingText,
+    distillStreamingText,
     model,
     setModel,
     ensureSession,
@@ -1100,6 +1401,12 @@ export function usePipeline() {
     sendExperimentMessage,
     abortExperiment,
     saveExperimentAsExperience,
+    ensureDistillNode,
+    addDistillFiles,
+    removeDistillFile,
+    sendDistillMessage,
+    abortDistill,
+    saveDistillAsExperience,
     exit,
   };
 }
