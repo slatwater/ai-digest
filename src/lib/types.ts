@@ -529,6 +529,9 @@ export interface ExperimentToolTrace {
   timestamp: number;
 }
 
+// 实验执行者：coze=云平台跑项目；claude=本地沙盒 agent 直跑（Bash/Read/Write/WebFetch）
+export type ExperimentExecutor = 'coze' | 'claude';
+
 export interface ExperimentNodePayload {
   sourceNodeId: string;            // 发起实验的 answer 节点 id
   seedTitle?: string;              // 节点卡标题（answer.markedAs / 首行）
@@ -540,6 +543,7 @@ export interface ExperimentNodePayload {
   cozeRuns: CozeRun[];             // coze 运行记录
   toolTraces?: ExperimentToolTrace[];
   savedExperienceId?: string;      // 存为经验后的 id
+  executors?: ExperimentExecutor[]; // 启动时勾选的执行者；缺省视为 ['coze'] 兼容老数据
 }
 
 // 经验沉淀节点内嵌：导入的文档 + 多轮对话 + 草稿

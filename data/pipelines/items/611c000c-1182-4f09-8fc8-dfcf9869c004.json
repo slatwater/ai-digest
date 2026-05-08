@@ -1,0 +1,77 @@
+{
+  "id": "611c000c-1182-4f09-8fc8-dfcf9869c004",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "09:46:09",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "github",
+      "state": "done",
+      "text": "今日 GitHub 热榜",
+      "parent": null,
+      "branchIdx": 0,
+      "x": -320,
+      "y": 80,
+      "w": 280,
+      "h": 360,
+      "createdAt": "09:46:16",
+      "githubPayload": {
+        "items": [
+          {
+            "repo": "mattpocock/skills",
+            "url": "https://github.com/mattpocock/skills",
+            "category": "all"
+          },
+          {
+            "repo": "Alishahryar1/free-claude-code",
+            "url": "https://github.com/Alishahryar1/free-claude-code",
+            "category": "all"
+          },
+          {
+            "repo": "Z4nzu/hackingtool",
+            "url": "https://github.com/Z4nzu/hackingtool",
+            "category": "all"
+          },
+          {
+            "repo": "abhigyanpatwari/GitNexus",
+            "url": "https://github.com/abhigyanpatwari/GitNexus",
+            "category": "typescript"
+          },
+          {
+            "repo": "openclaw/openclaw",
+            "url": "https://github.com/openclaw/openclaw",
+            "category": "typescript"
+          },
+          {
+            "repo": "dreamhunter2333/cloudflare_temp_email",
+            "url": "https://github.com/dreamhunter2333/cloudflare_temp_email",
+            "category": "typescript"
+          },
+          {
+            "repo": "PostHog/posthog",
+            "url": "https://github.com/PostHog/posthog",
+            "category": "python"
+          }
+        ],
+        "fetchedAt": "2026-04-27T09:46:16.220820",
+        "date": "2026-04-27"
+      }
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-27T01:46:09.400Z",
+  "updatedAt": "2026-04-27T01:46:16.351Z"
+}

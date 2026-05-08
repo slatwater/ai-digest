@@ -54,7 +54,7 @@ scripts/(scrape|fetch-github-trending).py # 网页抓取 + 每日 GitHub trendin
   Q/A 合并为单卡（只显示问题，双击进 AskSheet）；派生分支上下偏移；「+ 新流程」上下并排
   存入 Wiki：在 ParseDetailSheet 的 narrative 或 AskSheet 的 answer 文本上左键拖选 → 右键 §
          → SaveExcerptDialog（项目名称下拉新建/追加 + 分类 + 段落标题 + 内容预览 + 确认存入）
-  answer 卡「❦ 实验」→ teal experiment 节点；顶部「⌬ 经验沉淀」→ 绿 distill 节点（导入 txt/md/json/pdf/docx + 多轮对话 → 直接存经验区）
+  answer 卡「❦ 实验」→ popover 多选执行者（coze 云平台 / claude 本地直跑）→ teal experiment 节点；顶部「⌬ 经验沉淀」→ 绿 distill 节点
   右侧栏 Minimap：类型染色 + 视口框拖拽 + 点节点居中 + streaming 涟漪
 Wiki（含经验 tab）/ 运行原理：顶导切换（实验已并入画布 answer 卡操作；Skill 沙盒已下线）
 ```
@@ -69,8 +69,8 @@ Wiki（含经验 tab）/ 运行原理：顶导切换（实验已并入画布 ans
 - 选区右键菜单：`useSelectionMenu` hook + `SelectionContextMenu` 组件，选区为空则放行浏览器默认菜单
 
 ## 可靠性红线
-- 解析落盘前必过 `validateSourceConsistency`：声明的 original URL 关键词必须在 scrape 原文里出现，否则降级 error 不得留幻觉
-- 追问每轮 prompt 必钉 parse 锚点 + "先读锚点→查 sources→WebSearch"三步，禁首次 WebSearch；X 推文必用 `mcp__aidigest__scrape_url`
+- 解析落盘前必过 `validateSourceConsistency`：scrape 成功 → original 关键词必须在原文出现；scrape 失败 → 只接受 input 自身/同 host 的 original（官方账号即一手），违则 error 不得留幻觉
+- 追问每轮必钉 parse 锚点；按问题类型分流：深挖型严守锚点（≤2 工具/禁首次 WebSearch），拓展型必出 2-3 对照点+tradeoff（≤4 工具）；X 推文必用 `mcp__aidigest__scrape_url`
 - SDK session 按 `branchIdx` 隔离（`branchSessionIds`）；派生分支开新 sid；删光分支 Q/A 时级联清孤儿 sid
 - 前端 `localStorage[aidigest.lastPipelineId]` 记上次 session；画布 mount 时先 GET 恢复，失败才新建（刷新不丢）
 - flex-column 弹窗必须固定高度（非 auto），内部 flex:1 子区要 `minHeight:0`；长列表默认折叠或限高 + overflowY，避免撑破父布局把输入框挤出视口

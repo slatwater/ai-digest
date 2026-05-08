@@ -1,0 +1,77 @@
+{
+  "id": "c22bcf2c-43ab-4c10-b893-1edda23e4e3a",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "16:12:22",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "github",
+      "state": "done",
+      "text": "今日 GitHub 热榜",
+      "parent": null,
+      "branchIdx": 0,
+      "x": -320,
+      "y": 80,
+      "w": 280,
+      "h": 360,
+      "createdAt": "16:12:29",
+      "githubPayload": {
+        "items": [
+          {
+            "repo": "warpdotdev/warp",
+            "url": "https://github.com/warpdotdev/warp",
+            "category": "all"
+          },
+          {
+            "repo": "TauricResearch/TradingAgents",
+            "url": "https://github.com/TauricResearch/TradingAgents",
+            "category": "all"
+          },
+          {
+            "repo": "lukilabs/craft-agents-oss",
+            "url": "https://github.com/lukilabs/craft-agents-oss",
+            "category": "typescript"
+          },
+          {
+            "repo": "nuxt/nuxt",
+            "url": "https://github.com/nuxt/nuxt",
+            "category": "typescript"
+          },
+          {
+            "repo": "iOfficeAI/AionUi",
+            "url": "https://github.com/iOfficeAI/AionUi",
+            "category": "typescript"
+          },
+          {
+            "repo": "public-apis/public-apis",
+            "url": "https://github.com/public-apis/public-apis",
+            "category": "python"
+          },
+          {
+            "repo": "soxoj/maigret",
+            "url": "https://github.com/soxoj/maigret",
+            "category": "python"
+          }
+        ],
+        "fetchedAt": "2026-05-01T16:12:29.002976",
+        "date": "2026-05-01"
+      }
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-05-01T08:12:22.455Z",
+  "updatedAt": "2026-05-01T08:12:29.070Z"
+}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import path from 'path';
-import { getTrendingByDate, saveTrending } from '@/lib/storage';
+import { getTrendingByDate, saveTrending, getPreviousTrending } from '@/lib/storage';
 import type { GithubTrendingPayload } from '@/lib/types';
 
 // 当前本地日期 YYYY-MM-DD（与 fetch 脚本对齐：都用本地时区）
@@ -42,9 +42,19 @@ function spawnFetcher(): Promise<GithubTrendingPayload> {
   });
 }
 
+// 跨日去重：磁盘缓存保留原始抓取（便于回溯历史），仅在响应时过滤掉前一份榜里出现过的 repo
+async function dedupeAgainstPrevious(payload: GithubTrendingPayload): Promise<GithubTrendingPayload> {
+  const prev = await getPreviousTrending(payload.date);
+  if (!prev || prev.items.length === 0) return payload;
+  const seen = new Set(prev.items.map(i => i.repo));
+  const items = payload.items.filter(i => !seen.has(i.repo));
+  return { ...payload, items };
+}
+
 // GET /api/trending
 //   - ?force=1 强制重抓
 //   - 否则：今日缓存存在则返回缓存；不存在则触发抓取并落盘
+//   - 返回前统一与最近一份历史榜去重（落盘内容不变）
 export async function GET(req: NextRequest) {
   const force = req.nextUrl.searchParams.get('force') === '1';
   const today = todayLocal();
@@ -52,13 +62,15 @@ export async function GET(req: NextRequest) {
   if (!force) {
     const cached = await getTrendingByDate(today);
     if (cached) {
-      return NextResponse.json({ payload: cached, source: 'cache' });
+      const payload = await dedupeAgainstPrevious(cached);
+      return NextResponse.json({ payload, source: 'cache' });
     }
   }
 
   try {
-    const payload = await spawnFetcher();
-    await saveTrending(payload);
+    const raw = await spawnFetcher();
+    await saveTrending(raw);
+    const payload = await dedupeAgainstPrevious(raw);
     return NextResponse.json({ payload, source: 'fresh' });
   } catch (err) {
     return NextResponse.json(

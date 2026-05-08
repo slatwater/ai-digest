@@ -1,0 +1,77 @@
+{
+  "id": "1d40e314-085c-4d22-a223-fb7caac81d21",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "23:34:32",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "github",
+      "state": "done",
+      "text": "今日 GitHub 热榜",
+      "parent": null,
+      "branchIdx": 0,
+      "x": -320,
+      "y": 80,
+      "w": 280,
+      "h": 360,
+      "createdAt": "23:34:43",
+      "githubPayload": {
+        "items": [
+          {
+            "repo": "anthropics/financial-services",
+            "url": "https://github.com/anthropics/financial-services",
+            "category": "all"
+          },
+          {
+            "repo": "Hmbown/DeepSeek-TUI",
+            "url": "https://github.com/Hmbown/DeepSeek-TUI",
+            "category": "all"
+          },
+          {
+            "repo": "z-lab/dflash",
+            "url": "https://github.com/z-lab/dflash",
+            "category": "all"
+          },
+          {
+            "repo": "InsForge/InsForge",
+            "url": "https://github.com/InsForge/InsForge",
+            "category": "typescript"
+          },
+          {
+            "repo": "vercel-labs/open-agents",
+            "url": "https://github.com/vercel-labs/open-agents",
+            "category": "typescript"
+          },
+          {
+            "repo": "Augani/openreel-video",
+            "url": "https://github.com/Augani/openreel-video",
+            "category": "typescript"
+          },
+          {
+            "repo": "LearningCircuit/local-deep-research",
+            "url": "https://github.com/LearningCircuit/local-deep-research",
+            "category": "python"
+          }
+        ],
+        "fetchedAt": "2026-05-07T23:34:39.052229",
+        "date": "2026-05-07"
+      }
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-05-07T15:34:32.790Z",
+  "updatedAt": "2026-05-07T15:34:43.202Z"
+}

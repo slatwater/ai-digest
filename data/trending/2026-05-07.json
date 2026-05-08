@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "repo": "anthropics/financial-services",
+      "url": "https://github.com/anthropics/financial-services",
+      "category": "all"
+    },
+    {
+      "repo": "Hmbown/DeepSeek-TUI",
+      "url": "https://github.com/Hmbown/DeepSeek-TUI",
+      "category": "all"
+    },
+    {
+      "repo": "z-lab/dflash",
+      "url": "https://github.com/z-lab/dflash",
+      "category": "all"
+    },
+    {
+      "repo": "InsForge/InsForge",
+      "url": "https://github.com/InsForge/InsForge",
+      "category": "typescript"
+    },
+    {
+      "repo": "vercel-labs/open-agents",
+      "url": "https://github.com/vercel-labs/open-agents",
+      "category": "typescript"
+    },
+    {
+      "repo": "Augani/openreel-video",
+      "url": "https://github.com/Augani/openreel-video",
+      "category": "typescript"
+    },
+    {
+      "repo": "LearningCircuit/local-deep-research",
+      "url": "https://github.com/LearningCircuit/local-deep-research",
+      "category": "python"
+    }
+  ],
+  "fetchedAt": "2026-05-07T23:34:39.052229",
+  "date": "2026-05-07"
+}

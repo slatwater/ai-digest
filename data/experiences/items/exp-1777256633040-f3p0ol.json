@@ -1,0 +1,11 @@
+{
+  "id": "exp-1777256633040-f3p0ol",
+  "title": "影幕滑入效果",
+  "summary": "影幕滑入效果",
+  "content": "---\n\n# 影幕滑入效果（Letterbox Intro）\n\n**一句话概要**：用 2 个 fixed div + GSAP transform 归零，实现上下黑条同步滑入的电影感开场动效。\n\n**适用场景**：首屏 intro 动画、展示型 / 作品集网站过场、需要电影感遮幕的任意 GSAP 时间轴。\n\n---\n\n## 核心要点\n\n- `fixed` 定位锁住视口上下边缘，不随页面滚动\n- `transform: translateY(±100%)` 把黑条藏到画外（不占布局、无闪烁）\n- GSAP 把 transform 归零即完成滑入，逻辑极简\n- `pointer-events: none` 防止黑条遮挡点击\n\n---\n\n## 三步模板（直接抄）\n\n**Step 1 — HTML**\n```html\n<div class=\"letterbox top\"></div>\n<div class=\"letterbox bot\"></div>\n```\n\n**Step 2 — CSS**\n```css\n.letterbox {\n  position: fixed; left: 0; right: 0;\n  height: 8vh;\n  background: var(--ink);\n  z-index: 100;\n  pointer-events: none;\n}\n.letterbox.top { top: 0;    transform: translateY(-100%); }\n.letterbox.bot { bottom: 0; transform: translateY(100%); }\n```\n\n**Step 3 — GSAP（接入已有时间轴 `intro`）**\n```js\nintro.to('.letterbox.top', { y: 0, duration: 0.6, ease: 'expo.out' }, 0)\n     .to('.letterbox.bot', { y: 0, duration: 0.6, ease: 'expo.out' }, 0)\n```\n\n---\n\n## 注意事项\n\n- `z-index: 100` 需高于页面其他元素，否则黑条会被遮住\n- `pointer-events: none` 必须加，否则黑条停留期间会吃掉点击事件\n- 高度 `8vh` 可按视觉需要调整，常见范围 6–12vh\n- 两条 `.to()` 的第三参数均为 `0`，确保上下同步启动",
+  "wikiItemIds": [],
+  "wikiItemNames": [],
+  "cozeRuns": [],
+  "createdAt": "2026-04-27T02:23:53.040Z",
+  "updatedAt": "2026-04-27T02:23:53.040Z"
+}

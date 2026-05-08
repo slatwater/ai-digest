@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "repo": "warpdotdev/warp",
+      "url": "https://github.com/warpdotdev/warp",
+      "category": "all"
+    },
+    {
+      "repo": "TauricResearch/TradingAgents",
+      "url": "https://github.com/TauricResearch/TradingAgents",
+      "category": "all"
+    },
+    {
+      "repo": "mattpocock/skills",
+      "url": "https://github.com/mattpocock/skills",
+      "category": "all"
+    },
+    {
+      "repo": "lukilabs/craft-agents-oss",
+      "url": "https://github.com/lukilabs/craft-agents-oss",
+      "category": "typescript"
+    },
+    {
+      "repo": "nuxt/nuxt",
+      "url": "https://github.com/nuxt/nuxt",
+      "category": "typescript"
+    },
+    {
+      "repo": "iOfficeAI/AionUi",
+      "url": "https://github.com/iOfficeAI/AionUi",
+      "category": "typescript"
+    },
+    {
+      "repo": "public-apis/public-apis",
+      "url": "https://github.com/public-apis/public-apis",
+      "category": "python"
+    },
+    {
+      "repo": "soxoj/maigret",
+      "url": "https://github.com/soxoj/maigret",
+      "category": "python"
+    }
+  ],
+  "fetchedAt": "2026-05-01T16:12:29.935315",
+  "date": "2026-05-01"
+}

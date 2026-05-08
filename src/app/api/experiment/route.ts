@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
     model = 'sonnet',
     seedText,
     seedTitle,
+    executors,
   } = await req.json();
 
   // 两种素材来源：itemIds（从 wiki 挑条目，老模式）或 seedText（从画布 answer 节点直接起，新模式）
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
           history,
           sessionId,
           model,
+          executors,
           send,
         );
       } catch (error) {

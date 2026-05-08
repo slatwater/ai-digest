@@ -45,12 +45,52 @@ function extractUrlKeywords(url: string): string[] {
   return kws;
 }
 
+// 归一化 URL：去协议、去 www、去末尾斜杠，用于"输入即一手来源"场景的等价判断
+function normalizeUrlForCompare(u: string): string {
+  try {
+    const url = new URL(u);
+    return (url.hostname.replace(/^www\./, '') + url.pathname.replace(/\/+$/, '')).toLowerCase();
+  } catch {
+    return u.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
+  }
+}
+
+// 已知一手账号/域：本身就是发布方，输入这些链接 = 一手来源
+const FIRST_PARTY_X_HANDLES = new Set([
+  'openai', 'anthropicai', 'googledeepmind', 'google', 'googleai', 'deepmind',
+  'metaai', 'aiatmeta', 'mistralai', 'xai', 'grok', 'perplexity_ai',
+  'cohere', 'huggingface', 'nvidia', 'groqinc', 'togethercompute',
+  'runwayml', 'suno_ai_', 'midjourney', 'stabilityai', 'elevenlabsio',
+  'github', 'githubcopilot', 'cursor_ai', 'vercel', 'replit',
+]);
+const FIRST_PARTY_HOST_RE = /^(?:[\w-]+\.)?(openai\.com|anthropic\.com|deepmind\.google|ai\.meta\.com|mistral\.ai|x\.ai|cohere\.com|huggingface\.co|nvidia\.com|github\.com|github\.io|arxiv\.org|aclanthology\.org|proceedings\.mlr\.press|googleblog\.com|blog\.google|developers\.googleblog\.com)$/i;
+
+function isFirstPartyUrl(url: string): boolean {
+  if (!url) return false;
+  const xMatch = url.match(/^https?:\/\/(?:x|twitter)\.com\/([^/?#]+)/i);
+  if (xMatch) return FIRST_PARTY_X_HANDLES.has(xMatch[1].toLowerCase());
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return FIRST_PARTY_HOST_RE.test(host);
+  } catch { return false; }
+}
+
+function sameHost(a: string, b: string): boolean {
+  try {
+    return new URL(a).hostname.replace(/^www\./, '').toLowerCase()
+      === new URL(b).hostname.replace(/^www\./, '').toLowerCase();
+  } catch { return false; }
+}
+
 // 校验 agent 声明的 original URL 是否与 scrape 原文关联
-// 通过三种方式任一即放行：原文提到了该 URL / 原文含 URL 的关键词 / agent 声明 verdict=skip
+// 放行规则：输入即一手 / 输入 URL 是官方账号且 original 同 host / 原文提到该 URL / 原文含 URL 关键词 / verdict=skip
+// scrape 失败时不能用关键词比对（hay 为空必然误判），只走前两条强规则
 function validateSourceConsistency(
   result: { sources?: { url: string; type: string }[]; verdict: TriageVerdict },
   scrapedContent: string,
   extractedUrls: string[],
+  inputUrl: string,
+  scrapeFailed: boolean,
 ): { ok: boolean; reason?: string } {
   // verdict=skip 时 agent 没主张溯源成功，不校验
   if (result.verdict === 'skip') return { ok: true };
@@ -61,7 +101,23 @@ function validateSourceConsistency(
   }
 
   const origUrl = origSrc.url.toLowerCase();
-  // 规则 1：original 就是输入 URL（一手来源本身）或在预提取的链接里（原文直接提到）
+  // 规则 0：original URL 就是用户输入的 URL（一手链接直接提交，无需二次溯源）
+  if (inputUrl && normalizeUrlForCompare(origSrc.url) === normalizeUrlForCompare(inputUrl)) {
+    return { ok: true };
+  }
+  // 规则 0.5：输入 URL 是已知一手账号/官方域，且 original 与之同 host（官方公告页/同账号 thread）
+  if (inputUrl && isFirstPartyUrl(inputUrl) && sameHost(origSrc.url, inputUrl)) {
+    return { ok: true };
+  }
+  // scrape 失败：原文为空，关键词比对必失败；只能信任规则 0 / 0.5
+  // 走到这里说明 agent 选了一个与输入 URL 不同源的 URL 作为 original，但我们没原文做交叉验证
+  if (scrapeFailed) {
+    return {
+      ok: false,
+      reason: `原文抓取失败，无法验证溯源：声明的 original ${origSrc.url} 与输入 URL 不同源。若输入 URL 本身就是一手（官方账号/官方域名），应直接将输入 URL 列为 original；否则 verdict=skip`,
+    };
+  }
+  // 规则 1：original 在预提取的链接里（原文直接提到）
   if (extractedUrls.some(u => u.toLowerCase() === origUrl)) return { ok: true };
 
   // 规则 2：original URL 的关键词至少有一个出现在 scrape 原文里
@@ -119,6 +175,13 @@ function buildTriagePrompt(): string {
 判断标准：
 - **一手来源**：作者本人发布的（论文作者、项目维护者、公司官方公告）
 - **二手转载**：转述/推广/评论他人成果的（推文介绍、博客搬运、新闻报道）
+
+**🛑 官方账号/官方域名硬规则（最优先）**：
+以下 URL 一律视为一手来源，**不要再去找"上游"**——它们本身就是发布方：
+- 官方 X 账号：@OpenAI、@AnthropicAI、@GoogleDeepMind、@Google、@AIatMeta、@MistralAI、@xAI、@Grok、@perplexity_ai、@cohere、@huggingface、@NVIDIA、@GroqInc、@togethercompute、@runwayml、@Midjourney、@StabilityAI、@elevenlabsio、@github、@cursor_ai、@vercel 等公司/产品官号
+- 官方域名：openai.com、anthropic.com、deepmind.google、blog.google、ai.meta.com、mistral.ai、x.ai、cohere.com、huggingface.co、github.com、arxiv.org 等
+- **处理方式**：直接把用户输入的 URL 列为 type="original"，基于推文/页面内容做分析；不要去 community.openai.com、reddit、博客转载等地方"找上游"——那些反而是二手
+- **典型反例**：输入是 \`x.com/OpenAI/status/...\`，却把 \`community.openai.com/t/...\` 当 original——这是把官方公告往论坛二手帖上拉，错
 
 **如果是二手转载：**
 1. 从原文提取**具体锚点**（按线索强度排序）：
@@ -425,7 +488,14 @@ ${entry.url}
 ## 抓取状态
 直接抓取失败。请先用 WebFetch 获取该 URL，失败则用 WebSearch 搜索相关内容。
 
-**最重要：先判断这是一手来源还是二手转载。如果是二手，立刻去找一手来源，基于一手来源做分析。**`
+## 溯源硬约束（原文抓取失败，无法做交叉校验，规则更严）
+- **官方账号/官方域名 = 一手来源**：如果输入 URL 来自 @OpenAI / @AnthropicAI / @GoogleDeepMind / @AIatMeta / @MistralAI / @xAI 等公司官号，或 openai.com / anthropic.com / deepmind.google / github.com / arxiv.org 等官方域名，**直接把输入 URL 列为 type="original"**，不要再去 community.openai.com、reddit、博客转载站找"上游"
+- **type="original" 必须满足以下其一**，否则一律 verdict=skip：
+  1. 等于用户输入的 URL（输入即一手）
+  2. 与用户输入 URL 同 host（同一官方账号/官方域下的更具体页面）
+- **不允许跨站推断 original**：例如输入是 x.com/OpenAI/...，却选 community.openai.com/... 当 original——这种会被强校验拦截
+
+**先判断这是一手来源还是二手转载。如果输入 URL 是官方账号/域名，按上面规则直接选输入 URL 当 original；否则去找一手来源；找不到就 verdict=skip，不要瞎猜。**`
       : isSecondaryPlatform
         ? `请分析这个链接：
 
@@ -592,7 +662,7 @@ ${urlsSection}
       }
 
       // 溯源一致性校验：声明的 original URL 必须和 scrape 原文有关联
-      const check = validateSourceConsistency(result, scrapeResult.content || '', extractedUrls);
+      const check = validateSourceConsistency(result, scrapeResult.content || '', extractedUrls, entry.url, scrapeFailed);
       if (check.ok) {
         entry.status = 'done';
       } else {
@@ -660,7 +730,7 @@ ${urlsSection}
           entry.verdictReason = retryResult.verdictReason;
           entry.relatedEntries = retryResult.relatedEntries || [];
 
-          const retryCheck = validateSourceConsistency(retryResult, scrapeResult.content || '', extractedUrls);
+          const retryCheck = validateSourceConsistency(retryResult, scrapeResult.content || '', extractedUrls, entry.url, scrapeFailed);
           if (retryCheck.ok) {
             entry.status = 'done';
             console.log(`[triage] ${entry.url} 重试成功`);

@@ -1,0 +1,62 @@
+{
+  "id": "24830aa7-6c76-4a92-8f44-129f96a829ae",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "input",
+      "state": "done",
+      "text": "",
+      "parent": null,
+      "branchIdx": 0,
+      "flowIdx": 0,
+      "x": 80,
+      "y": 80,
+      "w": 280,
+      "createdAt": "10:08:04",
+      "inputUrls": [],
+      "inputModel": "sonnet"
+    },
+    {
+      "id": "n2",
+      "type": "github",
+      "state": "done",
+      "text": "今日 GitHub 热榜",
+      "parent": null,
+      "branchIdx": 0,
+      "x": -320,
+      "y": 80,
+      "w": 280,
+      "h": 360,
+      "createdAt": "10:08:12",
+      "githubPayload": {
+        "items": [
+          {
+            "repo": "ComposioHQ/awesome-codex-skills",
+            "url": "https://github.com/ComposioHQ/awesome-codex-skills",
+            "category": "all"
+          },
+          {
+            "repo": "ruvnet/ruflo",
+            "url": "https://github.com/ruvnet/ruflo",
+            "category": "typescript"
+          },
+          {
+            "repo": "gitroomhq/postiz-app",
+            "url": "https://github.com/gitroomhq/postiz-app",
+            "category": "typescript"
+          },
+          {
+            "repo": "davila7/claude-code-templates",
+            "url": "https://github.com/davila7/claude-code-templates",
+            "category": "python"
+          }
+        ],
+        "fetchedAt": "2026-04-28T10:08:12.026821",
+        "date": "2026-04-28"
+      }
+    }
+  ],
+  "model": "sonnet",
+  "createdAt": "2026-04-28T02:08:04.953Z",
+  "updatedAt": "2026-04-28T02:08:12.122Z"
+}

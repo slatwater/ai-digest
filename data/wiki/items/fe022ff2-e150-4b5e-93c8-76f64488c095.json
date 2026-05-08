@@ -1,0 +1,25 @@
+{
+  "id": "fe022ff2-e150-4b5e-93c8-76f64488c095",
+  "name": "CloakBrowser：源码级反指纹检测 Chromium 浏览器",
+  "categoryId": "ai-工具与技能包",
+  "sections": [
+    {
+      "heading": "要点",
+      "content": "网站的反爬系统（比如 Cloudflare、reCAPTCHA）\n\nCloakBrowser 的解法\n\n不是在 JavaScript 层\"打补丁\"（那很容易被更底层的检测识破），而是直接改 Chromium 的 C++ 源码，打了 57 个补丁，让编译出来的浏览器二进制文件在这些底层指纹上和真实 Chrome 完全一致。\n\n结果就是：\n\n检测场景\t结果\n\nreCAPTCHA v3\t得分 0.9（真人水平）\n\nCloudflare Turnstile\t全部通过\n\n30 个检测站点\t30/30 通过\n\n对开发者意味着什么\n\n如果你已经有 Playwright / Puppeteer 项目，只改 3 行 import，业务代码一行不动，直接接入。本质上就是把\"容易被认出的浏览器\"换成\"伪装得极好的浏览器\"。"
+    }
+  ],
+  "sourceLinks": [
+    {
+      "url": "https://github.com/CloakHQ/CloakBrowser",
+      "title": "CloakBrowser：源码级反指纹检测 Chromium 浏览器",
+      "type": "original"
+    },
+    {
+      "url": "pipeline://6894604d-31f0-4167-82b7-a6478354e659",
+      "title": "深入追问 session · CloakBrowser：源码级反指纹检测 Chromium 浏览器",
+      "type": "related"
+    }
+  ],
+  "createdAt": "2026-05-08T16:52:32.701Z",
+  "updatedAt": "2026-05-08T16:52:32.701Z"
+}

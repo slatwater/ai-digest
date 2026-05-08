@@ -440,6 +440,25 @@ export async function saveTrending(payload: GithubTrendingPayload): Promise<void
   );
 }
 
+// 取早于 beforeDate 的最近一份 trending payload（跨日去重用）
+// 用「最近一份」而不是严格「昨天」：用户跳过几天没开 app 时，仍能跟上次看到的那份去重，
+// 而不是因为没有昨日缓存就把上次看过的项目又当新榜显示
+export async function getPreviousTrending(beforeDate: string): Promise<GithubTrendingPayload | null> {
+  try {
+    const files = await fs.readdir(TRENDING_DIR);
+    const dates = files
+      .filter(f => f.endsWith('.json'))
+      .map(f => f.slice(0, -5))
+      .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < beforeDate)
+      .sort();
+    const prev = dates[dates.length - 1];
+    if (!prev) return null;
+    return await getTrendingByDate(prev);
+  } catch {
+    return null;
+  }
+}
+
 export async function deletePipelineSession(id: string): Promise<boolean> {
   let index: PipelineSessionSummary[] = [];
   try { index = JSON.parse(await fs.readFile(PIPELINE_INDEX_PATH, 'utf-8')); } catch { return false; }

@@ -9,6 +9,7 @@ import {
   forwardRef,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {
@@ -19,6 +20,7 @@ import type {
   WikiSourceLink,
   GithubTrendingPayload,
   GithubTrendingCategory,
+  ExperimentExecutor,
 } from '@/lib/types';
 import type { usePipeline } from '@/hooks/usePipeline';
 
@@ -35,6 +37,89 @@ const NODE_H = 160;
 const COL_GAP = 64;      // 合并卡后续节点视觉左移单位
 const FLOW_Y_BASE = 80;  // 每条流 y baseline 起点
 const FLOW_ROW = 240;    // 每条流占据的纵向带宽（= NODE_H + 80）
+const BRANCH_STEP = 200; // 派生子树整体下移单位（= NODE_H + 40），与 hooks 里 BRANCH_DY 一致
+
+// 派生分支防重叠 pass：对历史节点的"派生子树"整体下移到无冲突位置（不动 X，仅改 effectiveY）
+// 输入坐标已经过 flowIdx 压缩；本 pass 在其上叠加 dy
+function applyBranchOverlapAvoidance(
+  nodes: PipelineNode[],
+  hiddenIds: Set<string>,
+  effectiveX: Map<string, number>,
+  effectiveY: Map<string, number>,
+): void {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  // 派生子树根：type=question 且 parent 是 question/answer（说明是从某个 Q/A 派生出来的分支）
+  const branchRoots: PipelineNode[] = [];
+  for (const n of nodes) {
+    if (n.type !== 'question' || !n.parent) continue;
+    const p = byId.get(n.parent);
+    if (p && (p.type === 'question' || p.type === 'answer')) branchRoots.push(n);
+  }
+  if (!branchRoots.length) return;
+  // 按当前 effectiveY 升序处理：靠上的先放，靠下的避让靠上的
+  branchRoots.sort((a, b) => (effectiveY.get(a.id) ?? 0) - (effectiveY.get(b.id) ?? 0));
+
+  const childrenBy = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (n.parent) {
+      const arr = childrenBy.get(n.parent) ?? [];
+      arr.push(n.id);
+      childrenBy.set(n.parent, arr);
+    }
+  }
+  const collectSubtree = (rootId: string): string[] => {
+    const out: string[] = [];
+    const stack = [rootId];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      out.push(cur);
+      for (const c of childrenBy.get(cur) ?? []) stack.push(c);
+    }
+    return out;
+  };
+
+  for (const root of branchRoots) {
+    const subtree = collectSubtree(root.id);
+    const subtreeSet = new Set(subtree);
+    const rectOf = (id: string, dy: number) => {
+      const n = byId.get(id)!;
+      return {
+        x: effectiveX.get(id) ?? n.x ?? 0,
+        y: (effectiveY.get(id) ?? n.y ?? 0) + dy,
+        w: n.w ?? NODE_W,
+        h: n.h ?? NODE_H,
+      };
+    };
+    const collides = (dy: number): boolean => {
+      for (const sid of subtree) {
+        if (hiddenIds.has(sid)) continue;
+        const a = rectOf(sid, dy);
+        for (const o of nodes) {
+          if (subtreeSet.has(o.id)) continue;
+          if (hiddenIds.has(o.id)) continue;
+          if (o.type === 'github') continue;
+          const ox = effectiveX.get(o.id) ?? o.x ?? 0;
+          const oy = effectiveY.get(o.id) ?? o.y ?? 0;
+          const ow = o.w ?? NODE_W, oh = o.h ?? NODE_H;
+          if (ox + ow > a.x && ox < a.x + a.w && oy + oh > a.y - 8 && oy < a.y + a.h + 8) return true;
+        }
+      }
+      return false;
+    };
+    if (!collides(0)) continue;
+    // 找最小 dy（向下平移）让冲突消失：步长 BRANCH_STEP，最多 12 步（≈ 2400px 兜底）
+    let chosen = 0;
+    for (let step = 1; step <= 12; step++) {
+      const dy = step * BRANCH_STEP;
+      if (!collides(dy)) { chosen = dy; break; }
+    }
+    if (chosen > 0) {
+      for (const sid of subtree) {
+        effectiveY.set(sid, (effectiveY.get(sid) ?? byId.get(sid)?.y ?? 0) + chosen);
+      }
+    }
+  }
+}
 
 // ReactMarkdown 组件覆写：所有 <a> 都新开标签页
 const MD_COMPONENTS = {
@@ -42,6 +127,155 @@ const MD_COMPONENTS = {
     <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
   ),
 };
+
+/* ──────────────────────────────────────────────────────────
+   ExperimentStartButton — answer 卡上的「❦ 实验」按钮
+   点击弹出 popover：复选执行者（coze 云平台 / claude 本地）后才创建实验节点
+   默认两个都勾，至少要勾一个
+   ────────────────────────────────────────────────────────── */
+function ExperimentStartButton({
+  hovering,
+  selected,
+  onConfirm,
+}: {
+  hovering: boolean;
+  selected: boolean;
+  onConfirm: (executors: ExperimentExecutor[]) => void;
+}) {
+  // popover 走 fixed 定位 + portal-like：脱离父卡片的 overflow:hidden 裁剪
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [picked, setPicked] = useState<Set<ExperimentExecutor>>(
+    () => new Set<ExperimentExecutor>(['coze', 'claude']),
+  );
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || popRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const handleToggle = () => {
+    if (open) { setOpen(false); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    setOpen(true);
+  };
+
+  const toggle = (k: ExperimentExecutor) => {
+    setPicked(prev => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+
+  const labelOf = (k: ExperimentExecutor) => k === 'coze' ? 'Coze 云平台' : 'Claude 本地';
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={e => { e.stopPropagation(); handleToggle(); }}
+        onMouseDown={e => e.stopPropagation()}
+        className="mono"
+        title="选择执行者并以此回答为起点开启实验节点"
+        style={{
+          fontSize: 9,
+          color: 'var(--teal)',
+          border: '1px solid var(--teal)',
+          padding: '2px 6px',
+          letterSpacing: 0.3,
+          opacity: hovering || selected || open ? 1 : 0.55,
+          transition: 'opacity 0.15s',
+          background: 'transparent',
+          cursor: 'pointer',
+        }}
+      >
+        ❦ 实验
+      </button>
+      {open && pos && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={popRef}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+          onDoubleClick={e => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            right: pos.right,
+            zIndex: 99999,
+            background: '#1c1812',
+            border: '1px solid #5fb3a8',
+            padding: '8px 10px',
+            fontSize: 11,
+            minWidth: 184,
+            boxShadow: '0 6px 18px rgba(0,0,0,0.6)',
+            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+            color: '#f4ede0',
+          }}
+        >
+          <div style={{ color: '#8a7f6d', marginBottom: 6, letterSpacing: 0.4, fontSize: 10 }}>
+            选择执行者（多选）
+          </div>
+          {(['coze', 'claude'] as ExperimentExecutor[]).map(k => (
+            <label
+              key={k}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 0',
+                cursor: 'pointer',
+                color: '#e6dec8',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={picked.has(k)}
+                onChange={() => toggle(k)}
+                style={{ accentColor: '#5fb3a8', cursor: 'pointer' }}
+              />
+              {labelOf(k)}
+            </label>
+          ))}
+          <button
+            disabled={picked.size === 0}
+            onClick={() => {
+              const arr = (['coze', 'claude'] as ExperimentExecutor[]).filter(k => picked.has(k));
+              setOpen(false);
+              onConfirm(arr);
+            }}
+            style={{
+              marginTop: 8,
+              width: '100%',
+              padding: '5px 0',
+              fontSize: 11,
+              color: '#14110d',
+              background: '#5fb3a8',
+              border: 'none',
+              cursor: picked.size === 0 ? 'not-allowed' : 'pointer',
+              opacity: picked.size === 0 ? 0.45 : 1,
+              letterSpacing: 0.4,
+              fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+              fontWeight: 600,
+            }}
+          >
+            开始实验
+          </button>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 function validUrl(u: string): boolean {
   const t = u.trim();
@@ -569,7 +803,7 @@ const Canvas = forwardRef<CanvasHandle, {
   onOpen: (nodeId: string) => void;
   onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
   onSubmitFromGithub: (urls: string[]) => void;
-  onStartExperiment: (answerNodeId: string) => void;
+  onStartExperiment: (answerNodeId: string, executors: ExperimentExecutor[]) => void;
   onDelete: (nodeId: string) => void;
   onViewChange?: (view: CanvasView, rect: CanvasRect) => void;
 }>(function Canvas({
@@ -725,7 +959,7 @@ const Canvas = forwardRef<CanvasHandle, {
     return result;
   }, [nodes, hiddenIds]);
 
-  // 删除中间流后上移下方：按存活 flowIdx 压缩到连续行号
+  // 删除中间流后上移下方 + 防 flow 间重叠：按 flow 实际 bbox 累积排列
   // q/a 节点历史数据可能没设 flowIdx，沿 parent 链回溯继承祖先 flowIdx，
   // 否则会被当作 0 与父节点错行
   const effectiveY = useMemo(() => {
@@ -740,17 +974,39 @@ const Canvas = forwardRef<CanvasHandle, {
       return 0;
     };
     const flowOf = new Map(nodes.map(n => [n.id, resolveFlowIdx(n)]));
-    const flowIdxs = Array.from(new Set(flowOf.values())).sort((a, b) => a - b);
-    const shiftByFlow = new Map<number, number>();
-    flowIdxs.forEach((fi, newRow) => {
-      shiftByFlow.set(fi, (newRow - fi) * FLOW_ROW);
-    });
+
+    // 算每个 flow 的实际 [minY, maxBottom]，github 不参与流堆叠
+    const flowBounds = new Map<number, { min: number; max: number }>();
     for (const n of nodes) {
-      const dy = shiftByFlow.get(flowOf.get(n.id) ?? 0) ?? 0;
+      if (n.type === 'github') continue;
+      const fi = flowOf.get(n.id) ?? 0;
+      const top = n.y ?? FLOW_Y_BASE;
+      const bot = top + (n.h ?? NODE_H);
+      const cur = flowBounds.get(fi);
+      if (!cur) flowBounds.set(fi, { min: top, max: bot });
+      else flowBounds.set(fi, { min: Math.min(cur.min, top), max: Math.max(cur.max, bot) });
+    }
+    // 按 flowIdx 升序累积排列：每个 flow 起点紧贴前一 flow 底部 + 80px gap
+    const flowIdxs = Array.from(flowBounds.keys()).sort((a, b) => a - b);
+    const FLOW_GAP = FLOW_ROW - NODE_H; // 80
+    const dyByFlow = new Map<number, number>();
+    let cursor = FLOW_Y_BASE;
+    for (const fi of flowIdxs) {
+      const b = flowBounds.get(fi)!;
+      dyByFlow.set(fi, cursor - b.min);
+      cursor += (b.max - b.min) + FLOW_GAP;
+    }
+    for (const n of nodes) {
+      if (n.type === 'github') {
+        result.set(n.id, n.y ?? FLOW_Y_BASE);
+        continue;
+      }
+      const dy = dyByFlow.get(flowOf.get(n.id) ?? 0) ?? 0;
       result.set(n.id, (n.y ?? FLOW_Y_BASE) + dy);
     }
+    applyBranchOverlapAvoidance(nodes, hiddenIds, effectiveX, result);
     return result;
-  }, [nodes]);
+  }, [nodes, hiddenIds, effectiveX]);
 
   const getX = (n: PipelineNode) => effectiveX.get(n.id) ?? (n.x ?? 0);
   const getY = (n: PipelineNode) => effectiveY.get(n.id) ?? (n.y ?? 0);
@@ -1387,8 +1643,7 @@ function Minimap({
     };
     for (const r of nodes.filter(n => !n.parent)) visit(r.id, 0);
 
-    // y 压紧：按存活 flowIdx 连续编号，让中间流被删后下方自动上移
-    // q/a 历史数据可能没 flowIdx，沿 parent 回溯继承祖先 flowIdx
+    // y 压紧：按 flow 实际 bbox 累积排列（防多 parse 流之间重叠）
     const yMap = new Map<string, number>();
     const resolveFlowIdx = (n: PipelineNode): number => {
       let cur: PipelineNode | undefined = n;
@@ -1399,15 +1654,34 @@ function Minimap({
       return 0;
     };
     const flowOf = new Map(nodes.map(n => [n.id, resolveFlowIdx(n)]));
-    const flowIdxs = Array.from(new Set(flowOf.values())).sort((a, b) => a - b);
-    const shiftByFlow = new Map<number, number>();
-    flowIdxs.forEach((fi, newRow) => {
-      shiftByFlow.set(fi, (newRow - fi) * FLOW_ROW);
-    });
+    const flowBounds = new Map<number, { min: number; max: number }>();
     for (const n of nodes) {
-      const dy = shiftByFlow.get(flowOf.get(n.id) ?? 0) ?? 0;
+      if (n.type === 'github') continue;
+      const fi = flowOf.get(n.id) ?? 0;
+      const top = n.y ?? FLOW_Y_BASE;
+      const bot = top + (n.h ?? NODE_H);
+      const cur = flowBounds.get(fi);
+      if (!cur) flowBounds.set(fi, { min: top, max: bot });
+      else flowBounds.set(fi, { min: Math.min(cur.min, top), max: Math.max(cur.max, bot) });
+    }
+    const flowIdxs = Array.from(flowBounds.keys()).sort((a, b) => a - b);
+    const FLOW_GAP = FLOW_ROW - NODE_H;
+    const dyByFlow = new Map<number, number>();
+    let cursor = FLOW_Y_BASE;
+    for (const fi of flowIdxs) {
+      const b = flowBounds.get(fi)!;
+      dyByFlow.set(fi, cursor - b.min);
+      cursor += (b.max - b.min) + FLOW_GAP;
+    }
+    for (const n of nodes) {
+      if (n.type === 'github') {
+        yMap.set(n.id, n.y ?? FLOW_Y_BASE);
+        continue;
+      }
+      const dy = dyByFlow.get(flowOf.get(n.id) ?? 0) ?? 0;
       yMap.set(n.id, (n.y ?? FLOW_Y_BASE) + dy);
     }
+    applyBranchOverlapAvoidance(nodes, h, xMap, yMap);
 
     return { mergedByQId: m, hiddenIds: h, effectiveX: xMap, effectiveY: yMap };
   }, [nodes]);
@@ -1820,7 +2094,7 @@ function CanvasNode({
   onOpen: () => void;
   onSubmitInput: (nodeId: string, urls: string[], opts?: { direct?: boolean; texts?: Record<string, string> }) => void;
   onSubmitFromGithub: (urls: string[]) => void;
-  onStartExperiment: (answerNodeId: string) => void;
+  onStartExperiment: (answerNodeId: string, executors: ExperimentExecutor[]) => void;
   onContextMenu: (x: number, y: number) => void;
 }) {
   const [hovering, setHovering] = useState(false);
@@ -2292,25 +2566,11 @@ function CanvasNode({
         )}
         <span style={{ flex: 1 }} />
         {isAnswer && node.state === 'done' && (
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onStartExperiment(node.id);
-            }}
-            className="mono"
-            title="以此回答为起点开启实验节点"
-            style={{
-              fontSize: 9,
-              color: 'var(--teal)',
-              border: '1px solid var(--teal)',
-              padding: '2px 6px',
-              letterSpacing: 0.3,
-              opacity: hovering || selected ? 1 : 0.55,
-              transition: 'opacity 0.15s',
-            }}
-          >
-            ❦ 实验
-          </button>
+          <ExperimentStartButton
+            hovering={hovering}
+            selected={selected}
+            onConfirm={execs => onStartExperiment(node.id, execs)}
+          />
         )}
         <span
           className="mono"
@@ -2351,7 +2611,7 @@ function MergedQACard({
   toolStatus: string | null;
   onSelect: () => void;
   onOpen: () => void;
-  onStartExperiment: (answerNodeId: string) => void;
+  onStartExperiment: (answerNodeId: string, executors: ExperimentExecutor[]) => void;
   onContextMenu: (x: number, y: number) => void;
 }) {
   const [hovering, setHovering] = useState(false);
@@ -2587,25 +2847,11 @@ function MergedQACard({
         )}
         <span style={{ flex: 1 }} />
         {answer.state === 'done' && (
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onStartExperiment(answer.id);
-            }}
-            className="mono"
-            title="以此回答为起点开启实验节点"
-            style={{
-              fontSize: 9,
-              color: 'var(--teal)',
-              border: '1px solid var(--teal)',
-              padding: '2px 6px',
-              letterSpacing: 0.3,
-              opacity: hovering || selected ? 1 : 0.55,
-              transition: 'opacity 0.15s',
-            }}
-          >
-            ❦ 实验
-          </button>
+          <ExperimentStartButton
+            hovering={hovering}
+            selected={selected}
+            onConfirm={execs => onStartExperiment(answer.id, execs)}
+          />
         )}
         <span
           className="mono"
@@ -2654,6 +2900,20 @@ function GithubNodeBody({
       style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}
     >
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {payload.items.length === 0 && (
+          <div
+            className="mono"
+            style={{
+              fontSize: 10,
+              color: 'var(--ink3)',
+              padding: '12px 4px',
+              lineHeight: 1.6,
+              textAlign: 'center',
+            }}
+          >
+            今日榜单与昨日完全重合<br />无新增项目
+          </div>
+        )}
         {groups.map(g => {
           const items = payload.items.filter(i => i.category === g.key);
           if (items.length === 0) return null;
@@ -3715,8 +3975,8 @@ export function PipelineView({ pipeline, onExit }: Props) {
             onOpen={nodeId => openSheet(nodeId)}
             onSubmitInput={(id, urls, opts) => pipeline.submitInput(id, urls, undefined, opts)}
             onSubmitFromGithub={(urls) => pipeline.submitFromGithub(urls)}
-            onStartExperiment={async (answerId: string) => {
-              const newId = await pipeline.startExperiment(answerId);
+            onStartExperiment={async (answerId, executors) => {
+              const newId = await pipeline.startExperiment(answerId, executors);
               if (newId) {
                 setSelectedNode(newId);
                 setExperimentTarget(newId);
@@ -4515,6 +4775,25 @@ function ExperimentSheet({
               {payload.resolvedModel}
             </span>
           )}
+          {(() => {
+            const execs = payload.executors ?? ['coze'];
+            const labels = execs.map(e => e === 'coze' ? 'coze' : 'claude');
+            return (
+              <span
+                className="mono"
+                title="本节点启动时勾选的执行者"
+                style={{
+                  fontSize: 12,
+                  color: 'var(--teal)',
+                  border: '1px solid var(--teal)',
+                  padding: '1px 6px',
+                  letterSpacing: 0.4,
+                }}
+              >
+                ▸ {labels.join(' + ')}
+              </span>
+            );
+          })()}
           <span style={{ flex: 1 }} />
           {lastAssistant && (
             <button
@@ -4595,12 +4874,22 @@ function ExperimentSheet({
             padding: '11px 18px',
           }}
         >
-          {payload.messages.length === 0 && !isStreamingHere && (
-            <div className="mono" style={{ color: 'var(--ink3)', fontSize: 16, lineHeight: 1.8, letterSpacing: 0.3 }}>
-              从这段结论出发，提一个要验证的问题开始对话。<br />
-              agent 会按需调 coze CLI 实际跑一下。
-            </div>
-          )}
+          {payload.messages.length === 0 && !isStreamingHere && (() => {
+            const execs = payload.executors ?? ['coze'];
+            const hasCoze = execs.includes('coze');
+            const hasClaude = execs.includes('claude');
+            const hint = hasCoze && hasClaude
+              ? 'agent 会按需调 coze CLI 或在本地沙盒里直跑（按场景选）。'
+              : hasClaude
+                ? 'agent 会在本地沙盒里写脚本/prompt 自己跑（不调 coze）。'
+                : 'agent 会按需调 coze CLI 实际跑一下。';
+            return (
+              <div className="mono" style={{ color: 'var(--ink3)', fontSize: 16, lineHeight: 1.8, letterSpacing: 0.3 }}>
+                从这段结论出发，提一个要验证的问题开始对话。<br />
+                {hint}
+              </div>
+            );
+          })()}
           {payload.messages.map((m, i) => (
             <div key={i} style={{ marginBottom: 18 }}>
               {m.role === 'user' ? (

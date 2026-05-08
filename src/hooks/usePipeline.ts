@@ -10,6 +10,7 @@ import type {
   TriageModel,
   TriageBatch,
   ExperimentNodePayload,
+  ExperimentExecutor,
   ExperimentToolTrace,
   ChatMessage,
   CozeRun,
@@ -52,14 +53,32 @@ function nextNodeId(session: PipelineSession): string {
 }
 
 // 计算下一条流的 y 起点
+// 按主干所有非 github 节点的实际 bottom 对齐到 FLOW_ROW 网格的下一行：
+// 多 parse 流（如 3 个 URL）实际占用 NODE_H + 2*(NODE_H+ROW_GAP) = 560px，
+// 远超 FLOW_ROW(240)，仅按 flowIdx 递增会让新流插在老流肚子里造成重叠。
+// 保留 flowIdx = y/FLOW_ROW 的强耦合关系（删除流后 effectiveY 压缩仍正确），
+// 但允许 flowIdx 跳号以预留多卡所需空间。
+// github 节点位于左侧负坐标固定槽，不参与主干流堆叠，排除。
 function nextFlowY(session: PipelineSession): number {
-  const flowIdxs = session.nodes
-    .map(n => n.flowIdx ?? 0)
-    .reduce((max, v) => Math.max(max, v), -1);
-  return FLOW_Y_BASE + (flowIdxs + 1) * FLOW_ROW;
+  let hasContent = false;
+  let maxBottom = FLOW_Y_BASE;
+  for (const n of session.nodes) {
+    if (n.type === 'github') continue;
+    hasContent = true;
+    const top = n.y ?? FLOW_Y_BASE;
+    const h = n.h ?? NODE_H;
+    if (top + h > maxBottom) maxBottom = top + h;
+  }
+  if (!hasContent) return FLOW_Y_BASE;
+  // floor+1 而不是 ceil：内容恰好落在网格线上时（maxBottom = FLOW_Y_BASE + k*FLOW_ROW）
+  // 仍向下推一格，避免新流 y 与已有节点 bottom 完全相等造成 0 间隔
+  const rowsNeeded = Math.floor((maxBottom - FLOW_Y_BASE) / FLOW_ROW) + 1;
+  return FLOW_Y_BASE + rowsNeeded * FLOW_ROW;
 }
 
 // Q/A 追问节点：挂在父节点右侧
+// 派生分支(isBranch)：先试 BRANCH_DY 上下交错；若与 [qx, ax+NODE_W] x [y, y+NODE_H] 区域内的非自身子树节点重叠，
+//   逐级加大偏移倍数（±1, ±2, …），仍冲突则降级到 nextFlowY() 推到全新 flow 行（远离主区，不可能撞）
 function computeAskPositions(
   session: PipelineSession,
   parentId: string | null,
@@ -75,14 +94,49 @@ function computeAskPositions(
   }
   const parentX = parent.x ?? TRUNK_X;
   const parentY = parent.y ?? FLOW_Y_BASE;
-  let baseY = parentY;
-  if (isBranch) {
-    const siblings = session.nodes.filter(n => n.parent === parentId);
-    const dir = siblings.length % 2 === 0 ? -1 : 1;
-    baseY = parentY + BRANCH_DY * Math.ceil((siblings.length + 1) / 2) * dir;
-  }
   const qx = parentX + NODE_W + COL_GAP;
   const ax = qx + NODE_W + COL_GAP;
+
+  let baseY = parentY;
+  if (isBranch) {
+    // 派生分支已有的兄弟数：决定下一次落子的"层级"（1=±BRANCH_DY，2=±2BRANCH_DY …）
+    const existingBranches = session.nodes.filter(n => n.parent === parentId && n.type === 'question').length;
+    // 收集"自身派生子树"id（这些不算冲突——派生 q/a 自己就在该位置）
+    const ownSubtree = new Set<string>();
+    {
+      const stack = [parentId!];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        ownSubtree.add(cur);
+        for (const n of session.nodes) if (n.parent === cur) stack.push(n.id);
+      }
+    }
+    // 候选区间是否与其它节点冲突
+    const collides = (y: number) => {
+      const yTop = y - 8, yBot = y + NODE_H + 8;
+      const xLeft = qx, xRight = ax + NODE_W;
+      for (const n of session.nodes) {
+        if (ownSubtree.has(n.id)) continue;
+        if (n.type === 'github') continue; // github 在负坐标槽位，必不冲突
+        const nx = n.x ?? 0, ny = n.y ?? 0;
+        const nw = n.w ?? NODE_W, nh = n.h ?? NODE_H;
+        if (nx + nw > xLeft && nx < xRight && ny + nh > yTop && ny < yBot) return true;
+      }
+      return false;
+    };
+    // 优先级：±1, ±2, …（dir 跟原逻辑一致：偶数次向上、奇数次向下）
+    let placed = false;
+    for (let level = 1; level <= 6 && !placed; level++) {
+      for (const dir of (existingBranches % 2 === 0 ? [-1, 1] : [1, -1])) {
+        const cand = parentY + BRANCH_DY * level * dir;
+        if (cand < FLOW_Y_BASE - BRANCH_DY * 3) continue; // 别飘出画布顶
+        if (!collides(cand)) { baseY = cand; placed = true; break; }
+      }
+    }
+    // 全冲突 → 推到新 flow 行（保底不重叠）
+    if (!placed) baseY = nextFlowY(session);
+  }
+
   return {
     questionPos: { x: qx, y: baseY, w: NODE_W },
     answerPos: { x: ax, y: baseY, w: NODE_W },
@@ -759,12 +813,16 @@ export function usePipeline() {
 
   // ── 实验节点：挂在 answer 节点右侧 ──
   // 素材只取 answer 文本，不再选 Wiki；节点内对话封闭，不展开成 Q/A
-  const startExperiment = useCallback(async (answerNodeId: string): Promise<string | null> => {
+  // executors：用户在按钮 popover 里勾选的执行者；缺省 ['coze'] 兼容老调用
+  const startExperiment = useCallback(async (
+    answerNodeId: string,
+    executors: ExperimentExecutor[] = ['coze'],
+  ): Promise<string | null> => {
     const current = sessionRef.current;
     if (!current) return null;
     const answer = current.nodes.find(n => n.id === answerNodeId);
     if (!answer || answer.type !== 'answer') return null;
-    // 同一 answer 已起过实验：复用
+    // 同一 answer 已起过实验：复用（保留原 executors，不被覆盖）
     const existing = current.nodes.find(n => n.parent === answerNodeId && n.type === 'experiment');
     if (existing) return existing.id;
 
@@ -778,6 +836,7 @@ export function usePipeline() {
       messages: [],
       cozeRuns: [],
       toolTraces: [],
+      executors: executors.length ? executors : ['coze'],
     };
     const parseX = (answer.x ?? TRUNK_X) + NODE_W + COL_GAP;
     const parseY = answer.y ?? FLOW_Y_BASE;
@@ -894,6 +953,7 @@ export function usePipeline() {
           history,
           sessionId: startSessionId,
           model: runModel,
+          executors: node.experimentPayload.executors ?? ['coze'],
         }),
         signal: abort.signal,
       });
